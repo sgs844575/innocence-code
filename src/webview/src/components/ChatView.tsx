@@ -32,17 +32,26 @@ export function ChatView({
   onSend,
   onStop,
 }: Props): React.JSX.Element {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 贴底策略：距底 <48px 视为贴底；用户上滚即暂停自动滚动，回到底部才恢复。
+  const [pinned, setPinned] = useState(true);
   // 引用通道：操作栏「引用」把文本塞进 Composer，Composer 消费后回调清空。
   const [quoteDraft, setQuoteDraft] = useState("");
 
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 48);
+  };
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+    if (pinned) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, pinned]);
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="scrollbar-thin flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={onScroll} className="scrollbar-thin flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-[clamp(12px,3vw,24px)] pb-6">
           {messages.length === 0 ? (
             <EmptyState t={t} appName={appName} onPick={onSend} />

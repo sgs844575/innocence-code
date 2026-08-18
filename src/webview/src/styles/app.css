@@ -86,6 +86,28 @@
     }
   }
 
+  /* Live thinking preview: a light band sweeping across the text
+     (ThinkingBlock live header). */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      var(--color-app-muted) 40%,
+      var(--color-app-text) 50%,
+      var(--color-app-muted) 60%
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: shimmer-sweep 1.6s linear infinite;
+  }
+
+  @keyframes shimmer-sweep {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
   /* Narrow-window sidebar drawer + scrim entrance. */
   @keyframes drawer-in {
     from {
@@ -145,7 +167,8 @@
   @media (prefers-reduced-motion: reduce) {
     .drawer-in,
     .fade-in,
-    .toast-in {
+    .toast-in,
+    .shimmer {
       animation: none;
     }
   }
