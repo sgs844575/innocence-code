@@ -20,14 +20,16 @@ export function setTheme(next: ThemeMode): void {
 // Windows caption-button overlay colors — kept in lockstep with the
 // --color-app-bg token in app.css: the title bar is a transparent strip over
 // the shell background, so the native buttons must paint the same tone.
+// symbolColor 取 --color-app-muted：与标题栏其他图标（折叠/通知）同色调，
+// 控制按钮不再比相邻图标亮一截；hover 态由系统自带。
 export function titleBarOverlayFor(resolved: "dark" | "light"): {
   color: string;
   symbolColor: string;
   height: number;
 } {
   return resolved === "dark"
-    ? { color: "#0f0f13", symbolColor: "#e6e6ea", height: 36 }
-    : { color: "#f7f7f9", symbolColor: "#1a1a1e", height: 36 };
+    ? { color: "#0f0f13", symbolColor: "#8e8e98", height: 36 }
+    : { color: "#f7f7f9", symbolColor: "#6b6b76", height: 36 };
 }
 
 export function broadcastTheme(win: BrowserWindow): void {

@@ -20,6 +20,8 @@ export async function createMainWindow(): Promise<BrowserWindow> {
   // Match the window chrome to whatever theme is active right now, so the
   // Windows caption-button overlay never mismatches the custom title bar
   // (it previously stayed hardcoded dark and clashed with the light theme).
+  // backgroundColor 必须与 --color-app-bg 完全同值：DPI 缩放下 overlay 绘制
+  // 边界与网页 36px 各自取整，偶现的 1px 缝会透出窗口底色——同值则不可见。
   const resolved = getTheme().resolved;
 
   const win = new BrowserWindow({
@@ -28,7 +30,7 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     minWidth: 760,
     minHeight: 520,
     show: false,
-    backgroundColor: resolved === "dark" ? "#0d0d0f" : "#f7f7f8",
+    backgroundColor: resolved === "dark" ? "#0f0f13" : "#f7f7f9",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     titleBarOverlay: process.platform === "win32" ? titleBarOverlayFor(resolved) : undefined,
     webPreferences: {
