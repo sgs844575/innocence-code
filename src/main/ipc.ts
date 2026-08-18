@@ -17,6 +17,7 @@ import type { HarnessSettings } from "@innocencecode/harness-electron";
 import { getMainWindow } from "./appWindow";
 import { popupMenu } from "./menu";
 import { logger } from "./logger";
+import { broadcastSessions } from "./sessionEvents";
 
 export function registerIpcHandlers(): void {
   const needWindow = () => {
@@ -38,10 +39,15 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(IPC.sessionsList, () => sessions.listSessions());
-  ipcMain.handle(IPC.sessionCreate, (_e, title?: string) => sessions.createSession(title));
+  ipcMain.handle(IPC.sessionCreate, (_e, title?: string) => {
+    const session = sessions.createSession(title);
+    broadcastSessions();
+    return session;
+  });
   ipcMain.handle(IPC.sessionDelete, (_e, id: string) => {
     disposeSession(id);
     sessions.deleteSession(id);
+    broadcastSessions();
   });
   ipcMain.handle(IPC.messagesList, (_e, sessionId: string) => sessions.listMessages(sessionId));
 
@@ -55,6 +61,9 @@ export function registerIpcHandlers(): void {
       content: trimmed,
       createdAt: Date.now(),
     });
+    // First user message retitles + reorders the session — push immediately so
+    // the sidebar shows it before the stream completes.
+    broadcastSessions();
     const messageId = sendChatTurn(sessionId, trimmed);
     logger.info("chat:send", { sessionId, messageId });
     return { messageId };

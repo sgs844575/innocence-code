@@ -77,8 +77,24 @@ describe("mergeSettings", () => {
       activeModel: "y",
       workspaceRoot: "D:/x",
       permissionMode: "auto" as const,
+      themeMode: "dark" as const,
+      locale: "zh-CN" as const,
     };
     expect(mergeSettings(input)).toEqual(input);
+  });
+
+  it("normalizes ui prefs: invalid themeMode/locale fall back to system defaults", () => {
+    const s = mergeSettings({
+      profiles: [],
+      themeMode: "neon",
+      locale: "fr-FR",
+    });
+    expect(s.themeMode).toBe("system");
+    expect(s.locale).toBe("");
+    expect(mergeSettings({ profiles: [], themeMode: "light", locale: "en-US" })).toMatchObject({
+      themeMode: "light",
+      locale: "en-US",
+    });
   });
 });
 

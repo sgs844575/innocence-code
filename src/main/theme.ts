@@ -18,16 +18,16 @@ export function setTheme(next: ThemeMode): void {
 }
 
 // Windows caption-button overlay colors — kept in lockstep with the
-// --color-app-panel / --color-app-text tokens in app.css so the native
-// minimize/maximize/close buttons never clash with the custom title bar.
+// --color-app-bg token in app.css: the title bar is a transparent strip over
+// the shell background, so the native buttons must paint the same tone.
 export function titleBarOverlayFor(resolved: "dark" | "light"): {
   color: string;
   symbolColor: string;
   height: number;
 } {
   return resolved === "dark"
-    ? { color: "#141417", symbolColor: "#e6e6ea", height: 36 }
-    : { color: "#ffffff", symbolColor: "#1a1a1e", height: 36 };
+    ? { color: "#0f0f13", symbolColor: "#e6e6ea", height: 36 }
+    : { color: "#f7f7f9", symbolColor: "#1a1a1e", height: 36 };
 }
 
 export function broadcastTheme(win: BrowserWindow): void {

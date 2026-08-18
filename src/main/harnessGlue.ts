@@ -13,7 +13,9 @@ import {
 import { IPC, type ChatPermissionEvent, type PermissionChoice } from "../shared/ipc";
 import * as sessions from "./sessions";
 import { getMainWindow } from "./appWindow";
+import { broadcastTheme, setTheme } from "./theme";
 import { logger } from "./logger";
+import { broadcastSessions } from "./sessionEvents";
 
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -79,7 +81,9 @@ const runtime = new HarnessRuntime({
   },
 });
 
-/** Loads persisted settings; call once at app start (idempotent). */
+/** Loads persisted settings; call once at app start (idempotent). Runs
+ *  before the window exists, so applying the theme needs no broadcast —
+ *  the renderer pulls the resolved theme on load. */
 export async function initHarness(): Promise<void> {
   try {
     const raw = JSON.parse(await fs.readFile(settingsFile(), "utf8"));
@@ -87,6 +91,7 @@ export async function initHarness(): Promise<void> {
   } catch {
     settings = DEFAULT_SETTINGS;
   }
+  setTheme(settings.themeMode ?? "system");
   logger.info("harness initialized", { activeProfile: settings.activeProfileId });
 }
 
@@ -95,7 +100,16 @@ export function getHarnessSettings(): PkgSettings {
 }
 
 export async function setHarnessSettings(next: PkgSettings): Promise<void> {
+  const prevTheme = settings.themeMode ?? "system";
   settings = mergeSettings(next);
+  // Theme lives in the settings file now — apply + broadcast when it changes
+  // so the appearance page is the single control surface.
+  const nextTheme = settings.themeMode ?? "system";
+  if (nextTheme !== prevTheme) {
+    setTheme(nextTheme);
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) broadcastTheme(win);
+  }
   await fs.writeFile(settingsFile(), JSON.stringify(settings, null, 2), "utf8");
 }
 
@@ -132,6 +146,7 @@ export function sendChatTurn(sessionId: string, text: string): string {
     createdAt: Date.now(),
     streaming: true,
   });
+  broadcastSessions();
   void runtime.send(sessionId, text, id);
   return id;
 }

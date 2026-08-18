@@ -45,7 +45,7 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
   }, [sessions, query]);
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col bg-(--color-app-panel)">
+    <aside className="flex h-full w-full flex-col overflow-hidden">
       <div className="flex items-center gap-1 px-3 pt-3 pb-2">
         <span className="text-[15px] font-semibold">{appName}</span>
         <ChevronDown size={14} className="text-(--color-app-muted)" />
@@ -53,14 +53,14 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
         <button
           type="button"
           aria-label={t("sidebar.search")}
-          className="grid size-7 place-items-center rounded-md text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+          className="grid size-7 place-items-center rounded-full text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
         >
           <Search size={15} />
         </button>
         <button
           type="button"
           title={t("sidebar.noNotifications")}
-          className="grid size-7 place-items-center rounded-md text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+          className="grid size-7 place-items-center rounded-full text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
         >
           <Bell size={15} />
         </button>
@@ -73,7 +73,7 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
             type="button"
             onClick={i === 0 ? onNew : undefined}
             title={i === 0 ? undefined : t("sidebar.comingSoon")}
-            className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-(--color-app-text) hover:bg-(--color-app-bubble)"
+            className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 text-left text-sm text-(--color-app-text) hover:bg-(--color-app-bubble)"
           >
             <Icon size={16} className="text-(--color-app-muted)" />
             {t(key)}
@@ -86,21 +86,21 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("sidebar.filter")}
-          className="mb-2 w-full rounded-md border border-transparent bg-(--color-app-bubble) px-2 py-1 text-xs outline-none placeholder:text-(--color-app-muted) focus:border-(--color-app-accent)"
+          className="mb-2 w-full rounded-full border border-transparent bg-(--color-app-bubble) px-3.5 py-1.5 text-xs outline-none placeholder:text-(--color-app-muted) focus:border-(--color-app-accent)"
         />
 
         <section>
           <button
             type="button"
             onClick={() => setProjectOpen((v) => !v)}
-            className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-sm font-medium hover:bg-(--color-app-bubble)"
+            className="flex w-full items-center gap-1.5 rounded-xl px-2 py-1.5 text-left text-sm font-medium hover:bg-(--color-app-bubble)"
           >
             <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-app-muted)">
               {t("sidebar.projects")}
             </span>
           </button>
           <div className="ml-1">
-            <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm">
+            <div className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm">
               {projectOpen ? (
                 <FolderOpen size={15} className="shrink-0 text-(--color-app-muted)" />
               ) : (
@@ -122,7 +122,7 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
         </section>
       </div>
 
-      <footer className="flex items-center justify-between border-t border-(--color-app-border) px-3 py-2.5">
+      <footer className="flex items-center justify-between border-t border-(--color-app-hairline) px-3 py-2.5">
         <span className="rounded-full bg-(--color-app-bubble) px-2.5 py-1 text-[11px] font-semibold tracking-wide">
           {t("sidebar.localMode")}
         </span>
@@ -130,7 +130,7 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
           type="button"
           onClick={onOpenSettings}
           aria-label={t("sidebar.settings")}
-          className="grid size-7 place-items-center rounded-md text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+          className="grid size-7 place-items-center rounded-full text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
         >
           <Settings size={15} />
         </button>
@@ -158,8 +158,10 @@ function SessionRow({
         type="button"
         onClick={() => onSelect(session.id)}
         title={session.title}
-        className={`w-full truncate rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
-          active ? "bg-(--color-app-bubble)" : "hover:bg-(--color-app-bubble)"
+        className={`w-full truncate rounded-xl px-2 py-1.5 text-left text-sm transition-colors ${
+          active
+            ? "bg-(--color-app-accent-soft) font-medium text-(--color-app-accent)"
+            : "hover:bg-(--color-app-bubble)"
         }`}
       >
         {session.title}

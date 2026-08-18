@@ -4,6 +4,9 @@
 
 export type ProviderKind = "openai" | "anthropic";
 export type PermissionMode = "auto" | "ask" | "plan";
+export type ThemeMode = "system" | "dark" | "light";
+/** "" = follow the system locale. */
+export type UiLocale = "zh-CN" | "en-US" | "";
 
 export interface ProviderProfile {
   id: string;
@@ -25,6 +28,10 @@ export interface HarnessSettings {
   activeModel: string;
   workspaceRoot: string;
   permissionMode: PermissionMode;
+  /** UI theme preference; "system" follows nativeTheme. */
+  themeMode?: ThemeMode;
+  /** Preferred UI language; "" follows the system locale. */
+  locale?: UiLocale;
 }
 
 /** Built-in offline profile — always available, models: ["mock"]. */
@@ -68,6 +75,8 @@ export const DEFAULT_SETTINGS: HarnessSettings = {
   activeModel: MOCK_MODEL,
   workspaceRoot: "",
   permissionMode: "ask",
+  themeMode: "system",
+  locale: "",
 };
 
 let customSeq = 0;
@@ -103,6 +112,14 @@ function normalizeProfile(raw: unknown): ProviderProfile | null {
       : [],
     preset: src.preset === true,
   };
+}
+
+function normalizeThemeMode(raw: unknown): ThemeMode {
+  return raw === "dark" || raw === "light" ? raw : "system";
+}
+
+function normalizeLocale(raw: unknown): UiLocale {
+  return raw === "zh-CN" || raw === "en-US" ? raw : "";
 }
 
 /** v1 (single-provider) shape, for migration. */
@@ -168,6 +185,8 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
     workspaceRoot: typeof v1.workspaceRoot === "string" ? v1.workspaceRoot : "",
     permissionMode:
       v1.permissionMode === "auto" || v1.permissionMode === "plan" ? v1.permissionMode : "ask",
+    themeMode: normalizeThemeMode((v1 as { themeMode?: unknown }).themeMode),
+    locale: normalizeLocale((v1 as { locale?: unknown }).locale),
   };
 }
 
@@ -181,7 +200,8 @@ export function mergeSettings(raw: unknown): HarnessSettings {
   if (!Array.isArray(src.profiles)) {
     if (src.providerId || src.openai || src.anthropic) return migrateFromV1(src);
     return { ...DEFAULT_SETTINGS, workspaceRoot: src.workspaceRoot ?? "", permissionMode:
-      src.permissionMode === "auto" || src.permissionMode === "plan" ? src.permissionMode : "ask" };
+      src.permissionMode === "auto" || src.permissionMode === "plan" ? src.permissionMode : "ask",
+      themeMode: normalizeThemeMode(src.themeMode), locale: normalizeLocale(src.locale) };
   }
 
   const profiles = src.profiles
@@ -200,6 +220,8 @@ export function mergeSettings(raw: unknown): HarnessSettings {
       src.permissionMode === "auto" || src.permissionMode === "plan"
         ? src.permissionMode
         : "ask",
+    themeMode: normalizeThemeMode(src.themeMode),
+    locale: normalizeLocale(src.locale),
   };
 }
 

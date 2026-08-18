@@ -13,7 +13,7 @@
       @layer theme, base, components, utilities;
 
       :root {
-        --startup-background: #0d0d0f;
+        --startup-background: #0f0f13;
         --startup-mark-base: rgb(255 255 255 / 0.22);
         --startup-mark-peak: rgb(255 255 255 / 0.75);
         --startup-mark-soft: rgb(255 255 255 / 0.05);
@@ -25,17 +25,21 @@
       }
 
       :root.electron-light {
-        --startup-background: #f7f7f8;
+        --startup-background: #f7f7f9;
         --startup-mark-base: rgb(0 0 0 / 0.25);
         --startup-mark-peak: rgb(0 0 0 / 0.65);
       }
 
-      html,
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        background: var(--startup-background);
+      @layer base {
+        /* Solid only until app.css loads — keeping this rule layered lets the
+           app's flat body background (same layer, later) win. */
+        html,
+        body {
+          margin: 0;
+          width: 100%;
+          height: 100%;
+          background: var(--startup-background);
+        }
       }
 
       body {

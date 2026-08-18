@@ -41,7 +41,7 @@ export function ChatView({
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col">
       <div className="scrollbar-thin flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-6 pb-6">
+        <div className="mx-auto w-full max-w-3xl px-[clamp(12px,3vw,24px)] pb-6">
           {messages.length === 0 ? (
             <EmptyState t={t} appName={appName} onPick={onSend} />
           ) : (
@@ -56,7 +56,7 @@ export function ChatView({
       </div>
 
       {permission && (
-        <div className="px-6">
+        <div className="px-[clamp(12px,3vw,24px)]">
           <PermissionCard t={t} request={permission} onRespond={onPermissionRespond} />
         </div>
       )}
@@ -84,19 +84,19 @@ function EmptyState({ t, appName, onPick }: { t: (key: string) => string; appNam
 
   return (
     <div className="flex h-full min-h-96 flex-col items-center justify-center gap-8 pt-16 text-center">
-      <div className="grid size-12 place-items-center rounded-full border border-(--color-app-border) text-(--color-app-muted)">
+      <div className="card grid size-12 place-items-center rounded-full text-(--color-app-muted)">
         <span aria-hidden className="text-lg">◠‿◠</span>
       </div>
-      <h1 className="max-w-lg text-2xl font-medium">
+      <h1 className="max-w-lg text-[clamp(19px,2.4vw,24px)] font-medium">
         {t("chat.empty.title").replace("InnocenceCode", appName)}
       </h1>
-      <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid w-full grid-cols-2 gap-3 min-[1100px]:grid-cols-4">
         {cards.map(({ icon: Icon, iconClass, titleKey, prompt }) => (
           <button
             key={titleKey}
             type="button"
             onClick={() => onPick(prompt)}
-            className="flex flex-col items-start gap-2.5 rounded-xl border border-(--color-app-border) bg-(--color-app-panel) p-3.5 text-left text-sm transition-colors hover:bg-(--color-app-bubble)"
+            className="card flex flex-col items-start gap-2.5 p-3.5 text-left text-sm transition-all hover:-translate-y-0.5 hover:shadow-(--shadow-pop)"
           >
             <Icon size={18} className={iconClass} />
             <span className="leading-snug text-(--color-app-text)">{t(titleKey)}</span>

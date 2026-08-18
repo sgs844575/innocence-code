@@ -1,28 +1,42 @@
 @import "tailwindcss";
 
 /* Theme tokens follow the electron-dark / electron-light root-class
-   convention set by the main process; falls back to prefers-color-scheme. */
+   convention set by the main process; falls back to prefers-color-scheme.
+   The shell is one continuous surface: a shared app background, a slightly
+   tinted sidebar column, and a panel tone for content cards. Columns are
+   separated by hairlines only — no floating cards, no gradients. */
 @layer theme {
   :root {
-    --color-app-bg: #f7f7f8;
+    --color-app-bg: #f7f7f9;
+    --color-app-sidebar: #ececf0;
     --color-app-panel: #ffffff;
-    --color-app-border: rgb(0 0 0 / 0.08);
+    --color-app-border: rgb(0 0 0 / 0.1);
+    --color-app-hairline: rgb(0 0 0 / 0.07);
     --color-app-text: #1a1a1e;
     --color-app-muted: #6b6b76;
-    --color-app-accent: #0f766e;
+    --color-app-accent: #0d9488;
+    --color-app-accent-soft: rgb(13 148 136 / 0.12);
     --color-app-accent-fg: #ffffff;
-    --color-app-bubble: #ececec;
+    --color-app-bubble: #e4e4ea;
+    --radius-card: 14px;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.05);
+    --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.12);
   }
 
   :root.electron-dark {
-    --color-app-bg: #0d0d0f;
-    --color-app-panel: #141417;
-    --color-app-border: rgb(255 255 255 / 0.08);
+    --color-app-bg: #0f0f13;
+    --color-app-sidebar: #17171c;
+    --color-app-panel: #1c1c22;
+    --color-app-border: rgb(255 255 255 / 0.1);
+    --color-app-hairline: rgb(255 255 255 / 0.08);
     --color-app-text: #e6e6ea;
-    --color-app-muted: #9a9aa5;
+    --color-app-muted: #8e8e98;
     --color-app-accent: #2dd4bf;
+    --color-app-accent-soft: rgb(45 212 191 / 0.16);
     --color-app-accent-fg: #04211d;
-    --color-app-bubble: #1e1e23;
+    --color-app-bubble: #26262e;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-pop: 0 8px 28px rgb(0 0 0 / 0.5);
   }
 }
 
@@ -50,6 +64,31 @@
 
   .app-no-drag {
     -webkit-app-region: no-drag;
+  }
+
+  /* Flat grouped card: solid panel fill + hairline border + a whisper of
+     shadow. Used for settings groups, message cards, suggestion cards. */
+  .card {
+    background: var(--color-app-panel);
+    border: 1px solid var(--color-app-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Overlay surfaces only (drawers, toasts) — same fill, deeper shadow so
+     they read as floating above the shell. */
+  .card-strong {
+    background: var(--color-app-panel);
+    border: 1px solid var(--color-app-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-pop);
+  }
+
+  /* Transparent title-bar strip over the shell background — just the
+     hairline that frames the top of every column. */
+  .titlebar {
+    background: transparent;
+    border-bottom: 1px solid var(--color-app-hairline);
   }
 
   .scrollbar-thin {
@@ -81,6 +120,58 @@
   @keyframes caret-blink {
     50% {
       opacity: 0;
+    }
+  }
+
+  /* Narrow-window sidebar drawer + scrim entrance. */
+  @keyframes drawer-in {
+    from {
+      opacity: 0;
+      transform: translateX(-12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .drawer-in {
+    animation: drawer-in 180ms ease-out;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .fade-in {
+    animation: fade-in 160ms ease-out;
+  }
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 8px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+
+  .toast-in {
+    animation: toast-in 180ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer-in,
+    .fade-in,
+    .toast-in {
+      animation: none;
     }
   }
 }

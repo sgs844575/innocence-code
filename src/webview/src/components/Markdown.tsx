@@ -124,10 +124,11 @@ function renderBlock(b: Block): ReactNode {
 
 function CodeBlock({ code, lang }: { code: string; lang?: string }): ReactNode {
   const [copied, setCopied] = useState(false);
+  // Dark panel in both themes, like iOS/macOS code surfaces.
   return (
-    <div className="overflow-hidden rounded-xl border border-(--color-app-border) bg-(--color-app-panel)">
-      <div className="flex items-center justify-between border-b border-(--color-app-border) px-3 py-1.5">
-        <span className="font-mono text-[11px] text-(--color-app-muted)">{lang ?? "text"}</span>
+    <div className="overflow-hidden rounded-xl border border-(--color-app-hairline) bg-[#232326] text-[#ececf0] shadow-(--shadow-card)">
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
+        <span className="font-mono text-[11px] text-white/50">{lang ?? "text"}</span>
         <button
           type="button"
           onClick={() => {
@@ -136,7 +137,7 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }): ReactNode {
               setTimeout(() => setCopied(false), 1500);
             });
           }}
-          className="text-[11px] text-(--color-app-muted) hover:text-(--color-app-text)"
+          className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/70 transition-colors hover:bg-white/20 hover:text-white"
         >
           {copied ? "已复制" : "复制"}
         </button>

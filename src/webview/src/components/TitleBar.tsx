@@ -7,7 +7,7 @@ import { api } from "../lib/ipc";
 import type { MenuId } from "../../../shared/ipc";
 
 interface Props {
-  sidebarCollapsed: boolean;
+  sidebarOpen: boolean;
   onToggleSidebar: () => void;
 }
 
@@ -18,27 +18,27 @@ const MENUS: { id: MenuId; label: string }[] = [
   { id: "help", label: "帮助" },
 ];
 
-export function TitleBar({ sidebarCollapsed, onToggleSidebar }: Props): React.JSX.Element {
+export function TitleBar({ sidebarOpen, onToggleSidebar }: Props): React.JSX.Element {
   return (
-    <header className="app-drag flex h-9 shrink-0 items-center gap-1 border-b border-(--color-app-border) bg-(--color-app-panel) px-2 text-(--color-app-muted)">
+    <header className="titlebar app-drag flex h-9 shrink-0 items-center gap-1 px-2 text-(--color-app-muted)">
       <button
         type="button"
         onClick={onToggleSidebar}
-        aria-label={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"}
-        aria-pressed={!sidebarCollapsed}
-        className="app-no-drag grid size-7 place-items-center rounded-md hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+        aria-label={sidebarOpen ? "折叠侧边栏" : "展开侧边栏"}
+        aria-pressed={sidebarOpen}
+        className="app-no-drag grid size-7 place-items-center rounded-full hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
       >
         <PanelLeft size={15} />
       </button>
 
       {/* Back/forward are stubs: this single-page app has no navigable
           history, so they stay visually present but disabled rather than
-          faking a feature that does not exist. */}
+          faking a feature that does not exist. Hidden on narrow windows. */}
       <button
         type="button"
         disabled
         aria-label="后退"
-        className="app-no-drag grid size-7 place-items-center rounded-md opacity-40"
+        className="app-no-drag grid size-7 place-items-center rounded-full opacity-40 max-[860px]:hidden"
       >
         <ChevronLeft size={15} />
       </button>
@@ -46,7 +46,7 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar }: Props): React.JS
         type="button"
         disabled
         aria-label="前进"
-        className="app-no-drag grid size-7 place-items-center rounded-md opacity-40"
+        className="app-no-drag grid size-7 place-items-center rounded-full opacity-40 max-[860px]:hidden"
       >
         <ChevronRight size={15} />
       </button>
@@ -57,7 +57,7 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar }: Props): React.JS
             key={m.id}
             type="button"
             onClick={() => void api.popupMenu(m.id)}
-            className="rounded-md px-2 py-1 hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+            className="rounded-full px-2.5 py-1 hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
           >
             {m.label}
           </button>
@@ -69,7 +69,7 @@ export function TitleBar({ sidebarCollapsed, onToggleSidebar }: Props): React.JS
       <button
         type="button"
         aria-label="通知"
-        className="app-no-drag grid size-7 place-items-center rounded-md hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+        className="app-no-drag grid size-7 place-items-center rounded-full hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
       >
         <Bell size={15} />
       </button>

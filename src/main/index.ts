@@ -5,6 +5,7 @@ import { handleAppScheme, registerAppScheme } from "./protocol";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
 import { initHarness } from "./harnessGlue";
+import { initSessionStore } from "./sessions";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
 import { logger } from "./logger";
@@ -27,6 +28,7 @@ if (!gotLock) {
   void app.whenReady()
     .then(async () => {
       handleAppScheme();
+      initSessionStore(app.getPath("userData"));
       registerIpcHandlers();
       await initHarness();
 

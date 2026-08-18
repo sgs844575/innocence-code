@@ -18,6 +18,7 @@ const api: InnocenceCodeApi = {
   listSessions: () => ipcRenderer.invoke(IPC.sessionsList),
   createSession: (title?: string) => ipcRenderer.invoke(IPC.sessionCreate, title),
   deleteSession: (id) => ipcRenderer.invoke(IPC.sessionDelete, id),
+  onSessionsChanged: (cb) => subscribe(IPC.sessionsChanged, cb as never),
   listMessages: (sessionId) => ipcRenderer.invoke(IPC.messagesList, sessionId),
   sendMessage: (sessionId, text) => ipcRenderer.invoke(IPC.chatSend, sessionId, text),
   stopMessage: (sessionId, messageId) => ipcRenderer.invoke(IPC.chatStop, sessionId, messageId),

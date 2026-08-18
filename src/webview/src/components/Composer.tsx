@@ -57,9 +57,9 @@ export function Composer({
   })();
 
   return (
-    <div className="shrink-0 px-6 pb-4">
+    <div className="shrink-0 px-[clamp(12px,3vw,24px)] pb-[clamp(10px,1.5vw,16px)]">
       <div className="mx-auto w-full max-w-3xl">
-        <div className="rounded-2xl border border-(--color-app-border) bg-(--color-app-panel) shadow-sm focus-within:border-(--color-app-accent)">
+        <div className="rounded-3xl border border-(--color-app-border) bg-(--color-app-panel) shadow-(--shadow-card) transition-colors focus-within:border-(--color-app-accent)">
           <textarea
             ref={ref}
             value={value}
@@ -72,11 +72,11 @@ export function Composer({
             rows={1}
             className="scrollbar-thin max-h-44 min-h-9 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm leading-relaxed outline-none placeholder:text-(--color-app-muted) disabled:opacity-50"
           />
-          <div className="flex items-center gap-1.5 px-2.5 pb-2 text-xs text-(--color-app-muted)">
+          <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2 text-xs text-(--color-app-muted)">
             <button
               type="button"
               aria-label="添加附件"
-              className="grid size-7 shrink-0 place-items-center rounded-lg hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+              className="grid size-7 shrink-0 place-items-center rounded-full hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
             >
               <Plus size={15} />
             </button>
@@ -84,12 +84,12 @@ export function Composer({
               type="button"
               onClick={onPickWorkspace}
               title={settings?.workspaceRoot || t("workspace.none")}
-              className="flex max-w-40 items-center gap-1 truncate rounded-md px-1.5 py-1 hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
+              className="flex max-w-[clamp(72px,22%,160px)] items-center gap-1 truncate rounded-full px-2 py-1 hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
             >
               <Folder size={13} className="shrink-0" />
               <span className="truncate">{workspaceName || t("workspace.none")}</span>
             </button>
-            <span className="flex items-center gap-1 rounded-md px-1.5 py-1">
+            <span className="flex items-center gap-1 rounded-full px-1.5 py-1">
               <ShieldCheck size={13} />
               <select
                 aria-label={t("permission.mode")}
@@ -109,8 +109,8 @@ export function Composer({
             <div className="flex-1" />
 
             {/* 模型选择：平台分组下拉（可见标签上是全尺寸透明 select） */}
-            <div className="relative flex items-center rounded-md hover:bg-(--color-app-bubble)">
-              <span className="pointer-events-none flex max-w-56 items-center gap-1 truncate px-1.5 py-1 text-[11px] font-medium">
+            <div className="relative flex items-center rounded-full hover:bg-(--color-app-bubble)">
+              <span className="pointer-events-none flex max-w-[clamp(80px,26%,220px)] items-center gap-1 truncate px-1.5 py-1 text-[11px] font-medium">
                 <span className="truncate">{activeLabel}</span>
                 <ChevronDown size={11} className="shrink-0" />
               </span>
@@ -153,7 +153,7 @@ export function Composer({
                 onClick={submit}
                 disabled={!canSend}
                 aria-label={t("chat.send")}
-                className="grid size-8 shrink-0 place-items-center rounded-full bg-(--color-app-accent) text-(--color-app-accent-fg) transition-all active:scale-95 disabled:opacity-30"
+                className="grid size-8 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,var(--color-app-accent),color-mix(in_srgb,var(--color-app-accent)_72%,#2563eb))] text-(--color-app-accent-fg) shadow-md transition-all active:scale-95 disabled:opacity-30 disabled:shadow-none"
               >
                 <ArrowUp size={15} />
               </button>

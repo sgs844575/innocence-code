@@ -11,6 +11,7 @@ export const IPC = {
   sessionsList: "sessions:list",
   sessionCreate: "session:create",
   sessionDelete: "session:delete",
+  sessionsChanged: "sessions:changed",
   messagesList: "messages:list",
   chatSend: "chat:send",
   chatStop: "chat:stop",
@@ -101,6 +102,10 @@ export interface HarnessSettings {
   activeModel: string;
   workspaceRoot: string;
   permissionMode: PermissionMode;
+  /** UI theme preference; "system" follows nativeTheme. */
+  themeMode?: ThemeMode;
+  /** Preferred UI language; "" follows the system locale. */
+  locale?: "zh-CN" | "en-US" | "";
 }
 
 export interface InnocenceCodeApi {
@@ -111,6 +116,8 @@ export interface InnocenceCodeApi {
   listSessions(): Promise<Session[]>;
   createSession(title?: string): Promise<Session>;
   deleteSession(id: string): Promise<void>;
+  /** Fired after every session-store mutation (create/delete/append/retitle). */
+  onSessionsChanged(cb: (list: Session[]) => void): () => void;
   listMessages(sessionId: string): Promise<ChatMessage[]>;
   sendMessage(sessionId: string, text: string): Promise<{ messageId: string }>;
   stopMessage(sessionId: string, messageId: string): Promise<void>;
