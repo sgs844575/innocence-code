@@ -21,6 +21,8 @@ export const IPC = {
   // Harness additions (M3) — additive only, existing channels untouched.
   chatPermission: "chat:permission",
   chatPermissionRespond: "chat:permission-respond",
+  chatTool: "chat:tool",
+  chatThinking: "chat:thinking",
   workspacePick: "workspace:pick",
   settingsGet: "settings:get",
   settingsSet: "settings:set",
@@ -37,12 +39,49 @@ export interface AppInfo {
   locale: string;
 }
 
+export interface TextPart { type: "text"; text: string }
+export interface ThinkingPart { type: "thinking"; text: string }
+export interface ToolCallPart {
+  type: "toolCall";
+  id: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+export interface ToolResultPart {
+  type: "toolResult";
+  toolCallId: string;
+  content: string;
+  isError: boolean;
+  durationMs?: number;
+}
+export type MessagePart = TextPart | ThinkingPart | ToolCallPart | ToolResultPart;
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
-  content: string;
+  parts: MessagePart[];
   createdAt: number;
   streaming?: boolean;
+}
+
+/** 所有 text part 的拼接（标题、引用、纯文本场景）。 */
+export function messageText(parts: MessagePart[]): string {
+  return parts
+    .filter((p): p is TextPart => p.type === "text")
+    .map((p) => p.text)
+    .join("");
+}
+
+/** 不可变地把 delta 追加到末尾 text part（React state 更新用）。 */
+export function appendText(parts: MessagePart[], delta: string): MessagePart[] {
+  if (!delta) return parts;
+  const last = parts[parts.length - 1];
+  if (last?.type === "text") {
+    const next = [...parts];
+    next[next.length - 1] = { type: "text", text: last.text + delta };
+    return next;
+  }
+  return [...parts, { type: "text", text: delta }];
 }
 
 export interface Session {
@@ -68,6 +107,17 @@ export interface ChatErrorEvent {
   sessionId: string;
   messageId: string;
   error: string;
+}
+
+export interface ChatToolEvent {
+  sessionId: string;
+  messageId: string;
+  part: ToolCallPart | ToolResultPart;
+}
+export interface ChatThinkingEvent {
+  sessionId: string;
+  messageId: string;
+  delta: string;
 }
 
 // ---- Harness contract (M3+) -------------------------------------------------
@@ -124,6 +174,8 @@ export interface InnocenceCodeApi {
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatDone(cb: (e: ChatDoneEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;
+  onChatTool(cb: (e: ChatToolEvent) => void): () => void;
+  onChatThinking(cb: (e: ChatThinkingEvent) => void): () => void;
   onChatPermission(cb: (e: ChatPermissionEvent) => void): () => void;
   respondChatPermission(requestId: string, choice: PermissionChoice): Promise<void>;
   pickWorkspace(): Promise<string>;

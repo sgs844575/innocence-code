@@ -10,7 +10,12 @@ import {
   mergeSettings,
   type HarnessSettings as PkgSettings,
 } from "@innocencecode/harness-electron";
-import { IPC, type ChatPermissionEvent, type PermissionChoice } from "../shared/ipc";
+import {
+  IPC,
+  appendText,
+  type ChatPermissionEvent,
+  type PermissionChoice,
+} from "../shared/ipc";
 import * as sessions from "./sessions";
 import { getMainWindow } from "./appWindow";
 import { broadcastTheme, setTheme } from "./theme";
@@ -41,7 +46,7 @@ const runtime = new HarnessRuntime({
   hooks: {
     onDelta: (sessionId, messageId, delta) => {
       sessions.updateMessage(sessionId, messageId, (m) => {
-        m.content += delta;
+        m.parts = appendText(m.parts, delta);
       });
       send(IPC.chatDelta, { sessionId, messageId, delta });
     },
@@ -142,7 +147,7 @@ export function sendChatTurn(sessionId: string, text: string): string {
   sessions.appendMessage(sessionId, {
     id,
     role: "assistant",
-    content: "",
+    parts: [],
     createdAt: Date.now(),
     streaming: true,
   });

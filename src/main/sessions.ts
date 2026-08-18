@@ -5,7 +5,7 @@
 // dir. The module stays electron-free so vitest can exercise it directly.
 import fs from "node:fs";
 import path from "node:path";
-import type { ChatMessage, Session } from "../shared/ipc";
+import { messageText, type ChatMessage, type Session } from "../shared/ipc";
 
 interface SessionRecord extends Session {
   messages: ChatMessage[];
@@ -159,7 +159,7 @@ function hydrate(record: SessionRecord): void {
     messages.push({
       id: `msg_restored_${messages.length}`,
       role,
-      content,
+      parts: [{ type: "text", text: content }],
       createdAt: at,
     });
   }
@@ -224,7 +224,7 @@ export function appendMessage(id: string, message: ChatMessage): void {
   record.updatedAt = Date.now();
   // Retitle the session from the first user message, like most chat clients.
   if (record.title === "新会话" && message.role === "user") {
-    record.title = message.content.split("\n")[0].slice(0, 24) || "新会话";
+    record.title = messageText(message.parts).split("\n")[0].slice(0, 24) || "新会话";
   }
   const idx = order.indexOf(id);
   if (idx > 0) {

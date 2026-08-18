@@ -25,6 +25,8 @@ const api: InnocenceCodeApi = {
   onChatDelta: (cb) => subscribe(IPC.chatDelta, cb as never),
   onChatDone: (cb) => subscribe(IPC.chatDone, cb as never),
   onChatError: (cb) => subscribe(IPC.chatError, cb as never),
+  onChatTool: (cb) => subscribe(IPC.chatTool, cb as never),
+  onChatThinking: (cb) => subscribe(IPC.chatThinking, cb as never),
   onChatPermission: (cb) => subscribe(IPC.chatPermission, cb as never),
   respondChatPermission: (requestId, choice) =>
     ipcRenderer.invoke(IPC.chatPermissionRespond, requestId, choice),

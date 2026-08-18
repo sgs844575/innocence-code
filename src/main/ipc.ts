@@ -58,7 +58,7 @@ export function registerIpcHandlers(): void {
     sessions.appendMessage(sessionId, {
       id: `msg_${Date.now().toString(36)}_u`,
       role: "user",
-      content: trimmed,
+      parts: [{ type: "text", text: trimmed }],
       createdAt: Date.now(),
     });
     // First user message retitles + reorders the session — push immediately so

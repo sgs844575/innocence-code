@@ -1,12 +1,12 @@
 import { useState } from "react";
-import type { ChatMessage } from "../../../shared/ipc";
+import { messageText, type ChatMessage } from "../../../shared/ipc";
 import { Markdown } from "./Markdown";
 
 export function MessageItem({ t, message }: { t: (key: string) => string; message: ChatMessage }): React.JSX.Element {
   const [copied, setCopied] = useState(false);
 
   const copy = (): void => {
-    void navigator.clipboard.writeText(message.content).then(() => {
+    void navigator.clipboard.writeText(messageText(message.parts)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -17,7 +17,7 @@ export function MessageItem({ t, message }: { t: (key: string) => string; messag
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] whitespace-pre-wrap rounded-3xl rounded-br-lg bg-[linear-gradient(135deg,var(--color-app-accent),color-mix(in_srgb,var(--color-app-accent)_72%,#2563eb))] px-4 py-2.5 text-sm leading-relaxed text-(--color-app-accent-fg) shadow-md shadow-black/10">
-          {message.content}
+          {messageText(message.parts)}
         </div>
       </div>
     );
@@ -30,7 +30,7 @@ export function MessageItem({ t, message }: { t: (key: string) => string; messag
           &gt;_
         </span>
         <span className="text-xs font-medium text-(--color-app-muted)">InnocenceCode</span>
-        {message.content.length > 0 && (
+        {messageText(message.parts).length > 0 && (
           <button
             type="button"
             onClick={copy}
@@ -41,7 +41,7 @@ export function MessageItem({ t, message }: { t: (key: string) => string; messag
         )}
       </div>
       <div className="min-h-6 text-sm leading-relaxed">
-        <Markdown source={message.content} />
+        <Markdown source={messageText(message.parts)} />
         {message.streaming && <span className="stream-caret" aria-label="streaming" />}
       </div>
     </div>

@@ -12,6 +12,7 @@ import {
   listMessages,
   listSessions,
 } from "./sessions";
+import { appendText, messageText } from "../shared/ipc";
 
 let dir: string;
 
@@ -49,7 +50,7 @@ describe("session store persistence", () => {
     appendMessage(a.id, {
       id: "msg_u1",
       role: "user",
-      content: "帮我修一个登录 bug\n第二行不进标题",
+      parts: [{ type: "text", text: "帮我修一个登录 bug\n第二行不进标题" }],
       createdAt: Date.now(),
     });
 
@@ -67,9 +68,9 @@ describe("session store persistence", () => {
 
   it("does not retitle once the session has a real title", () => {
     const s = createSession();
-    appendMessage(s.id, { id: "m1", role: "user", content: "第一条", createdAt: 1 });
-    appendMessage(s.id, { id: "m2", role: "assistant", content: "回复", createdAt: 2 });
-    appendMessage(s.id, { id: "m3", role: "user", content: "第二条", createdAt: 3 });
+    appendMessage(s.id, { id: "m1", role: "user", parts: [{ type: "text", text: "第一条" }], createdAt: 1 });
+    appendMessage(s.id, { id: "m2", role: "assistant", parts: [{ type: "text", text: "回复" }], createdAt: 2 });
+    appendMessage(s.id, { id: "m3", role: "user", parts: [{ type: "text", text: "第二条" }], createdAt: 3 });
     expect(listSessions()[0].title).toBe("第一条");
     expect(listSessions()[0].messageCount).toBe(3);
   });
@@ -109,7 +110,7 @@ describe("session store persistence", () => {
     // Simulate a restart so hydration (not the live array) is exercised.
     initSessionStore(dir);
     const messages = listMessages(s.id);
-    expect(messages.map((m) => [m.role, m.content])).toEqual([
+    expect(messages.map((m) => [m.role, messageText(m.parts)])).toEqual([
       ["user", "hi"],
       ["assistant", "你好，有什么可以帮你？"],
     ]);
@@ -142,5 +143,18 @@ describe("session store persistence", () => {
     writeFileSync(path.join(dir, "sessions.json"), "not json{{{", "utf8");
     initSessionStore(dir);
     expect(listSessions()).toEqual([]);
+  });
+});
+
+describe("message parts helpers", () => {
+  it("appendText 续写末尾 text part", () => {
+    const parts = appendText([{ type: "text", text: "a" }], "b");
+    expect(messageText(parts)).toBe("ab");
+    expect(parts).toHaveLength(1);
+  });
+  it("appendText 在工具 part 后新开 text", () => {
+    const parts = appendText([{ type: "toolCall", id: "c1", toolName: "Bash", args: {} }], "x");
+    expect(parts).toHaveLength(2);
+    expect(messageText(parts)).toBe("x");
   });
 });

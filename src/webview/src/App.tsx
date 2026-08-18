@@ -5,13 +5,14 @@ import {
   PanelLeftOpen,
   Settings as SettingsIcon,
 } from "lucide-react";
-import type {
-  AppInfo,
-  ChatMessage,
-  ChatPermissionEvent,
-  HarnessSettings,
-  PermissionChoice,
-  Session,
+import {
+  appendText,
+  type AppInfo,
+  type ChatMessage,
+  type ChatPermissionEvent,
+  type HarnessSettings,
+  type PermissionChoice,
+  type Session,
 } from "../../shared/ipc";
 import { api } from "./lib/ipc";
 import { createT } from "./lib/i18n";
@@ -143,7 +144,7 @@ export function App(): React.JSX.Element {
       if (e.sessionId !== activeId) return;
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === e.messageId ? { ...m, content: m.content + e.delta } : m,
+          m.id === e.messageId ? { ...m, parts: appendText(m.parts, e.delta) } : m,
         ),
       );
     });
@@ -162,7 +163,7 @@ export function App(): React.JSX.Element {
       setMessages((prev) =>
         prev.map((m) =>
           m.id === e.messageId
-            ? { ...m, streaming: false, content: `${m.content}\n\n> ⚠️ ${e.error}` }
+            ? { ...m, streaming: false, parts: appendText(appendText(m.parts, "\n\n> ⚠️ "), e.error) }
             : m,
         ),
       );
@@ -227,13 +228,13 @@ export function App(): React.JSX.Element {
     const optimisticUser: ChatMessage = {
       id: `${messageId}_user`,
       role: "user",
-      content: text,
+      parts: [{ type: "text", text }],
       createdAt: Date.now(),
     };
     const pendingAssistant: ChatMessage = {
       id: messageId,
       role: "assistant",
-      content: "",
+      parts: [],
       createdAt: Date.now(),
       streaming: true,
     };
