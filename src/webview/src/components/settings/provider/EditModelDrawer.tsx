@@ -11,7 +11,8 @@ interface Props {
   onSave: (patch: Partial<ModelInfo> & { dirty?: boolean }) => void;
 }
 
-/** cherry 式编辑模型抽屉：每字段失焦/切换即保存（patch 合并 + dirty 标记）。 */
+/** cherry 式编辑模型抽屉：每字段失焦/切换即保存（patch 合并 + dirty 标记）；
+ *  blur 类字段与原模型等值（用户没改）时跳过保存，避免无谓置 dirty 卡死 enrich。 */
 export function EditModelDrawer({ open, model, onClose, onSave }: Props): React.JSX.Element {
   const [draft, setDraft] = useState<ModelInfo | null>(model);
   const [synced, setSynced] = useState<ModelInfo | null>(model);
@@ -38,16 +39,16 @@ export function EditModelDrawer({ open, model, onClose, onSave }: Props): React.
               <button type="button" aria-label="复制 ID" onClick={() => void navigator.clipboard.writeText(model.id)} className="text-(--color-app-muted) hover:text-(--color-app-text)"><Copy size={12} /></button>
             </span>
           ) : (
-            <input value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value })} onBlur={() => save({ id: draft.id })} className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 font-mono text-[12px] outline-none" />
+            <input value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value })} onBlur={() => { if (draft.id !== model.id) save({ id: draft.id }); }} className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 font-mono text-[12px] outline-none" />
           )}
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-(--color-app-muted)">模型名称</span>
-          <input value={draft.name ?? ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })} onBlur={() => save({ name: draft.name })} className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 text-[12px] outline-none" />
+          <input value={draft.name ?? ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })} onBlur={() => { if (draft.name !== model.name) save({ name: draft.name }); }} className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 text-[12px] outline-none" />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-(--color-app-muted)">分组名称</span>
-          <input value={draft.group ?? ""} onChange={(e) => setDraft({ ...draft, group: e.target.value })} onBlur={() => save({ group: draft.group })} className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 text-[12px] outline-none" />
+          <input value={draft.group ?? ""} onChange={(e) => setDraft({ ...draft, group: e.target.value })} onBlur={() => { if (draft.group !== model.group) save({ group: draft.group }); }} className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 text-[12px] outline-none" />
         </label>
         <section className="flex flex-col gap-2">
           <div className="font-medium">能力</div>
@@ -80,7 +81,7 @@ export function EditModelDrawer({ open, model, onClose, onSave }: Props): React.
                   inputMode="numeric"
                   value={value ?? ""}
                   onChange={(e) => setDraft({ ...draft, [key]: num(e.target.value) })}
-                  onBlur={() => save({ [key]: draft[key] })}
+                  onBlur={() => { if (draft[key] !== model[key]) save({ [key]: draft[key] }); }}
                   className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 font-mono text-[12px] outline-none"
                 />
               </label>

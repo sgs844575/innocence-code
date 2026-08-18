@@ -31,4 +31,15 @@ describe("EditModelDrawer", () => {
     fireEvent.blur(ctx);
     expect(onSave).toHaveBeenCalledWith({ contextWindow: 300000, dirty: true });
   });
+  it("无变更的 blur 不触发保存（不置 dirty）", () => {
+    const onSave = vi.fn();
+    render(<EditModelDrawer open model={model} onClose={() => {}} onSave={onSave} />);
+    const name = screen.getByDisplayValue("GLM-4.6");
+    fireEvent.focus(name);
+    fireEvent.blur(name);
+    const ctx = screen.getByLabelText("上下文窗口");
+    fireEvent.focus(ctx);
+    fireEvent.blur(ctx);
+    expect(onSave).not.toHaveBeenCalled();
+  });
 });
