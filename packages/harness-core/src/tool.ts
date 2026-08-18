@@ -1,4 +1,5 @@
 import type { JsonSchema } from "./types";
+import type { SubagentSpawner } from "./subagent";
 
 export interface ToolResult {
   content: string;
@@ -11,6 +12,8 @@ export interface ToolContext {
   /** Aborted when the user stops the run; long operations should check it. */
   signal: AbortSignal;
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void;
+  /** Provided by the kernel; absent in hosts that don't support subagents. */
+  subagent?: SubagentSpawner;
 }
 
 export interface Tool {

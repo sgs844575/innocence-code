@@ -12,6 +12,9 @@ import { createMockProvider } from "@innocencecode/provider-mock";
 import { createOpenAIProvider } from "@innocencecode/provider-openai";
 import { createAnthropicProvider } from "@innocencecode/provider-anthropic";
 import { fsPlugin } from "@innocencecode/tools-fs";
+import { shellPlugin } from "@innocencecode/tools-shell";
+import { subagentPlugin } from "@innocencecode/plugin-subagent";
+import { skillsPlugin } from "@innocencecode/plugin-skills";
 import {
   DEFAULT_SYSTEM_PROMPT,
   MOCK_GREETING,
@@ -120,7 +123,14 @@ export class HarnessRuntime {
     };
 
     const session = await AgentSession.create({
-      plugins: [fsPlugin],
+      plugins: [
+        fsPlugin,
+        shellPlugin,
+        subagentPlugin,
+        skillsPlugin({
+          dirs: [path.join(settings.workspaceRoot || process.cwd(), ".innocence", "skills")],
+        }),
+      ],
       provider:
         this.options.providerFactory?.(settings) ?? this.buildProvider(settings),
       workspaceRoot: settings.workspaceRoot || process.cwd(),

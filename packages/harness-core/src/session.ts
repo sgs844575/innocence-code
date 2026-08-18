@@ -7,6 +7,9 @@ import type { PermissionMode } from "./policy";
 import { PluginRegistry, type HarnessPlugin, type Logger } from "./registry";
 import type { Provider } from "./provider";
 import type { Message } from "./types";
+import type { SubagentOptions, SubagentResult, SubagentSpawner } from "./subagent";
+
+const SUBAGENT_CONCURRENCY = 3;
 
 export interface AgentSessionOptions {
   plugins: HarnessPlugin[];
@@ -19,6 +22,8 @@ export interface AgentSessionOptions {
     mode: PermissionMode;
     decider: PermissionDecider;
     projectConfig?: ProjectPermissionConfig;
+    /** Inject an existing engine (e.g. parent session's) to share rules+grants. */
+    engine?: PermissionEngine;
   };
   compaction?: Partial<{ maxContextTokens: number; keepRecent: number }>;
   maxTurns?: number;
@@ -52,6 +57,7 @@ export class AgentSession {
   private listeners = new Set<HarnessEventListener>();
   private abort: AbortController | undefined;
   private logger: Logger;
+  private activeSubagents = 0;
 
   private constructor(
     options: AgentSessionOptions,
@@ -64,11 +70,13 @@ export class AgentSession {
     this.workspaceRoot = options.workspaceRoot;
     this.baseSystemPrompt = options.systemPrompt ?? "";
     this.logger = options.logger ?? noopLogger;
-    this.permission = new PermissionEngine({
-      mode: options.permission.mode,
-      decider: options.permission.decider,
-      workspaceRoot: options.workspaceRoot,
-    });
+    this.permission =
+      options.permission.engine ??
+      new PermissionEngine({
+        mode: options.permission.mode,
+        decider: options.permission.decider,
+        workspaceRoot: options.workspaceRoot,
+      });
     this.compactor = new ContextManager(options.compaction ?? {});
   }
 
@@ -86,9 +94,11 @@ export class AgentSession {
       );
     }
     const session = new AgentSession(options, registry, provider);
-    session.permission.addRules(registry.policyRules);
-    if (options.permission.projectConfig) {
-      session.permission.addRules(rulesFromConfig(options.permission.projectConfig));
+    if (!options.permission.engine) {
+      session.permission.addRules(registry.policyRules);
+      if (options.permission.projectConfig) {
+        session.permission.addRules(rulesFromConfig(options.permission.projectConfig));
+      }
     }
     return session;
   }
@@ -147,6 +157,7 @@ export class AgentSession {
       signal: this.abort.signal,
       maxTurns: this.options.maxTurns ?? DEFAULT_MAX_TURNS,
       toolTimeoutMs: this.options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+      spawner: this.spawner,
     });
     this.abort = undefined;
     return result;
@@ -155,4 +166,50 @@ export class AgentSession {
   stop(): void {
     this.abort?.abort();
   }
+
+  /**
+   * Spawns a nested agent session sharing this session's provider, permission
+   * engine (so child tool calls hit the same approval flow) and workspace,
+   * with its own isolated message history. Concurrency-capped.
+   */
+  readonly spawner: SubagentSpawner = {
+    run: async (options: SubagentOptions): Promise<SubagentResult> => {
+      if (this.activeSubagents >= SUBAGENT_CONCURRENCY) {
+        throw new Error(`子代理并发已达上限（${SUBAGENT_CONCURRENCY}），请稍后再派生`);
+      }
+      this.activeSubagents += 1;
+      try {
+        const allTools = [...this.registry.tools.values()].filter((t) => t.name !== "Task");
+        const selected =
+          options.tools === "all"
+            ? allTools
+            : options.tools === "readOnly"
+              ? allTools.filter((t) => t.readOnly)
+              : allTools.filter((t) => options.tools.includes(t.name));
+        const toolsPlugin: HarnessPlugin = {
+          name: "subagent-tools",
+          activate: (ctx) => {
+            for (const tool of selected) ctx.registerTool(tool);
+          },
+        };
+        const child = await AgentSession.create({
+          plugins: [toolsPlugin],
+          provider: this.provider,
+          workspaceRoot: this.workspaceRoot,
+          systemPrompt: options.systemPrompt,
+          permission: {
+            mode: this.permission.getMode(),
+            decider: this.options.permission.decider,
+            engine: this.permission, // shared rules, grants and mode
+          },
+          maxTurns: options.maxTurns ?? 20,
+          logger: this.logger,
+        });
+        const result = await child.run(options.prompt, options.signal);
+        return { finalText: result.finalText, turns: result.turns };
+      } finally {
+        this.activeSubagents -= 1;
+      }
+    },
+  };
 }

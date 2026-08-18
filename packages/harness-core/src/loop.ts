@@ -5,6 +5,7 @@ import type { PluginRegistry } from "./registry";
 import type { Provider } from "./provider";
 import { textMessage, type Message, type MessagePart, type ToolResultPart } from "./types";
 import type { ToolContext } from "./tool";
+import type { SubagentSpawner } from "./subagent";
 
 export interface LoopOptions {
   provider: Provider;
@@ -17,6 +18,7 @@ export interface LoopOptions {
   signal?: AbortSignal;
   maxTurns?: number;
   toolTimeoutMs?: number;
+  spawner?: SubagentSpawner;
 }
 
 export interface LoopResult {
@@ -65,6 +67,7 @@ export async function runLoop(
     workspaceRoot,
     signal: signal ?? new AbortController().signal,
     log: () => {}, // session installs a real logger over onEvent
+    subagent: opts.spawner,
   };
 
   let aborted = false;
