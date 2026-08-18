@@ -124,6 +124,23 @@
     animation: drawer-in 180ms ease-out;
   }
 
+  /* Right-side Drawer entrance — same pattern as .drawer-in, sliding from
+     the right edge instead of the left. */
+  @keyframes drawer-right {
+    from {
+      opacity: 0;
+      transform: translateX(12px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .drawer-right {
+    animation: drawer-right 180ms ease-out;
+  }
+
   @keyframes fade-in {
     from {
       opacity: 0;
@@ -166,6 +183,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .drawer-in,
+    .drawer-right,
     .fade-in,
     .toast-in,
     .shimmer {
