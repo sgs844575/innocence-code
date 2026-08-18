@@ -65,8 +65,12 @@ export function ChatView({
   };
 
   useEffect(() => {
-    if (pinned) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, pinned]);
+    if (!pinned) return;
+    // 流式期间必须瞬时贴底：smooth 动画的终点是"动画开始时的底部"，
+    // 而流式内容在动画窗口内持续增长，动画永远追不上 → 视口总差一点。
+    // 瞬时滚动每次都精确落底；非流式变化（切会话/首载）保留 smooth 手感。
+    bottomRef.current?.scrollIntoView({ behavior: streaming ? "auto" : "smooth", block: "end" });
+  }, [messages, pinned, streaming]);
 
   // 落地态（无激活会话）：输入面板垂直居中 + 顶部项目选择行；不渲染消息区。
   if (landing) {
