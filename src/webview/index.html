@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN" data-build="dev">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173;"
+    />
+    <title>InnocenceCode</title>
+    <style>
+      /* Dependency CSS can load before app.css, so establish Tailwind's layer order here. */
+      @layer theme, base, components, utilities;
+
+      :root {
+        --startup-background: #0d0d0f;
+        --startup-mark-base: rgb(255 255 255 / 0.22);
+        --startup-mark-peak: rgb(255 255 255 / 0.75);
+        --startup-mark-soft: rgb(255 255 255 / 0.05);
+        --startup-mark-tail: rgb(255 255 255 / 0.1);
+      }
+
+      :root.electron-dark {
+        --startup-mark-base: rgb(255 255 255 / 0.55);
+      }
+
+      :root.electron-light {
+        --startup-background: #f7f7f8;
+        --startup-mark-base: rgb(0 0 0 / 0.25);
+        --startup-mark-peak: rgb(0 0 0 / 0.65);
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--startup-background);
+      }
+
+      body {
+        outline: none;
+      }
+
+      #root {
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Startup loader — shown until the React app mounts, then removed. */
+      .startup-loader {
+        display: flex;
+        width: 100%;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        background: var(--startup-background);
+        -webkit-app-region: drag;
+      }
+
+      .startup-loader__mark {
+        position: relative;
+        width: 52px;
+        height: 52px;
+        opacity: 0;
+        animation: startup-fade-in 200ms ease-out 60ms forwards;
+      }
+
+      .startup-loader__base,
+      .startup-loader__overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border-radius: 14px;
+      }
+
+      .startup-loader__base {
+        color: var(--startup-mark-base);
+        border: 2px solid currentColor;
+      }
+
+      .startup-loader__glyph {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font: 700 20px/1 ui-monospace, "Cascadia Code", Consolas, monospace;
+        color: var(--startup-mark-base);
+      }
+
+      .startup-loader__overlay {
+        border: 2px solid transparent;
+        border-radius: 14px;
+        background-image: linear-gradient(
+          112deg,
+          transparent 24%,
+          var(--startup-mark-soft) 40%,
+          var(--startup-mark-peak) 50%,
+          var(--startup-mark-tail) 58%,
+          transparent 76%
+        );
+        background-position: 140% 0;
+        background-repeat: no-repeat;
+        background-size: 220% 100%;
+        animation: startup-shimmer 2000ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        -webkit-mask-image: linear-gradient(#000 0 0);
+        mask-image: linear-gradient(#000 0 0);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .startup-loader__mark {
+          animation: none;
+          opacity: 1;
+        }
+
+        .startup-loader__overlay {
+          animation: none;
+        }
+      }
+
+      @keyframes startup-fade-in {
+        0% {
+          opacity: 0;
+        }
+
+        100% {
+          opacity: 1;
+        }
+      }
+
+      @keyframes startup-shimmer {
+        0% {
+          background-position: 140% 0;
+        }
+
+        100% {
+          background-position: -105% 0;
+        }
+      }
+    </style>
+    <script type="module" crossorigin src="./src/main.tsx"></script>
+  </head>
+  <body tabindex="0" style="outline: none">
+    <div id="root">
+      <div class="startup-loader" aria-hidden="true">
+        <div class="startup-loader__mark">
+          <div class="startup-loader__base"></div>
+          <div class="startup-loader__glyph">&gt;_</div>
+          <div class="startup-loader__overlay"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
