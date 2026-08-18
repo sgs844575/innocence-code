@@ -5,7 +5,7 @@
 // dir. The module stays electron-free so vitest can exercise it directly.
 import fs from "node:fs";
 import path from "node:path";
-import { messageText, type ChatMessage, type Session } from "../shared/ipc";
+import { messageText, type ChatMessage, type MessagePart, type Session } from "../shared/ipc";
 
 interface SessionRecord extends Session {
   messages: ChatMessage[];
@@ -105,17 +105,30 @@ export function initSessionStore(userDataDir: string): void {
   }
 }
 
-function extractText(parts: unknown): string {
-  if (!Array.isArray(parts)) return "";
-  return parts
-    .filter(
-      (p): p is { type: "text"; text: string } =>
-        Boolean(p) &&
-        (p as { type?: unknown }).type === "text" &&
-        typeof (p as { text?: unknown }).text === "string",
-    )
-    .map((p) => p.text)
-    .join("");
+/** Defensive mapping of one untyped transcript part onto the shared
+ *  MessagePart union; anything malformed or unknown maps to null and is
+ *  dropped. Tool parts survive hydration so restored transcripts match the
+ *  live stream's structured view. */
+function toMessagePart(p: unknown): MessagePart | null {
+  if (typeof p !== "object" || p === null) return null;
+  const t = (p as { type?: unknown }).type;
+  if (t === "text" && typeof (p as { text?: unknown }).text === "string")
+    return { type: "text", text: (p as { text: string }).text };
+  if (t === "toolCall")
+    return {
+      type: "toolCall",
+      id: String((p as { id?: unknown }).id ?? ""),
+      toolName: String((p as { toolName?: unknown }).toolName ?? ""),
+      args: ((p as { args?: unknown }).args ?? {}) as Record<string, unknown>,
+    };
+  if (t === "toolResult")
+    return {
+      type: "toolResult",
+      toolCallId: String((p as { toolCallId?: unknown }).toolCallId ?? ""),
+      content: String((p as { content?: unknown }).content ?? ""),
+      isError: (p as { isError?: unknown }).isError === true,
+    };
+  return null;
 }
 
 /** Restores message bodies from the session's JSONL transcript, if any. */
@@ -152,14 +165,19 @@ function hydrate(record: SessionRecord): void {
   for (const m of history) {
     const role = (m as { role?: unknown }).role;
     if (role !== "user" && role !== "assistant") continue;
-    // Text parts only: tool-call/result parts stay out of the chat view
-    // (live streams render them as blockquote markers, not messages).
-    const content = extractText((m as { parts?: unknown }).parts);
-    if (!content.trim()) continue;
+    // Keep every valid part (text/toolCall/toolResult) so restored transcripts
+    // match the live structured stream; rows with no valid parts at all
+    // (empty text + empty tool) produce no message.
+    const mapped = (
+      Array.isArray((m as { parts?: unknown }).parts)
+        ? ((m as { parts?: unknown[] }).parts ?? []).map(toMessagePart)
+        : []
+    ).filter((x): x is MessagePart => x !== null);
+    if (mapped.length === 0) continue;
     messages.push({
       id: `msg_restored_${messages.length}`,
       role,
-      parts: [{ type: "text", text: content }],
+      parts: mapped,
       createdAt: at,
     });
   }

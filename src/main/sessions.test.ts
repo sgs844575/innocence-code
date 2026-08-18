@@ -75,7 +75,7 @@ describe("session store persistence", () => {
     expect(listSessions()[0].messageCount).toBe(3);
   });
 
-  it("hydrates messages from the JSONL transcript, text parts only", () => {
+  it("hydrates messages from the JSONL transcript, keeping tool parts", () => {
     const s = createSession();
     mkdirSync(path.join(dir, "transcripts"), { recursive: true });
     const lines = [
@@ -100,7 +100,8 @@ describe("session store persistence", () => {
               { type: "text", text: "有什么可以帮你？" },
             ],
           },
-          // Tool results arrive as user-role parts with no text — filtered out.
+          // Tool results arrive as user-role parts with no text — kept as
+          // their own message now that hydration preserves every valid part.
           { role: "user", parts: [{ type: "toolResult", content: "file body" }] },
         ],
       }),
@@ -113,9 +114,44 @@ describe("session store persistence", () => {
     expect(messages.map((m) => [m.role, messageText(m.parts)])).toEqual([
       ["user", "hi"],
       ["assistant", "你好，有什么可以帮你？"],
+      ["user", ""],
     ]);
+    expect(messages[1].parts).toHaveLength(3);
+    expect(messages[1].parts[1]).toMatchObject({ type: "toolCall", toolName: "fs.read" });
+    expect(messages[2].parts[0]).toMatchObject({ type: "toolResult", content: "file body" });
     expect(messages[1].createdAt).toBe(Date.parse("2026-08-18T10:00:05.000Z"));
-    expect(listSessions()[0].messageCount).toBe(2);
+    expect(listSessions()[0].messageCount).toBe(3);
+  });
+
+  it("hydrate 保留 toolCall/toolResult parts", () => {
+    const s = createSession();
+    mkdirSync(path.join(dir, "transcripts"), { recursive: true });
+    writeFileSync(
+      path.join(dir, "transcripts", `${s.id}.jsonl`),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        type: "turn",
+        history: [
+          { role: "user", parts: [{ type: "text", text: "hi" }] },
+          {
+            role: "assistant",
+            parts: [
+              { type: "text", text: "看下" },
+              { type: "toolCall", id: "t1", toolName: "Bash", args: { command: "ls" } },
+              { type: "toolResult", toolCallId: "t1", content: "a.txt", isError: false },
+              { type: "text", text: "完成" },
+            ],
+          },
+        ],
+      }) + "\n",
+      "utf8",
+    );
+    // Restart so hydration (not the live array) is exercised.
+    initSessionStore(dir);
+    const msgs = listMessages(s.id);
+    expect(msgs[1].parts).toHaveLength(4);
+    expect(msgs[1].parts[1]).toMatchObject({ type: "toolCall", toolName: "Bash" });
+    expect(msgs[1].parts[2]).toMatchObject({ type: "toolResult", toolCallId: "t1", content: "a.txt" });
   });
 
   it("returns empty messages for a session without transcript", () => {

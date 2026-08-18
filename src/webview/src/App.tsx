@@ -168,10 +168,37 @@ export function App(): React.JSX.Element {
         ),
       );
     });
+    // Structured tool parts arrive pre-formed (toolCall/toolResult) and append
+    // as-is; thinking deltas extend the trailing thinking part or open one.
+    // MessageItem renders text only for now — tasks 9-11 take over part
+    // rendering; the state just has to be correct by then.
+    const offTool = api.onChatTool((e) => {
+      if (e.sessionId !== activeId) return;
+      setMessages((prev) =>
+        prev.map((m) => (m.id === e.messageId ? { ...m, parts: [...m.parts, e.part] } : m)),
+      );
+    });
+    const offThinking = api.onChatThinking((e) => {
+      if (e.sessionId !== activeId) return;
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== e.messageId) return m;
+          const last = m.parts[m.parts.length - 1];
+          if (last?.type === "thinking") {
+            const parts = [...m.parts];
+            parts[parts.length - 1] = { type: "thinking", text: last.text + e.delta };
+            return { ...m, parts };
+          }
+          return { ...m, parts: [...m.parts, { type: "thinking", text: e.delta }] };
+        }),
+      );
+    });
     return () => {
       offDelta();
       offDone();
       offError();
+      offTool();
+      offThinking();
     };
   }, [activeId]);
 

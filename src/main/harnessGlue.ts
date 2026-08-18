@@ -14,6 +14,7 @@ import {
   IPC,
   appendText,
   type ChatPermissionEvent,
+  type ChatToolEvent,
   type PermissionChoice,
 } from "../shared/ipc";
 import * as sessions from "./sessions";
@@ -50,10 +51,34 @@ const runtime = new HarnessRuntime({
       });
       send(IPC.chatDelta, { sessionId, messageId, delta });
     },
-    // Structured tool channel — wired up for real in the tool-activity task;
-    // no-ops keep the runtime compiling until then.
-    onTool: () => {},
-    onThinking: () => {},
+    // Structured tool events: persist the part on the assistant message and
+    // broadcast it so the renderer mirrors the live stream part-by-part.
+    onTool: (sessionId, messageId, part) => {
+      // LiveToolPart carries harness-core's optional isError; the shared
+      // contract requires it, so normalize at this boundary.
+      const normalized: ChatToolEvent["part"] =
+        part.type === "toolCall"
+          ? part
+          : {
+              type: "toolResult",
+              toolCallId: part.toolCallId,
+              content: part.content,
+              isError: part.isError === true,
+              durationMs: part.durationMs,
+            };
+      sessions.updateMessage(sessionId, messageId, (m) => {
+        m.parts.push(normalized);
+      });
+      send(IPC.chatTool, { sessionId, messageId, part: normalized });
+    },
+    onThinking: (sessionId, messageId, delta) => {
+      sessions.updateMessage(sessionId, messageId, (m) => {
+        const last = m.parts[m.parts.length - 1];
+        if (last?.type === "thinking") last.text += delta;
+        else m.parts.push({ type: "thinking", text: delta });
+      });
+      send(IPC.chatThinking, { sessionId, messageId, delta });
+    },
     onCompleted: (sessionId, messageId) => {
       sessions.updateMessage(sessionId, messageId, { streaming: false });
       send(IPC.chatDone, { sessionId, messageId });
