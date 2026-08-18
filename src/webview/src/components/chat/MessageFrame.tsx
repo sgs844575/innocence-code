@@ -40,7 +40,18 @@ export function MessageFrame({ parts, streaming, isLatest, t, onQuote }: Props):
         </div>
       </div>
       {segments.map((seg, i) => {
-        if (seg.kind === "thinking") return <ThinkingBlock key={i} text={seg.text} live={streaming} t={t} />;
+        if (seg.kind === "thinking")
+          // live 只在"思考是当前活动"（仍是末段）时为真——整条消息还在流式
+          // 但已进入正文/工具阶段时，思考块必须收成静态的"已思考 N 秒"，
+          // 否则 shimmer 流光会在思考结束后一直闪。
+          return (
+            <ThinkingBlock
+              key={i}
+              text={seg.text}
+              live={streaming && i === segments.length - 1}
+              t={t}
+            />
+          );
         if (seg.kind === "tools") return <TurnCollapse key={i} parts={seg.parts} live={streaming} t={t} />;
         return (
           <div key={i} className="min-h-6">
