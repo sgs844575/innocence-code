@@ -129,8 +129,8 @@ export function Composer({
                   .map((p) => (
                     <optgroup key={p.id} label={p.name}>
                       {p.models.map((m) => (
-                        <option key={m} value={`${p.id}::${m}`}>
-                          {p.name} / {m}
+                        <option key={m.id} value={`${p.id}::${m.id}`}>
+                          {p.name} / {m.id}
                         </option>
                       ))}
                     </optgroup>

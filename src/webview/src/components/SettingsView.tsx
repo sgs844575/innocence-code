@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type {
   HarnessSettings,
+  ModelInfo,
   PermissionMode,
   ProviderKind,
   ProviderProfile,
@@ -259,7 +260,11 @@ function ProfileDetail({
     setFetchError("");
     try {
       const ids = await api.listProviderModels(profile.id);
-      onChange({ models: [...new Set([...profile.models, ...ids])] });
+      const existing = new Set(profile.models.map((m) => m.id));
+      const added = ids
+        .filter((id) => !existing.has(id))
+        .map((id): ModelInfo => ({ id, source: "fetch" }));
+      onChange({ models: [...profile.models, ...added] });
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -360,12 +365,14 @@ function ProfileDetail({
       )}
       <div className="card divide-y divide-(--color-app-hairline)">
         {profile.models.map((m) => (
-          <div key={m} className="group flex items-center gap-2 px-3.5 py-2">
-            <code className="min-w-0 flex-1 truncate font-mono text-xs">{m}</code>
+          <div key={m.id} className="group flex items-center gap-2 px-3.5 py-2">
+            <code className="min-w-0 flex-1 truncate font-mono text-xs">{m.id}</code>
             <button
               type="button"
-              aria-label={`删除模型 ${m}`}
-              onClick={() => onChange({ models: profile.models.filter((x) => x !== m) })}
+              aria-label={`删除模型 ${m.id}`}
+              onClick={() =>
+                onChange({ models: profile.models.filter((x) => x.id !== m.id) })
+              }
               className="hidden text-(--color-app-muted) hover:text-red-400 group-hover:block"
             >
               <X size={13} />
@@ -388,7 +395,7 @@ function ProfileDetail({
             type="button"
             disabled={!newModel.trim()}
             onClick={() => {
-              onChange({ models: [...profile.models, newModel.trim()] });
+              onChange({ models: [...profile.models, { id: newModel.trim(), source: "manual" }] });
               setNewModel("");
             }}
             className="grid size-7 shrink-0 place-items-center rounded-full bg-(--color-app-accent) text-(--color-app-accent-fg) transition-transform active:scale-95 disabled:opacity-30"

@@ -1,6 +1,10 @@
-// Harness settings v2 — multi-platform provider profiles (Cherry-Studio
-// style), persisted by the host. Kept free of Electron imports so the
-// runtime stays unit-testable.
+// Harness settings v3 — multi-platform provider profiles (Cherry-Studio
+// style) with per-model metadata (ModelInfo), persisted by the host. Kept
+// free of Electron imports so the runtime stays unit-testable.
+
+import { modelFromPreset, resolvePresetMeta, type ModelInfo } from "./modelPresets";
+
+export type { ModelInfo } from "./modelPresets";
 
 export type ProviderKind = "openai" | "anthropic";
 export type PermissionMode = "auto" | "ask" | "plan";
@@ -16,8 +20,8 @@ export interface ProviderProfile {
   /** Empty = the kind's official default endpoint. */
   baseURL: string;
   enabled: boolean;
-  /** User-managed model id list (fetched from /models or added manually). */
-  models: string[];
+  /** User-managed models with metadata (fetched, manual, or preset-enriched). */
+  models: ModelInfo[];
   /** True for shipped presets (UI shows them read-only-ish naming). */
   preset?: boolean;
 }
@@ -64,7 +68,7 @@ function presetProfile(preset: ProviderPreset): ProviderProfile {
     apiKey: "",
     baseURL: preset.baseURL,
     enabled: false,
-    models: [...preset.models],
+    models: preset.models.map((m) => modelFromPreset(preset.name, m)),
     preset: true,
   };
 }
@@ -96,6 +100,34 @@ export function newCustomProfile(name = "自定义平台"): ProviderProfile {
   };
 }
 
+/** Normalizes one model entry: v2 strings migrate (preset-hit enriches,
+ *  anything else is manual), v3 objects keep their fields as-is. */
+function normalizeModel(raw: unknown, providerName: string): ModelInfo | null {
+  if (typeof raw === "string" && raw.length > 0) {
+    // v2 迁移：预设命中记 preset 并 enrich 元数据，否则记 manual（用户自己加过的）。
+    const meta = resolvePresetMeta(providerName, raw);
+    return meta ? { id: raw, source: "preset", ...meta } : { id: raw, source: "manual" };
+  }
+  if (typeof raw !== "object" || raw === null) return null;
+  const src = raw as Partial<ModelInfo>;
+  if (typeof src.id !== "string" || !src.id) return null;
+  const num = (v: unknown) => (typeof v === "number" && v > 0 ? v : undefined);
+  return {
+    id: src.id,
+    name: typeof src.name === "string" && src.name ? src.name : undefined,
+    group: typeof src.group === "string" && src.group ? src.group : undefined,
+    contextWindow: num(src.contextWindow),
+    maxInput: num(src.maxInput),
+    maxOutput: num(src.maxOutput),
+    vision: src.vision === true || undefined,
+    tools: src.tools === true || undefined,
+    reasoning: src.reasoning === true || undefined,
+    streaming: src.streaming === false ? false : undefined,
+    source: src.source === "fetch" || src.source === "manual" ? src.source : "preset",
+    dirty: src.dirty === true || undefined,
+  };
+}
+
 function normalizeProfile(raw: unknown): ProviderProfile | null {
   if (typeof raw !== "object" || raw === null) return null;
   const src = raw as Partial<ProviderProfile>;
@@ -108,7 +140,9 @@ function normalizeProfile(raw: unknown): ProviderProfile | null {
     baseURL: typeof src.baseURL === "string" ? src.baseURL : "",
     enabled: src.enabled === true,
     models: Array.isArray(src.models)
-      ? src.models.filter((m): m is string => typeof m === "string" && m.length > 0)
+      ? src.models
+          .map((m) => normalizeModel(m, src.name ?? ""))
+          .filter((m): m is ModelInfo => m !== null)
       : [],
     preset: src.preset === true,
   };
@@ -141,7 +175,7 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
       apiKey: v1.openai.apiKey,
       baseURL: v1.openai.baseURL ?? "",
       enabled: true,
-      models: [v1.openai.model ?? "gpt-4o"],
+      models: [modelFromPreset("OpenAI", v1.openai.model ?? "gpt-4o")],
       preset: true,
     });
   }
@@ -153,7 +187,7 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
       apiKey: v1.anthropic.apiKey,
       baseURL: "",
       enabled: true,
-      models: [v1.anthropic.model ?? "claude-sonnet-4-5"],
+      models: [modelFromPreset("Anthropic", v1.anthropic.model ?? "claude-sonnet-4-5")],
       preset: true,
     });
   }
@@ -169,13 +203,13 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
     const p = profiles.find((x) => x.kind === "openai" && x.enabled);
     if (p) {
       activeProfileId = p.id;
-      activeModel = p.models[0] ?? MOCK_MODEL;
+      activeModel = p.models[0]?.id ?? MOCK_MODEL;
     }
   } else if (v1.providerId === "anthropic") {
     const p = profiles.find((x) => x.kind === "anthropic" && x.enabled);
     if (p) {
       activeProfileId = p.id;
-      activeModel = p.models[0] ?? MOCK_MODEL;
+      activeModel = p.models[0]?.id ?? MOCK_MODEL;
     }
   }
   return {
@@ -192,7 +226,8 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
 
 /**
  * Defensive merge/normalize for settings loaded from disk:
- * accepts v2 (profiles[]) and migrates v1 (providerId/openai/anthropic).
+ * accepts v2/v3 (profiles[]) — v2 string models migrate to ModelInfo —
+ * and migrates v1 (providerId/openai/anthropic).
  */
 export function mergeSettings(raw: unknown): HarnessSettings {
   if (typeof raw !== "object" || raw === null) return DEFAULT_SETTINGS;
@@ -212,9 +247,9 @@ export function mergeSettings(raw: unknown): HarnessSettings {
     profiles,
     activeProfileId: active?.id ?? MOCK_PROFILE_ID,
     activeModel:
-      active && typeof src.activeModel === "string" && active.models.includes(src.activeModel)
+      active && typeof src.activeModel === "string" && active.models.some((m) => m.id === src.activeModel)
         ? src.activeModel
-        : (active?.models[0] ?? MOCK_MODEL),
+        : (active?.models[0]?.id ?? MOCK_MODEL),
     workspaceRoot: typeof src.workspaceRoot === "string" ? src.workspaceRoot : "",
     permissionMode:
       src.permissionMode === "auto" || src.permissionMode === "plan"
@@ -234,7 +269,7 @@ export function resolveActive(settings: HarnessSettings): ActiveResolution {
   const profile = settings.profiles.find(
     (p) => p.id === settings.activeProfileId && p.enabled,
   );
-  if (!profile || !profile.models.includes(settings.activeModel)) {
+  if (!profile || !profile.models.some((m) => m.id === settings.activeModel)) {
     return { kind: "mock" };
   }
   return {

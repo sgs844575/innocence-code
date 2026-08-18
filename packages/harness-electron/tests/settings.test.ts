@@ -9,6 +9,7 @@ import {
   newCustomProfile,
   resolveActive,
 } from "../src";
+import { modelFromPreset } from "../src/modelPresets";
 
 describe("mergeSettings", () => {
   it("garbage input falls back to defaults with presets", () => {
@@ -32,7 +33,7 @@ describe("mergeSettings", () => {
       apiKey: "sk-old",
       baseURL: "https://gw.example/v1",
       enabled: true,
-      models: ["gpt-4o-mini"],
+      models: [{ id: "gpt-4o-mini", source: "preset" }],
     });
     // Anthropic had no key -> not migrated as enabled
     expect(s.profiles.find((p) => p.name === "Anthropic")?.enabled).toBe(false);
@@ -66,11 +67,14 @@ describe("mergeSettings", () => {
     expect(s.permissionMode).toBe("ask");
   });
 
-  it("round-trips valid v2 settings unchanged", () => {
+  it("round-trips valid v3 settings unchanged", () => {
     const profile = newCustomProfile("我的网关");
     profile.apiKey = "k";
     profile.baseURL = "https://gw/v1";
-    profile.models = ["x", "y"];
+    profile.models = [
+      { id: "x", source: "manual" },
+      { id: "y", source: "fetch" },
+    ];
     const input = {
       profiles: [profile],
       activeProfileId: profile.id,
@@ -98,6 +102,73 @@ describe("mergeSettings", () => {
   });
 });
 
+describe("settings v3 迁移", () => {
+  it("v2 的 string[] models 迁移为对象并 enrich", () => {
+    const s = mergeSettings({
+      profiles: [
+        {
+          id: "p1",
+          name: "DeepSeek",
+          kind: "openai",
+          apiKey: "k",
+          baseURL: "",
+          enabled: true,
+          models: ["deepseek-chat", "custom-x"],
+        },
+      ],
+      activeProfileId: "p1",
+      activeModel: "deepseek-chat",
+      workspaceRoot: "",
+      permissionMode: "ask",
+    });
+    const p = s.profiles.find((x) => x.id === "p1")!;
+    expect(p.models[0]).toMatchObject({ id: "deepseek-chat", source: "preset", tools: true });
+    expect(p.models[1]).toEqual({ id: "custom-x", source: "manual" });
+  });
+
+  it("已是对象的 models 保留字段，dirty 不被重置", () => {
+    const s = mergeSettings({
+      profiles: [
+        {
+          id: "p1",
+          name: "DeepSeek",
+          kind: "openai",
+          apiKey: "",
+          baseURL: "",
+          enabled: true,
+          models: [{ id: "deepseek-chat", contextWindow: 999, source: "manual", dirty: true }],
+        },
+      ],
+      activeProfileId: "p1",
+      activeModel: "deepseek-chat",
+      workspaceRoot: "",
+      permissionMode: "ask",
+    });
+    expect(s.profiles[0]!.models[0]).toMatchObject({ contextWindow: 999, dirty: true });
+  });
+
+  it("resolveActive 按 id 匹配", () => {
+    const s = mergeSettings({
+      profiles: [
+        {
+          id: "p1",
+          name: "DeepSeek",
+          kind: "openai",
+          apiKey: "k",
+          baseURL: "",
+          enabled: true,
+          models: [modelFromPreset("DeepSeek", "deepseek-chat")],
+        },
+      ],
+      activeProfileId: "p1",
+      activeModel: "deepseek-chat",
+      workspaceRoot: "",
+      permissionMode: "ask",
+    });
+    expect(resolveActive(s)).toMatchObject({ kind: "openai", model: "deepseek-chat" });
+  });
+});
+
 describe("resolveActive", () => {
   it("returns mock when nothing valid is active", () => {
     expect(resolveActive(DEFAULT_SETTINGS)).toEqual({ kind: "mock" });
@@ -114,13 +185,13 @@ describe("resolveActive", () => {
     const r = resolveActive({
       ...s,
       activeProfileId: p.id,
-      activeModel: p.models[0],
+      activeModel: p.models[0].id,
     });
     expect(r).toEqual({
       kind: p.kind,
       apiKey: "k",
       baseURL: p.baseURL,
-      model: p.models[0],
+      model: p.models[0].id,
     });
   });
 });

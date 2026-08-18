@@ -126,6 +126,26 @@ export type PermissionChoice = "allow" | "allowSession" | "deny";
 export type ProviderKind = "openai" | "anthropic";
 export type PermissionMode = "auto" | "ask" | "plan";
 
+// 镜像契约：以下两个类型复制自 packages/harness-electron/src/modelPresets.ts
+// （shared 不 import 包），修改任何一侧时必须同步另一侧。
+export type ModelSource = "preset" | "fetch" | "manual";
+
+export interface ModelInfo {
+  id: string;
+  name?: string;
+  group?: string;
+  contextWindow?: number;
+  maxInput?: number;
+  maxOutput?: number;
+  vision?: boolean;
+  tools?: boolean;
+  reasoning?: boolean;
+  streaming?: boolean;
+  source: ModelSource;
+  /** 用户手改保护：enrich 不覆盖已 dirty 模型的任何字段。 */
+  dirty?: boolean;
+}
+
 export interface ChatPermissionEvent {
   sessionId: string;
   messageId: string;
@@ -142,7 +162,7 @@ export interface ProviderProfile {
   apiKey: string;
   baseURL: string;
   enabled: boolean;
-  models: string[];
+  models: ModelInfo[];
   preset?: boolean;
 }
 
