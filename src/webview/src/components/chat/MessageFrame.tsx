@@ -43,7 +43,7 @@ export function MessageFrame({ parts, streaming, isLatest, t, onQuote }: Props):
         if (seg.kind === "tools") return <TurnCollapse key={i} parts={seg.parts} live={streaming} t={t} />;
         return (
           <div key={i} className="min-h-6">
-            <MarkdownView source={seg.text} t={t} />
+            <MarkdownView source={seg.text} animated={streaming} t={t} />
             {streaming && i === segments.length - 1 && <span className="stream-caret" aria-label="streaming" />}
           </div>
         );

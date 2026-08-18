@@ -18,10 +18,13 @@ function codeTextOf(children: ReactNode): string {
   return "";
 }
 
-export function MarkdownView({ source, t = tZh }: { source: string; t?: (key: string) => string }): React.JSX.Element {
+export function MarkdownView({ source, t = tZh, animated }: { source: string; t?: (key: string) => string; animated?: boolean }): React.JSX.Element {
   return (
     <div className="md-body text-sm leading-relaxed">
       <Streamdown
+        // 流式期间按词淡入（animate 插件按 prevContentLength 去重，只动画
+        // 新增文字，不重放历史）；结束后 animated=false 退回静态渲染。
+        animated={animated ? { animation: "fadeIn", duration: 400, easing: "ease-out", sep: "word", stagger: 30 } : false}
         components={{
           code: (props) => {
             const { className, children } = props;

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "streamdown/styles.css";
 @import "./tokens/palette.css";
 @import "./tokens/semantic.css";
 @import "./tokens/product.css";
@@ -187,6 +188,10 @@
     .fade-in,
     .toast-in,
     .shimmer {
+      animation: none;
+    }
+    /* 流式文字淡入（streamdown [data-sd-animate]）同样尊重减弱动效偏好 */
+    [data-sd-animate] {
       animation: none;
     }
   }
