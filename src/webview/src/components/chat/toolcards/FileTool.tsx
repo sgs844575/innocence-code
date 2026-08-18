@@ -1,4 +1,5 @@
 import { ChevronRight, FileSearch, FileText } from "lucide-react";
+import { RunningMark } from "./RunningMark";
 import type { ToolCardProps } from "./registry";
 
 const PATH_KEYS = ["file_path", "path", "pattern"] as const;
@@ -15,7 +16,7 @@ export function FileTool({ call, result, open, onToggle }: ToolCardProps): React
         <Icon size={12} className="shrink-0" />
         <span className="truncate">{call.toolName} {target}</span>
         <span className={`ml-auto shrink-0 text-[10px] ${result?.isError ? "text-(--color-tool-err)" : "text-(--color-tool-ok)"}`}>
-          {result ? (result.isError ? "✕" : "✓") : "…"}
+          {result ? (result.isError ? "✕" : "✓") : <RunningMark />}
         </span>
       </button>
       {open && result && (

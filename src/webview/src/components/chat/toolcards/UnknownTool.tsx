@@ -1,4 +1,5 @@
 import { ChevronRight, Puzzle } from "lucide-react";
+import { RunningMark } from "./RunningMark";
 import type { ToolCardProps } from "./registry";
 
 /** 兜底卡：mcp__* 与未来工具统一走这里——工具名 + args JSON + 结果。 */
@@ -10,7 +11,7 @@ export function UnknownTool({ call, result, open, onToggle }: ToolCardProps): Re
         <Puzzle size={12} className="shrink-0" />
         <span className="truncate">{call.toolName}</span>
         <span className={`ml-auto shrink-0 text-[10px] ${result?.isError ? "text-(--color-tool-err)" : "text-(--color-tool-ok)"}`}>
-          {result ? (result.isError ? "✕" : "✓") : "…"}
+          {result ? (result.isError ? "✕" : "✓") : <RunningMark />}
         </span>
       </button>
       {open && (

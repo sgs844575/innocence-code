@@ -1,4 +1,5 @@
 import { ChevronRight, Terminal } from "lucide-react";
+import { RunningMark } from "./RunningMark";
 import type { ToolCardProps } from "./registry";
 
 /** Bash 卡：命令一行 + open 时滚动输出，耗时/失败态右对齐。 */
@@ -17,7 +18,7 @@ export function BashTool({ call, result, open, onToggle }: ToolCardProps): React
               : result.durationMs != null
                 ? `✓ ${(result.durationMs / 1000).toFixed(1)}s`
                 : "✓"
-            : "…"}
+            : <RunningMark />}
         </span>
       </button>
       {open && result && (

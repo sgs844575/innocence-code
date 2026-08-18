@@ -1,4 +1,5 @@
 import { ChevronRight, Bot } from "lucide-react";
+import { RunningMark } from "./RunningMark";
 import type { ToolCardProps } from "./registry";
 
 /** Task 卡：子代理任务摘要 + agentType 徽标，open 时展开子代理报告。 */
@@ -13,7 +14,7 @@ export function TaskTool({ call, result, open, onToggle }: ToolCardProps): React
         <span className="truncate text-(--color-app-text)">{desc || "子代理任务"}</span>
         <span className="ml-auto shrink-0 rounded-full border border-(--color-app-hairline) px-1.5 font-mono text-[9.5px]">{agentType}</span>
         <span className={`shrink-0 text-[10px] ${result?.isError ? "text-(--color-tool-err)" : "text-(--color-tool-ok)"}`}>
-          {result ? (result.isError ? "✕" : "✓") : "…"}
+          {result ? (result.isError ? "✕" : "✓") : <RunningMark />}
         </span>
       </button>
       {open && result && (

@@ -4,6 +4,7 @@ import { messageText, type MessagePart } from "../../../../shared/ipc";
 import { MarkdownView } from "./MarkdownView";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnCollapse } from "./TurnCollapse";
+import { WorkingRow, workingStateOf } from "./WorkingRow";
 import { segmentParts } from "./segmentParts";
 
 interface Props {
@@ -47,6 +48,7 @@ export function MessageFrame({ parts, streaming, isLatest, t, onQuote }: Props):
           </div>
         );
       })}
+      {streaming && <WorkingRow state={workingStateOf(parts)} t={t} />}
     </div>
   );
 }
