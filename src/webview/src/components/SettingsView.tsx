@@ -1,7 +1,7 @@
 // Settings content area — renders the section picked in SettingsNav:
 // models (cherry-style provider list + detail pane), general
 // (workspace + permission mode), appearance (theme + language), about.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   HarnessSettings,
   PermissionMode,
@@ -9,6 +9,8 @@ import type {
   ThemeMode,
 } from "../../../shared/ipc";
 import type { SettingsSection } from "./SettingsNav";
+import { api } from "../lib/ipc";
+import { ProviderDetail } from "./settings/provider/ProviderDetail";
 import { ProviderList } from "./settings/provider/ProviderList";
 
 const MOCK_PROFILE_ID = "__mock__";
@@ -81,9 +83,34 @@ function ModelsSection({
   onSettingsChange: (next: HarnessSettings) => void;
 }): React.JSX.Element {
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  // 详情面板的轻提示（连接检查等）：4 秒后自清，App 的 showError 通道不进设置页。
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (msg: string): void => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  };
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
 
   const patchProfiles = (profiles: ProviderProfile[]): void =>
     onSettingsChange({ ...settings, profiles });
+
+  /** 详情面板字段编辑：patch 合并进该 id 的条目后全量提交。 */
+  const patchProfile = (id: string) => (patch: Partial<ProviderProfile>): void =>
+    patchProfiles(settings.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+
+  const listModels = (profile: ProviderProfile): Promise<string[]> =>
+    api.listProviderModels(profile.id);
+
+  const active = settings.profiles.find((p) => p.id === settings.activeProfileId);
 
   /** 选中即切换会话所用厂家；模型沿用同 id 项，否则取首个，无模型回 mock。 */
   const setActive = (id: string): void => {
@@ -157,10 +184,24 @@ function ModelsSection({
           // 任务 5 接 AddProviderDialog；本任务先留空。
         }}
       />
-      {/* 占位详情：任务 2 挂 ProviderDetail。 */}
-      <div className="grid min-w-0 flex-1 place-items-center text-sm text-(--color-app-muted)">
-        选择左侧厂家
-      </div>
+      {/* 详情面板：未选中（或仅剩离线 mock）时保留占位。 */}
+      {active ? (
+        <ProviderDetail
+          profile={active}
+          listModels={listModels}
+          onChange={patchProfile(active.id)}
+          onToast={showToast}
+        />
+      ) : (
+        <div className="grid min-w-0 flex-1 place-items-center text-sm text-(--color-app-muted)">
+          选择左侧厂家
+        </div>
+      )}
+      {toast && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-(--color-app-border) bg-(--color-app-panel) px-4 py-1.5 text-[12px] shadow-(--shadow-pop)">
+          {toast}
+        </div>
+      )}
       {renaming && (
         <div className="fixed inset-0 z-50 grid place-items-center">
           <button
