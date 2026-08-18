@@ -81,8 +81,12 @@ export function ModelList({ profile, onChange, onEditModel, onSync }: Props): Re
           </div>
         );
       })}
-      {profile.models.length === 0 && (
+      {profile.models.length === 0 ? (
         <div className="rounded-lg border border-dashed border-(--color-app-border) py-6 text-center text-[12px] text-(--color-app-muted)">暂无模型——点右上 ↻ 获取，或 ＋ 手动添加</div>
+      ) : (
+        filtered.length === 0 && (
+          <div className="rounded-lg border border-dashed border-(--color-app-border) py-6 text-center text-[12px] text-(--color-app-muted)/80">无匹配模型</div>
+        )
       )}
     </section>
   );

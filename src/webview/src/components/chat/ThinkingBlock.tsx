@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BrainCircuit, ChevronRight } from "lucide-react";
 
-export function ThinkingBlock({ text, live }: { text: string; live: boolean }): React.JSX.Element {
+export function ThinkingBlock({ text, live, t }: { text: string; live: boolean; t: (key: string) => string }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const secs = Math.max(1, Math.round(text.length / 400)); // 字数近似时长，无服务端时间戳
   return (
@@ -10,9 +10,9 @@ export function ThinkingBlock({ text, live }: { text: string; live: boolean }): 
         <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
         <BrainCircuit size={12} className={`shrink-0 ${live ? "animate-pulse text-(--color-app-accent)" : ""}`} />
         {live ? (
-          <span className="shimmer truncate">{text.slice(-60) || "思考中…"}</span>
+          <span className="shimmer truncate">{text.slice(-60) || t("chat.thinking.live")}</span>
         ) : (
-          <span>已思考约 {secs} 秒</span>
+          <span>{t("chat.thinking.done").replace("{n}", String(secs))}</span>
         )}
       </button>
       {open && (

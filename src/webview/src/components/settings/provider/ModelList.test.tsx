@@ -35,4 +35,10 @@ describe("ModelList", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除 glm-4.6" }));
     expect(onChange).toHaveBeenCalledWith({ models: [profile.models[1]] });
   });
+  it("过滤零结果提示无匹配，与空态占位区分", () => {
+    render(<ModelList profile={profile} onChange={() => {}} listModels={listModels} onPatchModel={() => {}} onToast={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText("搜索"), { target: { value: "no-such" } });
+    expect(screen.getByText("无匹配模型")).toBeTruthy();
+    expect(screen.queryByText(/暂无模型/)).toBeNull();
+  });
 });

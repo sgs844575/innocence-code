@@ -1,6 +1,11 @@
 import { isValidElement, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import { CodeBlock } from "./CodeBlock";
+import { zhCN } from "../../lib/i18n";
+
+// t 未注入（如独立测试直接渲染）时退化为 zhCN 查表——CodeBlock 的 code.* 键
+// 由此兜底；真实链路里 MessageFrame 会传入随 locale 的 t。
+const tZh = (key: string): string => zhCN[key] ?? key;
 
 /** Fenced-block code text may arrive as a plain string, or (while a fence is
  *  still streaming) wrapped in a single child element — mirror streamdown's
@@ -13,7 +18,7 @@ function codeTextOf(children: ReactNode): string {
   return "";
 }
 
-export function MarkdownView({ source }: { source: string }): React.JSX.Element {
+export function MarkdownView({ source, t = tZh }: { source: string; t?: (key: string) => string }): React.JSX.Element {
   return (
     <div className="md-body text-sm leading-relaxed">
       <Streamdown
@@ -28,7 +33,7 @@ export function MarkdownView({ source }: { source: string }): React.JSX.Element 
             if (!("data-block" in props)) {
               return <code className="rounded bg-(--color-app-bubble) px-1 py-0.5 font-mono text-[0.9em]">{children}</code>;
             }
-            return <CodeBlock lang={lang} code={text} />;
+            return <CodeBlock lang={lang} code={text} t={t} />;
           },
         }}
       >

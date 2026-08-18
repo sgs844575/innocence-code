@@ -11,7 +11,7 @@ interface Props {
 }
 
 /** 整轮工具活动折叠组：流式展开 → 完成折叠成组行 → 点击下钻到每工具行/明细。 */
-export function TurnCollapse({ parts, live, t: _t }: Props): React.JSX.Element {
+export function TurnCollapse({ parts, live, t }: Props): React.JSX.Element {
   const [openGroup, setOpenGroup] = useState(live); // 完成即折叠：live 变 false 时收起
   const [openTools, setOpenTools] = useState<Set<string>>(new Set());
   useEffect(() => { if (!live) setOpenGroup(false); }, [live]);
@@ -23,12 +23,12 @@ export function TurnCollapse({ parts, live, t: _t }: Props): React.JSX.Element {
       <button
         type="button"
         onClick={() => setOpenGroup((v) => !v)}
-        aria-label={`${summary.count} 个操作 · ${summary.tools.join(" · ")}`}
+        aria-label={`${summary.count} ${t("chat.turn.operations")} · ${summary.tools.join(" · ")}`}
         className="flex w-full items-center gap-2 rounded-[9px] border border-(--color-app-hairline) bg-(--color-app-accent-soft) px-3 py-1.5 text-left text-[11.5px] text-(--color-app-muted) hover:text-(--color-app-text)"
       >
         <ChevronRight size={13} className={`shrink-0 transition-transform ${openGroup ? "rotate-90" : ""}`} />
         <span className="font-mono text-[10px] font-semibold text-(--color-app-accent)">{summary.count}</span>
-        <span>个操作</span>
+        <span>{t("chat.turn.operations")}</span>
         <span className="text-(--color-app-muted)/70">· {summary.tools.join(" · ")}</span>
         {summary.totalMs > 0 && <span className="ml-auto font-mono text-[10px] text-(--color-app-muted)/60">{(summary.totalMs / 1000).toFixed(1)}s</span>}
       </button>

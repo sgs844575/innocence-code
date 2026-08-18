@@ -15,7 +15,7 @@ describe("TurnCollapse", () => {
   it("完成态默认折叠，点击组行展开工具行", () => {
     render(<TurnCollapse parts={[call, result]} live={false} t={t} />);
     expect(screen.queryByText("ls")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /1 个操作/ }));
+    fireEvent.click(screen.getByRole("button", { name: /1 chat\.turn\.operations/ }));
     expect(screen.getByText(/ls/)).toBeTruthy();
   });
   it("流式态默认展开", () => {

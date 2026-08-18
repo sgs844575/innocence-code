@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { codeToHtml, type BundledLanguage } from "shiki";
+import { zhCN } from "../../lib/i18n";
 
 const MAX_COLLAPSED_LINES = 12;
 
-export function CodeBlock({ lang, code }: { lang: string; code: string }): React.JSX.Element {
+// t prop 未注入时的兜底：直接查 zhCN 表（无 locale 状态，权衡见 MarkdownView）。
+const tZh = (key: string): string => zhCN[key] ?? key;
+
+export function CodeBlock({ lang, code, t = tZh }: { lang: string; code: string; t?: (key: string) => string }): React.JSX.Element {
   const [html, setHtml] = useState("");
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -26,7 +30,7 @@ export function CodeBlock({ lang, code }: { lang: string; code: string }): React
         <div className="flex items-center gap-2 text-[11px]">
           {over && (
             <button type="button" onClick={() => setExpanded((v) => !v)} className="text-white/50 hover:text-white/80">
-              {expanded ? "收起" : `展开全部 ${lines.length} 行`}
+              {expanded ? t("code.collapse") : t("code.expand").replace("{n}", String(lines.length))}
             </button>
           )}
           <button
@@ -39,7 +43,7 @@ export function CodeBlock({ lang, code }: { lang: string; code: string }): React
             }}
             className="rounded-full bg-white/10 px-2 py-0.5 text-white/70 hover:bg-white/20 hover:text-white"
           >
-            {copied ? "已复制" : "复制"}
+            {copied ? t("code.copied") : t("code.copy")}
           </button>
         </div>
       </div>

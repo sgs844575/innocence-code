@@ -38,11 +38,11 @@ export function MessageFrame({ parts, streaming, isLatest, t, onQuote }: Props):
         </div>
       </div>
       {segments.map((seg, i) => {
-        if (seg.kind === "thinking") return <ThinkingBlock key={i} text={seg.text} live={streaming} />;
+        if (seg.kind === "thinking") return <ThinkingBlock key={i} text={seg.text} live={streaming} t={t} />;
         if (seg.kind === "tools") return <TurnCollapse key={i} parts={seg.parts} live={streaming} t={t} />;
         return (
           <div key={i} className="min-h-6">
-            <MarkdownView source={seg.text} />
+            <MarkdownView source={seg.text} t={t} />
             {streaming && i === segments.length - 1 && <span className="stream-caret" aria-label="streaming" />}
           </div>
         );

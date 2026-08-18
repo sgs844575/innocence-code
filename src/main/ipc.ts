@@ -14,7 +14,7 @@ import {
   disposeSession,
 } from "./harnessGlue";
 import type { HarnessSettings } from "@innocencecode/harness-electron";
-import { modelFromPreset } from "@innocencecode/harness-electron";
+import { modelFromPreset, resolvePresetMeta } from "@innocencecode/harness-electron";
 import { getMainWindow } from "./appWindow";
 import { popupMenu } from "./menu";
 import { logger } from "./logger";
@@ -91,7 +91,12 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.settingsEnrichModels, (_e, providerName: string, ids: string[]) =>
     // 渲染层无法 import harness-electron（node 侧包），预设元数据在 main 补全。
-    ids.map((id) => modelFromPreset(providerName, id)),
+    // 未命中预设（自定义厂家/未知型号）→ 返回最小 fetch 对象，不再误标 preset。
+    ids.map((id) =>
+      resolvePresetMeta(providerName, id)
+        ? modelFromPreset(providerName, id)
+        : { id, source: "fetch" as const },
+    ),
   );
 
   ipcMain.handle(IPC.menuPopup, (_e, id: MenuId) => {
