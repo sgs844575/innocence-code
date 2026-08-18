@@ -37,6 +37,18 @@ describe("PermissionEngine pipeline", () => {
     expect(r.via).toBe("denyRule");
   });
 
+  it("full mode (完全访问) bypasses even deny rules without asking", async () => {
+    const { decider, calls } = recordingDecider("deny");
+    const engine = new PermissionEngine({ mode: "full", decider });
+    engine.addRules([
+      { name: "deny:Edit(src/**)", match: (c) => (c.toolName === "Edit" ? "deny" : "skip") },
+    ]);
+    const r = await engine.resolve(editCall, { readOnly: false });
+    expect(r.decision).toBe("allow");
+    expect(r.via).toBe("fullMode");
+    expect(calls).toHaveLength(0); // 不弹任何询问
+  });
+
   it("plan mode allows readOnly but denies writes", async () => {
     const { decider } = recordingDecider("allow");
     const engine = new PermissionEngine({ mode: "plan", decider });

@@ -1,6 +1,6 @@
 // Session store persistence: index round-trips, retitle/reorder rules,
 // transcript hydration and deletion — all against a temp dir, no electron.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -36,6 +36,20 @@ describe("session store persistence", () => {
     expect(restored.map((s) => s.id)).toEqual([session.id]);
     expect(restored[0].title).toBe("新会话");
     expect(restored[0].messageCount).toBe(0);
+  });
+
+  it("corrupt transcript (NUL-filled after power loss) heals aside + surfaces a notice, not a silent blank", () => {
+    const session = createSession();
+    mkdirSync(path.join(dir, "transcripts"), { recursive: true });
+    writeFileSync(path.join(dir, "transcripts", `${session.id}.jsonl`), "\u0000".repeat(512), "utf8");
+    initSessionStore(dir); // restart → hydrate hits the corrupt file
+    const msgs = listMessages(session.id);
+    expect(msgs).toHaveLength(1);
+    expect(messageText(msgs[0]!.parts)).toContain("会话记录损坏");
+    const leftover = readdirSync(path.join(dir, "transcripts")).filter(
+      (f) => f.startsWith(session.id) && f.includes(".corrupt-"),
+    );
+    expect(leftover).toHaveLength(1); // 坏文件已移开，后续追加写入新文件
   });
 
   it("keeps display order and newest-first on create", () => {

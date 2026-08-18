@@ -7,7 +7,7 @@ import { modelFromPreset, resolvePresetMeta, type ModelInfo } from "./modelPrese
 export type { ModelInfo } from "./modelPresets";
 
 export type ProviderKind = "openai" | "anthropic";
-export type PermissionMode = "auto" | "ask" | "plan";
+export type PermissionMode = "auto" | "ask" | "plan" | "full";
 export type ThemeMode = "system" | "dark" | "light";
 /** "" = follow the system locale. */
 export type UiLocale = "zh-CN" | "en-US" | "";
@@ -169,6 +169,10 @@ function normalizeThemeMode(raw: unknown): ThemeMode {
   return raw === "dark" || raw === "light" ? raw : "system";
 }
 
+function normalizePermissionMode(raw: unknown): PermissionMode {
+  return raw === "auto" || raw === "plan" || raw === "full" ? raw : "ask";
+}
+
 function normalizeLocale(raw: unknown): UiLocale {
   return raw === "zh-CN" || raw === "en-US" ? raw : "";
 }
@@ -234,8 +238,7 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
     activeProfileId,
     activeModel,
     workspaceRoot: typeof v1.workspaceRoot === "string" ? v1.workspaceRoot : "",
-    permissionMode:
-      v1.permissionMode === "auto" || v1.permissionMode === "plan" ? v1.permissionMode : "ask",
+    permissionMode: normalizePermissionMode(v1.permissionMode),
     themeMode: normalizeThemeMode((v1 as { themeMode?: unknown }).themeMode),
     locale: normalizeLocale((v1 as { locale?: unknown }).locale),
     reasoningEffort: normalizeReasoningEffort((v1 as { reasoningEffort?: unknown }).reasoningEffort),
@@ -252,8 +255,8 @@ export function mergeSettings(raw: unknown): HarnessSettings {
   const src = raw as Partial<HarnessSettings> & SettingsV1;
   if (!Array.isArray(src.profiles)) {
     if (src.providerId || src.openai || src.anthropic) return migrateFromV1(src);
-    return { ...DEFAULT_SETTINGS, workspaceRoot: src.workspaceRoot ?? "", permissionMode:
-      src.permissionMode === "auto" || src.permissionMode === "plan" ? src.permissionMode : "ask",
+    return { ...DEFAULT_SETTINGS, workspaceRoot: src.workspaceRoot ?? "",
+      permissionMode: normalizePermissionMode(src.permissionMode),
       themeMode: normalizeThemeMode(src.themeMode), locale: normalizeLocale(src.locale),
       reasoningEffort: normalizeReasoningEffort(src.reasoningEffort) };
   }
@@ -270,10 +273,7 @@ export function mergeSettings(raw: unknown): HarnessSettings {
         ? src.activeModel
         : (active?.models[0]?.id ?? MOCK_MODEL),
     workspaceRoot: typeof src.workspaceRoot === "string" ? src.workspaceRoot : "",
-    permissionMode:
-      src.permissionMode === "auto" || src.permissionMode === "plan"
-        ? src.permissionMode
-        : "ask",
+    permissionMode: normalizePermissionMode(src.permissionMode),
     themeMode: normalizeThemeMode(src.themeMode),
     locale: normalizeLocale(src.locale),
     reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),

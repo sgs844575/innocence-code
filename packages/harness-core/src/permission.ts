@@ -8,7 +8,7 @@ import type {
 export interface PermissionResolution {
   decision: "allow" | "deny";
   /** Which pipeline stage produced the decision (for events/debugging). */
-  via: "denyRule" | "planMode" | "allowRule" | "autoMode" | "sessionGrant" | "ask";
+  via: "fullMode" | "denyRule" | "planMode" | "allowRule" | "autoMode" | "sessionGrant" | "ask";
   reason: string;
 }
 
@@ -35,6 +35,7 @@ export function defaultGrantKey(call: ToolCallInfo): string {
 
 /**
  * Pipeline (short-circuit, deny-first for safety):
+ *   0. full mode               -> ALLOW（含 deny 规则，完全访问）
  *   1. any deny rule           -> DENY
  *   2. plan mode               -> readOnly ? ALLOW : DENY
  *   3. any allow rule          -> ALLOW
@@ -80,6 +81,11 @@ export class PermissionEngine {
     toolMeta: { readOnly: boolean },
   ): Promise<PermissionResolution> {
     const normalized = this.normalize(call);
+
+    // 完全访问：最顶层短路，连项目 deny 规则也放行（UI 明示慎用）。
+    if (this.mode === "full") {
+      return { decision: "allow", via: "fullMode", reason: "完全访问模式" };
+    }
 
     for (const rule of this.rules) {
       if (rule.match(normalized) === "deny") {

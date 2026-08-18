@@ -107,6 +107,11 @@ describe("mergeSettings", () => {
     expect(mergeSettings({ profiles: [], reasoningEffort: "ultra" }).reasoningEffort).toBe("");
     expect(mergeSettings({ profiles: [] }).reasoningEffort).toBe("");
   });
+
+  it("permissionMode 含 full（完全访问）往返", () => {
+    expect(mergeSettings({ profiles: [], permissionMode: "full" }).permissionMode).toBe("full");
+    expect(mergeSettings({ profiles: [], permissionMode: "yolo" }).permissionMode).toBe("ask");
+  });
 });
 
 describe("settings v3 迁移", () => {

@@ -125,7 +125,7 @@ export interface ChatThinkingEvent {
 
 export type PermissionChoice = "allow" | "allowSession" | "deny";
 export type ProviderKind = "openai" | "anthropic";
-export type PermissionMode = "auto" | "ask" | "plan";
+export type PermissionMode = "auto" | "ask" | "plan" | "full";
 
 // 镜像契约：以下两个类型复制自 packages/harness-electron/src/modelPresets.ts
 // （shared 不 import 包），修改任何一侧时必须同步另一侧。

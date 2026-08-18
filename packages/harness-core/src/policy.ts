@@ -1,4 +1,5 @@
-export type PermissionMode = "auto" | "ask" | "plan";
+/** full = 完全访问：连项目 deny 规则也跳过，一切自动放行（对应 UI 的橙色盾牌档）。 */
+export type PermissionMode = "auto" | "ask" | "plan" | "full";
 
 export type PermissionDecision = "allow" | "deny" | "ask";
 /** "skip" = this rule has no opinion. */

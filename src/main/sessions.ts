@@ -162,7 +162,32 @@ function hydrate(record: SessionRecord): void {
       // Skip a torn line rather than dropping the whole transcript.
     }
   }
-  if (!history) return;
+  if (!history) {
+    // 空文件 = 从未聊过；有内容但一行都解不开 = 损坏（如断电后的全 NUL 文件：
+    // 目录项还在、数据块清零）。把坏文件移开自愈，注入一条可见告知——不能让
+    // 侧栏有会话、聊天页却静默空白。
+    if (raw.trim().length === 0) return;
+    try {
+      fs.renameSync(file, `${file}.corrupt-${Date.now()}`);
+    } catch {
+      // 移不开就原地保留，下次仍走告知路径。
+    }
+    record.messages = [
+      {
+        id: "msg_corrupt_notice",
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            text: "> ⚠️ 会话记录损坏（上次写入中断），历史消息无法恢复；已将损坏的记录文件移开，继续对话不受影响。",
+          },
+        ],
+        createdAt: at,
+      },
+    ];
+    record.messageCount = record.messages.length;
+    return;
+  }
   const messages: ChatMessage[] = [];
   for (const m of history) {
     const role = (m as { role?: unknown }).role;
