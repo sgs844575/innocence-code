@@ -85,7 +85,7 @@ export function Composer({
 
   return (
     <div className="shrink-0 px-[clamp(12px,3vw,24px)] pb-[clamp(10px,1.5vw,16px)]">
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="chat-column">
         <div className="rounded-[18px] border border-(--color-app-border) bg-(--color-app-panel) shadow-(--shadow-card) transition-colors focus-within:border-(--color-app-accent)">
           {header && <div className="px-2.5 pt-2.5">{header}</div>}
           <textarea

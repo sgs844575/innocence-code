@@ -107,7 +107,7 @@ export function ChatView({
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col">
       <div ref={scrollRef} onScroll={onScroll} className="scrollbar-thin flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-[clamp(12px,3vw,24px)] pb-6">
+        <div className="chat-column px-[clamp(12px,3vw,24px)] pb-6">
           <div className="space-y-5 pt-6">
             {messages.map((m) => (
               <MessageItem
