@@ -34,15 +34,23 @@ export function ChatView({
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  // 贴底策略：距底 <48px 视为贴底；用户上滚即暂停自动滚动，回到底部才恢复。
+  // 贴底策略：用户上滚（scrollTop 减小）→ 暂停跟随；回到底部（距底 <48px）→ 恢复。
+  // 判定必须带方向：smooth 跟随动画期间流式内容长高，中途帧距底会 >48px，
+  // 纯距离判定会把程序滚动误判成用户上滚使 pinned 自锁为 false；而向下滚动
+  // （含程序动画）不会让 scrollTop 减小，方向判定天然免疫，对惯性/回弹也稳健。
   const [pinned, setPinned] = useState(true);
+  const lastScrollTop = useRef(0);
   // 引用通道：操作栏「引用」把文本塞进 Composer，Composer 消费后回调清空。
   const [quoteDraft, setQuoteDraft] = useState("");
 
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 48);
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    const wentUp = el.scrollTop < lastScrollTop.current;
+    lastScrollTop.current = el.scrollTop;
+    if (wentUp && !atBottom) setPinned(false);
+    else if (atBottom) setPinned(true);
   };
 
   useEffect(() => {
