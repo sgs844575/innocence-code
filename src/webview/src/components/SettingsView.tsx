@@ -4,12 +4,14 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   HarnessSettings,
+  ModelInfo,
   PermissionMode,
   ProviderProfile,
   ThemeMode,
 } from "../../../shared/ipc";
 import type { SettingsSection } from "./SettingsNav";
 import { api } from "../lib/ipc";
+import { EditModelDrawer } from "./settings/provider/EditModelDrawer";
 import { ProviderDetail } from "./settings/provider/ProviderDetail";
 import { ProviderList } from "./settings/provider/ProviderList";
 
@@ -83,6 +85,8 @@ function ModelsSection({
   onSettingsChange: (next: HarnessSettings) => void;
 }): React.JSX.Element {
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  // 编辑模型抽屉的目标：null 关闭；{id:""} 为新建，首个带 id 的保存才真正落库。
+  const [editing, setEditing] = useState<ModelInfo | null>(null);
   // 详情面板的轻提示（连接检查等）：4 秒后自清，App 的 showError 通道不进设置页。
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,6 +115,27 @@ function ModelsSection({
     api.listProviderModels(profile.id);
 
   const active = settings.profiles.find((p) => p.id === settings.activeProfileId);
+
+  /** 编辑抽屉回写：已有 id → 替换条目并带 dirty（enrich 不再覆盖）；新建未定 id →
+   *  先累积进 editing，直到某个 patch 带 id 才作为 manual 模型插入。取消（id 仍为
+   *  空）则什么都不落。 */
+  const applyModelPatch = (patch: Partial<ModelInfo> & { dirty?: boolean }): void => {
+    if (!active || !editing) return;
+    if (!editing.id) {
+      const next = { ...editing, ...patch };
+      if (patch.id) {
+        const inserted: ModelInfo = { ...next, source: "manual" };
+        patchProfile(active.id)({ models: [...active.models, inserted] });
+        setEditing(inserted); // 后续字段改走"替换条目"路径
+      } else {
+        setEditing(next);
+      }
+      return;
+    }
+    patchProfile(active.id)({
+      models: active.models.map((m) => (m.id === editing.id ? { ...m, ...patch } : m)),
+    });
+  };
 
   /** 选中即切换会话所用厂家；模型沿用同 id 项，否则取首个，无模型回 mock。 */
   const setActive = (id: string): void => {
@@ -191,12 +216,19 @@ function ModelsSection({
           listModels={listModels}
           onChange={patchProfile(active.id)}
           onToast={showToast}
+          onEditModel={setEditing}
         />
       ) : (
         <div className="grid min-w-0 flex-1 place-items-center text-sm text-(--color-app-muted)">
           选择左侧厂家
         </div>
       )}
+      <EditModelDrawer
+        open={editing !== null}
+        model={editing}
+        onClose={() => setEditing(null)}
+        onSave={applyModelPatch}
+      />
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-(--color-app-border) bg-(--color-app-panel) px-4 py-1.5 text-[12px] shadow-(--shadow-pop)">
           {toast}

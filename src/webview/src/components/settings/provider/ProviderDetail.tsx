@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import type { ProviderProfile } from "../../../../../shared/ipc";
+import type { ModelInfo, ProviderProfile } from "../../../../../shared/ipc";
 import { ApiHostField } from "./ApiHostField";
 import { ApiKeyField } from "./ApiKeyField";
 import { ModelList } from "./ModelList";
@@ -11,10 +11,12 @@ interface Props {
   listModels: (profile: ProviderProfile) => Promise<string[]>;
   onChange: (patch: Partial<ProviderProfile>) => void;
   onToast: (msg: string) => void;
+  /** 打开编辑抽屉（SettingsView 持有 editing 状态）。 */
+  onEditModel?: (model: ModelInfo) => void;
 }
 
 /** cherry 式厂家详情：名称 + 启用开关 + 密钥 + 地址 + 模型列表（max-w-3xl 居中）。 */
-export function ProviderDetail({ profile, listModels, onChange, onToast }: Props): React.JSX.Element {
+export function ProviderDetail({ profile, listModels, onChange, onToast, onEditModel }: Props): React.JSX.Element {
   const preset = presetFor(profile.name);
   const check = () => {
     void listModels(profile).then(
@@ -40,7 +42,7 @@ export function ProviderDetail({ profile, listModels, onChange, onToast }: Props
           <div className="text-[12.5px] font-medium">API 地址</div>
           <ApiHostField kind={profile.kind} baseURL={profile.baseURL} presetBaseURL={preset?.baseURL ?? ""} onChange={(url) => onChange({ baseURL: url })} />
         </section>
-        <ModelList profile={profile} onChange={onChange} listModels={listModels} onToast={onToast} />
+        <ModelList profile={profile} onChange={onChange} listModels={listModels} onToast={onToast} onEditModel={onEditModel} />
       </div>
     </div>
   );
