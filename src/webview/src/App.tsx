@@ -11,11 +11,13 @@ import { createT } from "./lib/i18n";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
+import { SettingsView } from "./components/SettingsView";
 
 const APP_NAME = "InnocenceCode";
 
 export function App(): React.JSX.Element {
   const [lang, setLang] = useState("zh-CN");
+  const [view, setView] = useState<"chat" | "settings">("chat");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -66,6 +68,12 @@ export function App(): React.JSX.Element {
     },
     [],
   );
+
+  /** Full-settings replacement (settings page edits whole profiles). */
+  const handleSettingsSet = useCallback((next: HarnessSettings) => {
+    setSettings(next);
+    void api.setHarnessSettings(next);
+  }, []);
 
   const handlePickWorkspace = useCallback(async () => {
     const dir = await api.pickWorkspace();
@@ -184,22 +192,32 @@ export function App(): React.JSX.Element {
             onSelect={setActiveId}
             onNew={handleNewSession}
             onDelete={handleDeleteSession}
+            onOpenSettings={() => setView("settings")}
           />
         )}
         <div className="min-w-0 flex-1 border-l border-(--color-app-border)">
-          <ChatView
-            t={t}
-            appName={APP_NAME}
-            messages={messages}
-            streaming={streamingId !== null}
-            settings={settings}
-            permission={permission}
-            onSettingsChange={handleSettingsChange}
-            onPickWorkspace={() => void handlePickWorkspace()}
-            onPermissionRespond={handlePermissionRespond}
-            onSend={handleSend}
-            onStop={handleStop}
-          />
+          {view === "settings" && settings ? (
+            <SettingsView
+              t={t}
+              settings={settings}
+              onSettingsChange={handleSettingsSet}
+              onBack={() => setView("chat")}
+            />
+          ) : (
+            <ChatView
+              t={t}
+              appName={APP_NAME}
+              messages={messages}
+              streaming={streamingId !== null}
+              settings={settings}
+              permission={permission}
+              onSettingsChange={handleSettingsChange}
+              onPickWorkspace={() => void handlePickWorkspace()}
+              onPermissionRespond={handlePermissionRespond}
+              onSend={handleSend}
+              onStop={handleStop}
+            />
+          )}
         </div>
       </div>
     </div>

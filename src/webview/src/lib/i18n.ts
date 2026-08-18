@@ -54,6 +54,20 @@ const zhCN: Dict = {
   "settings.apiKey": "API Key（仅保存在本机）",
   "settings.model": "模型",
   "settings.baseURL": "Base URL（可选，兼容端点）",
+  "settings.back": "返回",
+  "settings.modelsService": "模型服务",
+  "settings.searchPlatforms": "搜索模型平台…",
+  "settings.addCustom": "添加服务商",
+  "settings.mockDetail": "本地 Mock 无需配置，用于离线演示。选左侧平台配置 API Key 后即可使用真实模型。",
+  "settings.enabled": "启用该平台",
+  "settings.platformName": "平台名称",
+  "settings.kind": "协议类型",
+  "settings.showKey": "显示/隐藏密钥",
+  "settings.models": "模型",
+  "settings.fetchModels": "获取模型列表",
+  "settings.fetching": "获取中…",
+  "settings.noModels": "暂无模型——点「获取模型列表」或手动添加",
+  "settings.addModelPlaceholder": "输入模型 ID，如 gpt-4o",
 };
 
 const enUS: Dict = {
@@ -109,6 +123,20 @@ const enUS: Dict = {
   "settings.apiKey": "API key (stored locally only)",
   "settings.model": "Model",
   "settings.baseURL": "Base URL (optional, compatible endpoints)",
+  "settings.back": "Back",
+  "settings.modelsService": "Model services",
+  "settings.searchPlatforms": "Search platforms…",
+  "settings.addCustom": "Add provider",
+  "settings.mockDetail": "Local mock needs no config — for offline demos. Pick a platform on the left and add an API key to use a real model.",
+  "settings.enabled": "Enable this platform",
+  "settings.platformName": "Platform name",
+  "settings.kind": "Protocol",
+  "settings.showKey": "Show/hide key",
+  "settings.models": "Models",
+  "settings.fetchModels": "Fetch model list",
+  "settings.fetching": "Fetching…",
+  "settings.noModels": "No models yet — fetch the list or add one manually",
+  "settings.addModelPlaceholder": "Model id, e.g. gpt-4o",
 };
 
 export function createT(lang: string): (key: string) => string {

@@ -20,6 +20,7 @@ import { loadInnocenceConfig } from "@innocencecode/harness-core";
 import {
   DEFAULT_SYSTEM_PROMPT,
   MOCK_GREETING,
+  resolveActive,
   type HarnessSettings,
 } from "./settings";
 
@@ -162,17 +163,18 @@ export class HarnessRuntime {
   }
 
   private buildProvider(settings: HarnessSettings) {
-    switch (settings.providerId) {
+    const active = resolveActive(settings);
+    switch (active.kind) {
       case "openai":
         return createOpenAIProvider({
-          apiKey: settings.openai.apiKey || undefined,
-          baseURL: settings.openai.baseURL || undefined,
-          model: settings.openai.model,
+          apiKey: active.apiKey || undefined,
+          baseURL: active.baseURL || undefined,
+          model: active.model,
         });
       case "anthropic":
         return createAnthropicProvider({
-          apiKey: settings.anthropic.apiKey || undefined,
-          model: settings.anthropic.model,
+          apiKey: active.apiKey || undefined,
+          model: active.model,
         });
       default:
         return createMockProvider({ id: "mock", turns: [], exhaustedText: MOCK_GREETING });

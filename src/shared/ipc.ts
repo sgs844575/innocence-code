@@ -23,6 +23,7 @@ export const IPC = {
   workspacePick: "workspace:pick",
   settingsGet: "settings:get",
   settingsSet: "settings:set",
+  settingsModelsList: "settings:models-list",
 } as const;
 
 export type ThemeMode = "system" | "dark" | "light";
@@ -68,10 +69,10 @@ export interface ChatErrorEvent {
   error: string;
 }
 
-// ---- Harness contract (M3) --------------------------------------------------
+// ---- Harness contract (M3+) -------------------------------------------------
 
 export type PermissionChoice = "allow" | "allowSession" | "deny";
-export type ProviderKind = "mock" | "openai" | "anthropic";
+export type ProviderKind = "openai" | "anthropic";
 export type PermissionMode = "auto" | "ask" | "plan";
 
 export interface ChatPermissionEvent {
@@ -82,10 +83,22 @@ export interface ChatPermissionEvent {
   args: Record<string, unknown>;
 }
 
+/** One configured platform (preset or custom). */
+export interface ProviderProfile {
+  id: string;
+  name: string;
+  kind: ProviderKind;
+  apiKey: string;
+  baseURL: string;
+  enabled: boolean;
+  models: string[];
+  preset?: boolean;
+}
+
 export interface HarnessSettings {
-  providerId: ProviderKind;
-  openai: { apiKey: string; baseURL: string; model: string };
-  anthropic: { apiKey: string; model: string };
+  profiles: ProviderProfile[];
+  activeProfileId: string;
+  activeModel: string;
   workspaceRoot: string;
   permissionMode: PermissionMode;
 }
@@ -109,6 +122,7 @@ export interface InnocenceCodeApi {
   pickWorkspace(): Promise<string>;
   getHarnessSettings(): Promise<HarnessSettings>;
   setHarnessSettings(settings: HarnessSettings): Promise<void>;
+  listProviderModels(profileId: string): Promise<string[]>;
   onMenuNewSession(cb: () => void): () => void;
   popupMenu(id: MenuId): Promise<void>;
 }

@@ -5,6 +5,7 @@ import { broadcastTheme, getTheme, setTheme } from "./theme";
 import * as sessions from "./sessions";
 import {
   getHarnessSettings,
+  listProviderModels,
   pickWorkspace,
   respondPermission,
   sendChatTurn,
@@ -73,6 +74,11 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC.settingsGet, () => getHarnessSettings());
   ipcMain.handle(IPC.settingsSet, (_e, next: HarnessSettings) => setHarnessSettings(next));
+  ipcMain.handle(IPC.settingsModelsList, (_e, profileId: string) => {
+    const profile = getHarnessSettings().profiles.find((p) => p.id === profileId);
+    if (!profile) throw new Error(`profile not found: ${profileId}`);
+    return listProviderModels(profile);
+  });
 
   ipcMain.handle(IPC.menuPopup, (_e, id: MenuId) => {
     popupMenu(needWindow(), id);

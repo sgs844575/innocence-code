@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   HarnessRuntime,
   DEFAULT_SETTINGS,
+  listModels,
   mergeSettings,
   type HarnessSettings as PkgSettings,
 } from "@innocencecode/harness-electron";
@@ -86,7 +87,7 @@ export async function initHarness(): Promise<void> {
   } catch {
     settings = DEFAULT_SETTINGS;
   }
-  logger.info("harness initialized", { provider: settings.providerId });
+  logger.info("harness initialized", { activeProfile: settings.activeProfileId });
 }
 
 export function getHarnessSettings(): PkgSettings {
@@ -96,6 +97,13 @@ export function getHarnessSettings(): PkgSettings {
 export async function setHarnessSettings(next: PkgSettings): Promise<void> {
   settings = mergeSettings(next);
   await fs.writeFile(settingsFile(), JSON.stringify(settings, null, 2), "utf8");
+}
+
+/** Fetches a platform's model list (runs in main, where network is available). */
+export async function listProviderModels(
+  profile: Pick<PkgSettings["profiles"][number], "kind" | "apiKey" | "baseURL">,
+): Promise<string[]> {
+  return listModels(profile);
 }
 
 export async function pickWorkspace(): Promise<string> {

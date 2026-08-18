@@ -24,6 +24,7 @@ interface Props {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  onOpenSettings: () => void;
 }
 
 const NAV_ITEMS = [
@@ -33,7 +34,7 @@ const NAV_ITEMS = [
   { icon: Puzzle, key: "sidebar.nav.plugins" },
 ] as const;
 
-export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDelete }: Props): React.JSX.Element {
+export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDelete, onOpenSettings }: Props): React.JSX.Element {
   const [query, setQuery] = useState("");
   const [projectOpen, setProjectOpen] = useState(true);
 
@@ -127,6 +128,7 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
         </span>
         <button
           type="button"
+          onClick={onOpenSettings}
           aria-label={t("sidebar.settings")}
           className="grid size-7 place-items-center rounded-md text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
         >
