@@ -64,7 +64,13 @@ export function appendMessage(id: string, message: ChatMessage): void {
   }
 }
 
-export function updateMessage(sessionId: string, messageId: string, patch: Partial<ChatMessage>): void {
+export function updateMessage(
+  sessionId: string,
+  messageId: string,
+  patch: Partial<ChatMessage> | ((message: ChatMessage) => void),
+): void {
   const message = sessions.get(sessionId)?.messages.find((m) => m.id === messageId);
-  if (message) Object.assign(message, patch);
+  if (!message) return;
+  if (typeof patch === "function") patch(message);
+  else Object.assign(message, patch);
 }

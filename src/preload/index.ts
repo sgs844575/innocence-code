@@ -24,6 +24,12 @@ const api: InnocenceCodeApi = {
   onChatDelta: (cb) => subscribe(IPC.chatDelta, cb as never),
   onChatDone: (cb) => subscribe(IPC.chatDone, cb as never),
   onChatError: (cb) => subscribe(IPC.chatError, cb as never),
+  onChatPermission: (cb) => subscribe(IPC.chatPermission, cb as never),
+  respondChatPermission: (requestId, choice) =>
+    ipcRenderer.invoke(IPC.chatPermissionRespond, requestId, choice),
+  pickWorkspace: () => ipcRenderer.invoke(IPC.workspacePick),
+  getHarnessSettings: () => ipcRenderer.invoke(IPC.settingsGet),
+  setHarnessSettings: (settings) => ipcRenderer.invoke(IPC.settingsSet, settings),
   onMenuNewSession: (cb) => subscribe(IPC.uiNewSession, cb as never),
   popupMenu: (id) => ipcRenderer.invoke(IPC.menuPopup, id),
 };

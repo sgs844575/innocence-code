@@ -1,19 +1,37 @@
 import { useEffect, useRef } from "react";
 import { Rocket, Wrench, GitPullRequestArrow, Bug } from "lucide-react";
-import type { ChatMessage } from "../../../shared/ipc";
+import type { ChatMessage, ChatPermissionEvent, HarnessSettings, PermissionChoice } from "../../../shared/ipc";
 import { MessageItem } from "./MessageItem";
 import { Composer } from "./Composer";
+import { PermissionCard } from "./PermissionCard";
 
 interface Props {
   t: (key: string) => string;
   appName: string;
   messages: ChatMessage[];
   streaming: boolean;
+  settings: HarnessSettings | null;
+  permission: ChatPermissionEvent | null;
+  onSettingsChange: (patch: Partial<HarnessSettings>) => void;
+  onPickWorkspace: () => void;
+  onPermissionRespond: (requestId: string, choice: PermissionChoice) => void;
   onSend: (text: string) => void;
   onStop: () => void;
 }
 
-export function ChatView({ t, appName, messages, streaming, onSend, onStop }: Props): React.JSX.Element {
+export function ChatView({
+  t,
+  appName,
+  messages,
+  streaming,
+  settings,
+  permission,
+  onSettingsChange,
+  onPickWorkspace,
+  onPermissionRespond,
+  onSend,
+  onStop,
+}: Props): React.JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,10 +55,18 @@ export function ChatView({ t, appName, messages, streaming, onSend, onStop }: Pr
         </div>
       </div>
 
+      {permission && (
+        <div className="px-6">
+          <PermissionCard t={t} request={permission} onRespond={onPermissionRespond} />
+        </div>
+      )}
+
       <Composer
         t={t}
-        appName={appName}
         streaming={streaming}
+        settings={settings}
+        onSettingsChange={onSettingsChange}
+        onPickWorkspace={onPickWorkspace}
         onSend={onSend}
         onStop={onStop}
       />

@@ -1,0 +1,21 @@
+{
+  "name": "@innocencecode/harness-electron",
+  "version": "0.1.0",
+  "description": "Runtime glue between harness-core sessions and the InnocenceCode host (UI-bridges injected, no direct Electron imports)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@innocencecode/harness-core": "*",
+    "@innocencecode/provider-anthropic": "*",
+    "@innocencecode/provider-mock": "*",
+    "@innocencecode/provider-openai": "*",
+    "@innocencecode/tools-fs": "*"
+  }
+}

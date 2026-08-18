@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ChatMessage, Session } from "../../shared/ipc";
+import type {
+  ChatMessage,
+  ChatPermissionEvent,
+  HarnessSettings,
+  PermissionChoice,
+  Session,
+} from "../../shared/ipc";
 import { api } from "./lib/ipc";
 import { createT } from "./lib/i18n";
 import { TitleBar } from "./components/TitleBar";
@@ -15,6 +21,8 @@ export function App(): React.JSX.Element {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [settings, setSettings] = useState<HarnessSettings | null>(null);
+  const [permission, setPermission] = useState<ChatPermissionEvent | null>(null);
   const t = useMemo(() => createT(lang), [lang]);
 
   const refreshSessions = useCallback(async () => {
@@ -26,7 +34,43 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     void api.getAppInfo().then((info) => setLang(info.locale));
     void refreshSessions();
+    void api.getHarnessSettings().then(setSettings);
   }, [refreshSessions]);
+
+  // Permission asks arrive mid-stream; only one card at a time (the loop
+  // resolves asks sequentially).
+  useEffect(() => {
+    const off = api.onChatPermission((e) => {
+      if (e.sessionId !== activeId) return;
+      setPermission(e);
+    });
+    return off;
+  }, [activeId]);
+
+  const handlePermissionRespond = useCallback(
+    (requestId: string, choice: PermissionChoice) => {
+      setPermission(null);
+      void api.respondChatPermission(requestId, choice);
+    },
+    [],
+  );
+
+  const handleSettingsChange = useCallback(
+    (patch: Partial<HarnessSettings>) => {
+      setSettings((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, ...patch };
+        void api.setHarnessSettings(next);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handlePickWorkspace = useCallback(async () => {
+    const dir = await api.pickWorkspace();
+    if (dir) handleSettingsChange({ workspaceRoot: dir });
+  }, [handleSettingsChange]);
 
   useEffect(() => {
     if (!activeId) {
@@ -49,6 +93,7 @@ export function App(): React.JSX.Element {
     const offDone = api.onChatDone((e) => {
       if (e.sessionId !== activeId) return;
       setStreamingId(null);
+      setPermission(null);
       setMessages((prev) =>
         prev.map((m) => (m.id === e.messageId ? { ...m, streaming: false } : m)),
       );
@@ -57,6 +102,7 @@ export function App(): React.JSX.Element {
     const offError = api.onChatError((e) => {
       if (e.sessionId !== activeId) return;
       setStreamingId(null);
+      setPermission(null);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === e.messageId
@@ -146,6 +192,11 @@ export function App(): React.JSX.Element {
             appName={APP_NAME}
             messages={messages}
             streaming={streamingId !== null}
+            settings={settings}
+            permission={permission}
+            onSettingsChange={handleSettingsChange}
+            onPickWorkspace={() => void handlePickWorkspace()}
+            onPermissionRespond={handlePermissionRespond}
             onSend={handleSend}
             onStop={handleStop}
           />

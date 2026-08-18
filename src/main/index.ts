@@ -4,6 +4,7 @@ import { app, Menu } from "electron";
 import { handleAppScheme, registerAppScheme } from "./protocol";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
+import { initHarness } from "./harnessGlue";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
 import { logger } from "./logger";
@@ -27,6 +28,7 @@ if (!gotLock) {
     .then(async () => {
       handleAppScheme();
       registerIpcHandlers();
+      await initHarness();
 
       const win = await createMainWindow();
       // Non-mac: the custom title bar's File/Edit/View/Help buttons pop up

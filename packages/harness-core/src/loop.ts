@@ -105,7 +105,7 @@ export async function runLoop(
       }
 
       if (parts.length === 0) break;
-      history.push({ role: "assistant", parts });
+      history.push({ role: "assistant", parts: mergeTextParts(parts) });
       onEvent({ type: "assistantMessage", parts });
 
       const calls = parts.filter(
@@ -225,6 +225,20 @@ export async function runLoop(
     last?.parts.filter((p) => p.type === "text").map((p) => p.text).join("") ?? "";
   onEvent({ type: "done", turns });
   return { turns, finalText, aborted };
+}
+
+/** Collapses consecutive text deltas into one part (readable history, clean transcripts). */
+function mergeTextParts(parts: MessagePart[]): MessagePart[] {
+  const merged: MessagePart[] = [];
+  for (const part of parts) {
+    const last = merged[merged.length - 1];
+    if (part.type === "text" && last?.type === "text") {
+      last.text += part.text;
+    } else {
+      merged.push(part);
+    }
+  }
+  return merged;
 }
 
 async function withTimeout<T>(

@@ -17,6 +17,12 @@ export const IPC = {
   chatDelta: "chat:delta",
   chatDone: "chat:done",
   chatError: "chat:error",
+  // Harness additions (M3) — additive only, existing channels untouched.
+  chatPermission: "chat:permission",
+  chatPermissionRespond: "chat:permission-respond",
+  workspacePick: "workspace:pick",
+  settingsGet: "settings:get",
+  settingsSet: "settings:set",
 } as const;
 
 export type ThemeMode = "system" | "dark" | "light";
@@ -62,6 +68,28 @@ export interface ChatErrorEvent {
   error: string;
 }
 
+// ---- Harness contract (M3) --------------------------------------------------
+
+export type PermissionChoice = "allow" | "allowSession" | "deny";
+export type ProviderKind = "mock" | "openai" | "anthropic";
+export type PermissionMode = "auto" | "ask" | "plan";
+
+export interface ChatPermissionEvent {
+  sessionId: string;
+  messageId: string;
+  requestId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
+export interface HarnessSettings {
+  providerId: ProviderKind;
+  openai: { apiKey: string; baseURL: string; model: string };
+  anthropic: { apiKey: string; model: string };
+  workspaceRoot: string;
+  permissionMode: PermissionMode;
+}
+
 export interface InnocenceCodeApi {
   getAppInfo(): Promise<AppInfo>;
   getTheme(): Promise<{ mode: ThemeMode; resolved: ResolvedTheme }>;
@@ -76,6 +104,11 @@ export interface InnocenceCodeApi {
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatDone(cb: (e: ChatDoneEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;
+  onChatPermission(cb: (e: ChatPermissionEvent) => void): () => void;
+  respondChatPermission(requestId: string, choice: PermissionChoice): Promise<void>;
+  pickWorkspace(): Promise<string>;
+  getHarnessSettings(): Promise<HarnessSettings>;
+  setHarnessSettings(settings: HarnessSettings): Promise<void>;
   onMenuNewSession(cb: () => void): () => void;
   popupMenu(id: MenuId): Promise<void>;
 }

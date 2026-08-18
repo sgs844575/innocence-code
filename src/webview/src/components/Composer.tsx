@@ -1,15 +1,29 @@
 import { useRef, useState, type KeyboardEvent } from "react";
-import { Plus, Folder, MonitorSmartphone, GitBranch, ShieldCheck, Square, ArrowUp } from "lucide-react";
+import { Plus, Folder, ShieldCheck, Square, ArrowUp } from "lucide-react";
+import type { HarnessSettings, PermissionMode, ProviderKind } from "../../../shared/ipc";
 
 interface Props {
   t: (key: string) => string;
-  appName: string;
   streaming: boolean;
+  settings: HarnessSettings | null;
+  onSettingsChange: (patch: Partial<HarnessSettings>) => void;
+  onPickWorkspace: () => void;
   onSend: (text: string) => void;
   onStop: () => void;
 }
 
-export function Composer({ t, appName, streaming, onSend, onStop }: Props): React.JSX.Element {
+const PROVIDERS: ProviderKind[] = ["mock", "openai", "anthropic"];
+const MODES: PermissionMode[] = ["auto", "ask", "plan"];
+
+export function Composer({
+  t,
+  streaming,
+  settings,
+  onSettingsChange,
+  onPickWorkspace,
+  onSend,
+  onStop,
+}: Props): React.JSX.Element {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -30,16 +44,99 @@ export function Composer({ t, appName, streaming, onSend, onStop }: Props): Reac
   };
 
   const canSend = value.trim().length > 0 && !streaming;
+  const provider = settings?.providerId ?? "mock";
+  const providerSettings =
+    provider === "openai"
+      ? settings?.openai
+      : provider === "anthropic"
+        ? settings?.anthropic
+        : undefined;
+  const needsKey = provider !== "mock" && !providerSettings?.apiKey;
+  const workspaceName = settings?.workspaceRoot
+    ? settings.workspaceRoot.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? ""
+    : "";
 
   return (
     <div className="shrink-0 px-6 pb-4">
       <div className="mx-auto w-full max-w-3xl">
-        {/* Context pill row: which project/environment/branch this message
-            would run against. Purely informational in the mock backend. */}
+        {/* Inline provider credentials — appears only when a real provider is
+            selected but has no key yet. */}
+        {needsKey && (
+          <div className="mb-1.5 flex items-center gap-2 rounded-lg border border-(--color-app-border) bg-(--color-app-panel) px-3 py-2 text-xs">
+            <input
+              type="password"
+              placeholder={t("settings.apiKey")}
+              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-(--color-app-muted)"
+              onChange={(e) => {
+                if (!settings) return;
+                if (provider === "openai") {
+                  onSettingsChange({ openai: { ...settings.openai, apiKey: e.target.value } });
+                } else if (provider === "anthropic") {
+                  onSettingsChange({
+                    anthropic: { ...settings.anthropic, apiKey: e.target.value },
+                  });
+                }
+              }}
+            />
+            <input
+              type="text"
+              placeholder={provider === "openai" ? t("settings.model") : t("settings.model")}
+              defaultValue={provider === "openai" ? settings?.openai.model : settings?.anthropic.model}
+              className="w-40 shrink-0 bg-transparent outline-none placeholder:text-(--color-app-muted)"
+              onChange={(e) => {
+                if (!settings) return;
+                if (provider === "openai") {
+                  onSettingsChange({ openai: { ...settings.openai, model: e.target.value } });
+                } else if (provider === "anthropic") {
+                  onSettingsChange({
+                    anthropic: { ...settings.anthropic, model: e.target.value },
+                  });
+                }
+              }}
+            />
+          </div>
+        )}
+
         <div className="mb-1.5 flex items-center gap-1.5 px-1 text-xs text-(--color-app-muted)">
-          <Pill icon={Folder}>{appName}</Pill>
-          <Pill icon={MonitorSmartphone}>{t("composer.env")}</Pill>
-          <Pill icon={GitBranch}>{t("composer.branch")}</Pill>
+          <button
+            type="button"
+            onClick={onPickWorkspace}
+            title={settings?.workspaceRoot || t("workspace.none")}
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-(--color-app-bubble)"
+          >
+            <Folder size={13} />
+            {workspaceName || t("workspace.none")}
+          </button>
+          <span className="flex items-center gap-1 rounded-md px-1.5 py-1">
+            <ShieldCheck size={13} />
+            <select
+              aria-label={t("permission.mode")}
+              value={settings?.permissionMode ?? "ask"}
+              onChange={(e) =>
+                onSettingsChange({ permissionMode: e.target.value as PermissionMode })
+              }
+              className="cursor-pointer appearance-none bg-transparent outline-none"
+            >
+              {MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {t(`permission.mode.${mode}`)}
+                </option>
+              ))}
+            </select>
+          </span>
+          <div className="flex-1" />
+          <select
+            aria-label={t("composer.model")}
+            value={provider}
+            onChange={(e) => onSettingsChange({ providerId: e.target.value as ProviderKind })}
+            className="cursor-pointer appearance-none rounded-md bg-(--color-app-bubble) px-2 py-1 text-[11px] font-medium text-(--color-app-muted) outline-none"
+          >
+            {PROVIDERS.map((p) => (
+              <option key={p} value={p}>
+                {t(`provider.${p}`)}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="rounded-2xl border border-(--color-app-border) bg-(--color-app-panel) shadow-sm focus-within:border-(--color-app-accent)">
@@ -63,11 +160,7 @@ export function Composer({ t, appName, streaming, onSend, onStop }: Props): Reac
             >
               <Plus size={16} />
             </button>
-            <Pill icon={ShieldCheck}>{t("composer.permission")}</Pill>
             <div className="flex-1" />
-            <span className="rounded-md bg-(--color-app-bubble) px-2 py-1 text-[11px] font-medium text-(--color-app-muted)">
-              {t("composer.model")}
-            </span>
             {streaming ? (
               <button
                 type="button"
@@ -92,15 +185,6 @@ export function Composer({ t, appName, streaming, onSend, onStop }: Props): Reac
         </div>
       </div>
     </div>
-  );
-}
-
-function Pill({ icon: Icon, children }: { icon: typeof Folder; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <span className="flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-(--color-app-bubble)">
-      <Icon size={13} />
-      {children}
-    </span>
   );
 }
 
