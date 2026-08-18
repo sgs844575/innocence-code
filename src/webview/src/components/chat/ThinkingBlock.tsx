@@ -20,7 +20,7 @@ export function ThinkingBlock({ text, live, t }: { text: string; live: boolean; 
         )}
       </button>
       {open && (
-        <pre className="scrollbar-thin max-h-60 overflow-auto border-t border-(--color-app-hairline) px-3 py-2 text-[11.5px] leading-relaxed text-(--color-app-muted)">{text}</pre>
+        <pre className="scrollbar-thin max-h-60 overflow-y-auto whitespace-pre-wrap break-words border-t border-(--color-app-hairline) px-3 py-2 text-[11.5px] leading-relaxed text-(--color-app-muted)">{text}</pre>
       )}
     </div>
   );
