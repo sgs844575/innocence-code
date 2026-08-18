@@ -50,3 +50,4 @@ export {
 } from "./context-manager";
 export { runLoop, DEFAULT_MAX_TURNS, DEFAULT_TOOL_TIMEOUT_MS, type LoopOptions, type LoopResult } from "./loop";
 export { AgentSession, type AgentSessionOptions, type RunSummary } from "./session";
+export { parseSSEData } from "./sse";
