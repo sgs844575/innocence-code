@@ -1,12 +1,15 @@
 // packages/harness-electron/src/modelPresets.ts
-// 模型预设元数据：上下文/输出/能力默认值。
+// 模型预设元数据：上下文/输出/能力/思考档位默认值。
 //
 // 数据分三层合并（后者覆盖前者同名条目）：
-//   1. cherry 规范模型表（presets/models.json，ownedBy 归属）
+//   1. cherry 规范模型表（presets/models.json，ownedBy 厂牌归属）
 //   2. cherry 厂商别名表（presets/provider-models.json，API 原始 id → 规范 id）
 //   3. MANUAL 手工层（cherry 未覆盖/需校正的条目，优先级最高）
-// 1、2 来自 cherry-studio packages/provider-registry（MIT）的编译产物裁剪本，
+// 全部数据来自 cherry-studio packages/provider-registry（MIT）的完整编译产物，
 // 再生成方法见 presets/README.md。
+//
+// 查找是【厂家无关】的：先按厂家表精确命中，之后回退到全局索引（精确 →
+// 点/下划线归一化）——中转站/网关厂商名下出现任何家的模型 id 都能拿到元数据。
 // 所有数值只是默认值，用户在编辑抽屉里改过的字段以 dirty 标记保护（见 settings v3）。
 
 import cherryModelsJson from "./presets/models.json";
@@ -21,6 +24,8 @@ export interface PresetModelMeta {
   vision?: boolean;
   tools?: boolean;
   reasoning?: boolean;
+  /** 支持的思考档位（openai reasoning_effort 风格，如 minimal/low/medium/high）。 */
+  reasoningEfforts?: string[];
 }
 
 export type ModelSource = "preset" | "fetch" | "manual";
@@ -35,13 +40,19 @@ export interface ModelInfo {
   vision?: boolean;
   tools?: boolean;
   reasoning?: boolean;
+  reasoningEfforts?: string[];
   streaming?: boolean;
   source: ModelSource;
   /** 用户手改保护：enrich 不覆盖已 dirty 模型的任何字段。 */
   dirty?: boolean;
 }
 
-// ---- cherry registry 数据形状（裁剪保留的字段） -------------------------------
+// ---- cherry registry 数据形状（用到的字段） ----------------------------------
+
+interface CherryReasoning {
+  supportedEfforts?: string[];
+  controls?: { kind?: string; values?: string[] }[];
+}
 
 interface CherryModel {
   id: string;
@@ -50,6 +61,7 @@ interface CherryModel {
   contextWindow?: number;
   maxOutputTokens?: number;
   capabilities?: string[];
+  reasoning?: CherryReasoning;
 }
 
 interface CherryOverride {
@@ -78,6 +90,12 @@ const CHERRY_PROVIDER: Record<string, { id: string; owners: string[] }> = {
   "Ollama 本地": { id: "ollama", owners: [] },
 };
 
+function effortsOf(e: CherryModel): string[] | undefined {
+  if (!e.reasoning) return undefined;
+  const list = e.reasoning.supportedEfforts ?? e.reasoning.controls?.find((c) => c.kind === "effort")?.values;
+  return list && list.length > 0 ? list : undefined;
+}
+
 function toMeta(e: CherryModel): PresetModelMeta | null {
   const caps = e.capabilities ?? [];
   const meta: PresetModelMeta = {};
@@ -86,31 +104,40 @@ function toMeta(e: CherryModel): PresetModelMeta | null {
   if (e.name) meta.name = e.name;
   if (caps.includes("function-call")) meta.tools = true;
   if (caps.includes("image-recognition")) meta.vision = true;
-  if (caps.includes("reasoning")) meta.reasoning = true;
+  if (caps.includes("reasoning")) {
+    meta.reasoning = true;
+    const efforts = effortsOf(e);
+    if (efforts) meta.reasoningEfforts = efforts;
+  }
   return Object.keys(meta).length > 0 ? meta : null;
 }
 
 const CHERRY_MODELS = (cherryModelsJson as { models: CherryModel[] }).models;
 const CHERRY_OVERRIDES = (cherryOverridesJson as { overrides: CherryOverride[] }).overrides;
 
-/** 规范 id → 元数据（全厂商闭包：含别名引用到的其他家条目）。 */
+/** 规范 id → 元数据（全库）。 */
 const CANONICAL = new Map<string, PresetModelMeta>();
 for (const e of CHERRY_MODELS) {
   const meta = toMeta(e);
   if (meta) CANONICAL.set(e.id, meta);
 }
 
-/** cherry 厂商 id →（API 原始 id → 规范元数据）。目标规范条目缺失时跳过。 */
+/** cherry 厂商 id →（API 原始 id → 规范元数据）。 */
 const ALIASES = new Map<string, Map<string, PresetModelMeta>>();
+/** 全局别名索引：任何 API 原始 id → 规范元数据（厂家无关回退用）。 */
+const GLOBAL_ALIAS = new Map<string, PresetModelMeta>();
 for (const o of CHERRY_OVERRIDES) {
   const meta = CANONICAL.get(o.modelId);
   if (!meta) continue;
+  const withName = o.name ? { ...meta, name: o.name } : meta;
   const per = ALIASES.get(o.providerId) ?? new Map<string, PresetModelMeta>();
-  per.set(o.apiModelId ?? o.modelId, o.name ? { ...meta, name: o.name } : meta);
+  per.set(o.apiModelId ?? o.modelId, withName);
   ALIASES.set(o.providerId, per);
+  GLOBAL_ALIAS.set(o.apiModelId ?? o.modelId, GLOBAL_ALIAS.get(o.apiModelId ?? o.modelId) ?? withName);
 }
 
 // ---- 手工层：cherry 数据的缺口与校正（优先级最高） ----------------------------
+// （表内容见下；reasoning 档位不手工指定——统一交给 cherry 数据或 UI 通用档位）
 
 const MANUAL: Record<string, Record<string, PresetModelMeta>> = {
   OpenAI: {
@@ -240,10 +267,23 @@ for (const [name, table] of Object.entries(PRESET_MODELS)) {
   NORMALIZED[name] = map;
 }
 
+/** 全局归一化索引（别名 ∪ 规范，厂家无关）。 */
+const GLOBAL_NORM = new Map<string, PresetModelMeta>();
+for (const [id, meta] of [...GLOBAL_ALIAS, ...CANONICAL]) {
+  const key = norm(id);
+  GLOBAL_NORM.set(key, GLOBAL_NORM.get(key) ?? meta);
+}
+
+/** 厂家无关的元数据解析：厂家表精确 → 厂家归一化 → 全局别名 → 全局规范 →
+ *  全局归一化。中转站（自定义厂家）名下的任何家模型 id 都能命中。 */
 export function resolvePresetMeta(providerName: string, modelId: string): PresetModelMeta | undefined {
-  const table = PRESET_MODELS[providerName];
-  if (!table) return undefined;
-  return table[modelId] ?? NORMALIZED[providerName]?.get(norm(modelId));
+  return (
+    PRESET_MODELS[providerName]?.[modelId] ??
+    NORMALIZED[providerName]?.get(norm(modelId)) ??
+    GLOBAL_ALIAS.get(modelId) ??
+    CANONICAL.get(modelId) ??
+    GLOBAL_NORM.get(norm(modelId))
+  );
 }
 
 /** 由预设生成落库模型对象；无元数据时生成仅含 id 的最小对象。 */

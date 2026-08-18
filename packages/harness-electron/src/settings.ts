@@ -36,6 +36,17 @@ export interface HarnessSettings {
   themeMode?: ThemeMode;
   /** Preferred UI language; "" follows the system locale. */
   locale?: UiLocale;
+  /** 思考档位（""=跟随模型默认；off/low/medium/high）。 */
+  reasoningEffort?: ReasoningEffort;
+}
+
+/** 思考档位全集；空串 = 不带参数（跟随模型默认）。 */
+export type ReasoningEffort = "" | "off" | "low" | "medium" | "high";
+
+export const REASONING_EFFORTS: ReasoningEffort[] = ["", "off", "low", "medium", "high"];
+
+function normalizeReasoningEffort(raw: unknown): ReasoningEffort {
+  return REASONING_EFFORTS.includes(raw as ReasoningEffort) ? (raw as ReasoningEffort) : "";
 }
 
 /** Built-in offline profile — always available, models: ["mock"]. */
@@ -85,6 +96,7 @@ export const DEFAULT_SETTINGS: HarnessSettings = {
   permissionMode: "ask",
   themeMode: "system",
   locale: "",
+  reasoningEffort: "",
 };
 
 let customSeq = 0;
@@ -225,6 +237,7 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
       v1.permissionMode === "auto" || v1.permissionMode === "plan" ? v1.permissionMode : "ask",
     themeMode: normalizeThemeMode((v1 as { themeMode?: unknown }).themeMode),
     locale: normalizeLocale((v1 as { locale?: unknown }).locale),
+    reasoningEffort: normalizeReasoningEffort((v1 as { reasoningEffort?: unknown }).reasoningEffort),
   };
 }
 
@@ -240,7 +253,8 @@ export function mergeSettings(raw: unknown): HarnessSettings {
     if (src.providerId || src.openai || src.anthropic) return migrateFromV1(src);
     return { ...DEFAULT_SETTINGS, workspaceRoot: src.workspaceRoot ?? "", permissionMode:
       src.permissionMode === "auto" || src.permissionMode === "plan" ? src.permissionMode : "ask",
-      themeMode: normalizeThemeMode(src.themeMode), locale: normalizeLocale(src.locale) };
+      themeMode: normalizeThemeMode(src.themeMode), locale: normalizeLocale(src.locale),
+      reasoningEffort: normalizeReasoningEffort(src.reasoningEffort) };
   }
 
   const profiles = src.profiles
@@ -261,6 +275,7 @@ export function mergeSettings(raw: unknown): HarnessSettings {
         : "ask",
     themeMode: normalizeThemeMode(src.themeMode),
     locale: normalizeLocale(src.locale),
+    reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),
   };
 }
 

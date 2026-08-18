@@ -135,4 +135,15 @@ describe("toOpenAIBody", () => {
     ) as Record<string, unknown>;
     expect("tools" in body).toBe(false);
   });
+
+  it("reasoning_effort: 设置档位时携带，off/未设置时省略", () => {
+    const base = {
+      system: "s",
+      tools: [],
+      messages: [{ role: "user" as const, parts: [{ type: "text" as const, text: "hi" }] }],
+    };
+    expect(toOpenAIBody(base, { model: "m", reasoningEffort: "high" }).reasoning_effort).toBe("high");
+    expect(toOpenAIBody(base, { model: "m", reasoningEffort: "off" }).reasoning_effort).toBeUndefined();
+    expect(toOpenAIBody(base, { model: "m" }).reasoning_effort).toBeUndefined();
+  });
 });

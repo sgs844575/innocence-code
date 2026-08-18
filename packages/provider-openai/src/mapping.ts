@@ -6,7 +6,7 @@ import type { ChatRequest } from "@innocencecode/harness-core";
  */
 export function toOpenAIBody(
   req: ChatRequest,
-  cfg: { model: string; maxTokens?: number; temperature?: number },
+  cfg: { model: string; maxTokens?: number; temperature?: number; reasoningEffort?: string },
 ): Record<string, unknown> {
   const messages: Array<Record<string, unknown>> = [];
   if (req.system) messages.push({ role: "system", content: req.system });
@@ -63,5 +63,10 @@ export function toOpenAIBody(
   }
   if (cfg.maxTokens !== undefined) body.max_tokens = cfg.maxTokens;
   if (cfg.temperature !== undefined) body.temperature = cfg.temperature;
+  // 思考档位（o系列/gpt-5/GLM 等 OpenAI 兼容端点的 reasoning_effort）；
+  // "off"/未设置 = 不带参数（跟随模型默认）。
+  if (cfg.reasoningEffort && cfg.reasoningEffort !== "off") {
+    body.reasoning_effort = cfg.reasoningEffort;
+  }
   return body;
 }

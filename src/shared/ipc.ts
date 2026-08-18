@@ -141,6 +141,7 @@ export interface ModelInfo {
   vision?: boolean;
   tools?: boolean;
   reasoning?: boolean;
+  reasoningEfforts?: string[];
   streaming?: boolean;
   source: ModelSource;
   /** 用户手改保护：enrich 不覆盖已 dirty 模型的任何字段。 */
@@ -177,6 +178,8 @@ export interface HarnessSettings {
   themeMode?: ThemeMode;
   /** Preferred UI language; "" follows the system locale. */
   locale?: "zh-CN" | "en-US" | "";
+  /** 思考档位（""=跟随模型默认；off/low/medium/high）。与 harness-electron 同步。 */
+  reasoningEffort?: "" | "off" | "low" | "medium" | "high";
 }
 
 /** AddProviderDialog 的预设选项（PROVIDER_PRESET_MIRROR 的条目形状）。 */

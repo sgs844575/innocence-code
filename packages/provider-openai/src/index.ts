@@ -9,6 +9,8 @@ export interface OpenAIProviderConfig {
   model: string;
   maxTokens?: number;
   temperature?: number;
+  /** 思考档位（"low"|"medium"|"high"…，"off"/undefined 不带参数）。 */
+  reasoningEffort?: string;
   /** Provider id for the registry; default "openai". */
   id?: string;
   /** Injectable for tests. */
@@ -38,6 +40,7 @@ export function createOpenAIProvider(config: OpenAIProviderConfig): Provider {
             model: config.model,
             maxTokens: config.maxTokens,
             temperature: config.temperature,
+            reasoningEffort: config.reasoningEffort,
           }),
         ),
         signal: req.signal,

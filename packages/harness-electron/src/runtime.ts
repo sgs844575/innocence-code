@@ -173,17 +173,21 @@ export class HarnessRuntime {
 
   private buildProvider(settings: HarnessSettings) {
     const active = resolveActive(settings);
+    // 空串 = 跟随模型默认（不传参）；off 交给 provider 层解释（openai 省略、anthropic 不开启）。
+    const reasoningEffort = settings.reasoningEffort || undefined;
     switch (active.kind) {
       case "openai":
         return createOpenAIProvider({
           apiKey: active.apiKey || undefined,
           baseURL: active.baseURL || undefined,
           model: active.model,
+          reasoningEffort,
         });
       case "anthropic":
         return createAnthropicProvider({
           apiKey: active.apiKey || undefined,
           model: active.model,
+          reasoningEffort,
         });
       default:
         return createMockProvider({ id: "mock", turns: [], exhaustedText: MOCK_GREETING });

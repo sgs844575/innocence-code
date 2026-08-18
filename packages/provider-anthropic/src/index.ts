@@ -8,6 +8,8 @@ export interface AnthropicProviderConfig {
   model: string;
   maxTokens?: number;
   temperature?: number;
+  /** 思考档位（"low"|"medium"|"high"，映射为 thinking budget；off/undefined 不开启）。 */
+  reasoningEffort?: string;
   id?: string;
   fetchImpl?: typeof fetch;
 }
@@ -36,6 +38,7 @@ export function createAnthropicProvider(config: AnthropicProviderConfig): Provid
             model: config.model,
             maxTokens: config.maxTokens,
             temperature: config.temperature,
+            reasoningEffort: config.reasoningEffort,
           }),
         ),
         signal: req.signal,

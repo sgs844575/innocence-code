@@ -6,7 +6,7 @@ import type { ChatRequest, Message, MessagePart } from "@innocencecode/harness-c
  */
 export function toAnthropicBody(
   req: ChatRequest,
-  cfg: { model: string; maxTokens?: number; temperature?: number },
+  cfg: { model: string; maxTokens?: number; temperature?: number; reasoningEffort?: string },
 ): Record<string, unknown> {
   const messages = req.messages
     .map(mapMessage)
@@ -27,8 +27,16 @@ export function toAnthropicBody(
     }));
   }
   if (cfg.temperature !== undefined) body.temperature = cfg.temperature;
+  // 思考档位 → extended thinking 预算；开启时 max_tokens 必须大于预算。
+  if (cfg.reasoningEffort && cfg.reasoningEffort !== "off") {
+    const budget = THINKING_BUDGET[cfg.reasoningEffort] ?? THINKING_BUDGET.high;
+    body.thinking = { type: "enabled", budget_tokens: budget };
+    body.max_tokens = Math.max(cfg.maxTokens ?? 8192, budget + 8192);
+  }
   return body;
 }
+
+const THINKING_BUDGET: Record<string, number> = { low: 4096, medium: 16384, high: 32768 };
 
 function mapMessage(m: Message): { role: string; content: unknown[] } {
   return { role: m.role, content: m.parts.map(mapPart).filter((p) => p !== null) };

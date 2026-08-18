@@ -129,6 +129,19 @@ describe("toAnthropicBody", () => {
     expect(body.tools[0]).toMatchObject({ name: "Read", input_schema: { type: "object" } });
   });
 
+  it("reasoningEffort 映射 thinking 预算并抬高 max_tokens；off/未设置不开启", () => {
+    const base = {
+      system: "s",
+      tools: [],
+      messages: [{ role: "user" as const, parts: [{ type: "text" as const, text: "hi" }] }],
+    };
+    const high = toAnthropicBody(base, { model: "m", reasoningEffort: "high" }) as Record<string, any>;
+    expect(high.thinking).toEqual({ type: "enabled", budget_tokens: 32768 });
+    expect(high.max_tokens).toBeGreaterThanOrEqual(32768 + 8192); // 预算之上留输出空间
+    expect(toAnthropicBody(base, { model: "m", reasoningEffort: "off" }).thinking).toBeUndefined();
+    expect(toAnthropicBody(base, { model: "m" }).thinking).toBeUndefined();
+  });
+
   it("drops empty-text parts and empty messages", () => {
     const body = toAnthropicBody(
       {

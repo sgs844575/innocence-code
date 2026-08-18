@@ -83,6 +83,7 @@ describe("mergeSettings", () => {
       permissionMode: "auto" as const,
       themeMode: "dark" as const,
       locale: "zh-CN" as const,
+      reasoningEffort: "high" as const,
     };
     expect(mergeSettings(input)).toEqual(input);
   });
@@ -99,6 +100,12 @@ describe("mergeSettings", () => {
       themeMode: "light",
       locale: "en-US",
     });
+  });
+
+  it("reasoningEffort 往返：合法值保留，非法值回落空串", () => {
+    expect(mergeSettings({ profiles: [], reasoningEffort: "high" }).reasoningEffort).toBe("high");
+    expect(mergeSettings({ profiles: [], reasoningEffort: "ultra" }).reasoningEffort).toBe("");
+    expect(mergeSettings({ profiles: [] }).reasoningEffort).toBe("");
   });
 });
 

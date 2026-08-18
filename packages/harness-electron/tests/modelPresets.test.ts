@@ -50,6 +50,19 @@ describe("cherry registry 适配层", () => {
     const meta = resolvePresetMeta("Gemini", "gemini-2.0-flash-lite");
     expect(meta?.contextWindow).toBeGreaterThan(0);
   });
+  it("厂家无关全局回退：中转站（任意厂家名）下的任何家模型 id 都能命中", () => {
+    expect(resolvePresetMeta("我的中转站", "gpt-5")?.contextWindow).toBe(400000);
+    expect(resolvePresetMeta("我的中转站", "claude-sonnet-4-5")?.tools).toBe(true);
+    expect(resolvePresetMeta("自定义网关", "deepseek-chat")?.contextWindow).toBeGreaterThan(0);
+  });
+  it("reasoningEfforts 从 cherry reasoning 元数据提取", () => {
+    // 走全局路径（中转站名）拿 cherry 原始条目——厂家表里的 gpt-5 是手工层
+    // （无 efforts 字段），恰好同时验证"手工层只覆盖自己声明的字段"这一事实。
+    const meta = resolvePresetMeta("我的中转站", "gpt-5");
+    expect(meta?.reasoning).toBe(true);
+    expect(meta?.reasoningEfforts).toContain("high");
+    expect(meta?.reasoningEfforts).toContain("minimal");
+  });
   it("手工层优先于 cherry 数据", () => {
     // MANUAL 的 sonnet-4-5 maxOutput=32000，cherry 规范值是 64000——手工层必须赢
     expect(resolvePresetMeta("Anthropic", "claude-sonnet-4-5")?.maxOutput).toBe(32000);

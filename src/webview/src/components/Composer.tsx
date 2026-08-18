@@ -8,6 +8,7 @@ import {
 } from "../../../shared/ipc";
 import { ModelPicker } from "./composer/ModelPicker";
 import { PermissionModePicker } from "./composer/PermissionModePicker";
+import { ThinkingEffortPicker } from "./composer/ThinkingEffortPicker";
 import { WorkspaceChip } from "./composer/WorkspaceChip";
 import { useCommandK } from "./composer/useCommandK";
 
@@ -132,6 +133,12 @@ export function Composer({
                 <span className="truncate">{t("provider.mock")}</span>
               </button>
             )}
+
+            <ThinkingEffortPicker
+              t={t}
+              value={settings?.reasoningEffort ?? ""}
+              onChange={(effort) => onSettingsChange({ reasoningEffort: effort })}
+            />
 
             {streaming ? (
               <button
