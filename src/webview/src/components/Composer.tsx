@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Plus, Folder, ShieldCheck, Square, ArrowUp, ChevronDown } from "lucide-react";
 import type { HarnessSettings, PermissionMode } from "../../../shared/ipc";
 
@@ -10,6 +10,9 @@ interface Props {
   onPickWorkspace: () => void;
   onSend: (text: string) => void;
   onStop: () => void;
+  /** 引用通道注入文本：并入输入框后立即回调 onConsumed 清掉 draft。 */
+  initialText?: string;
+  onConsumed?: () => void;
 }
 
 const MODES: PermissionMode[] = ["auto", "ask", "plan"];
@@ -23,9 +26,19 @@ export function Composer({
   onPickWorkspace,
   onSend,
   onStop,
+  initialText,
+  onConsumed,
 }: Props): React.JSX.Element {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!initialText) return;
+    setValue((v) => (v ? `${v}\n${initialText}` : initialText));
+    onConsumed?.();
+    requestAnimationFrame(() => ref.current?.focus());
+    // 依赖只含 initialText：onConsumed 后 draft 已清空，回调引用不触发重复并入。
+  }, [initialText]);
 
   const submit = (): void => {
     const text = value.trim();

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Rocket, Wrench, GitPullRequestArrow, Bug } from "lucide-react";
 import type { ChatMessage, ChatPermissionEvent, HarnessSettings, PermissionChoice } from "../../../shared/ipc";
 import { MessageItem } from "./MessageItem";
@@ -33,6 +33,8 @@ export function ChatView({
   onStop,
 }: Props): React.JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 引用通道：操作栏「引用」把文本塞进 Composer，Composer 消费后回调清空。
+  const [quoteDraft, setQuoteDraft] = useState("");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -47,7 +49,13 @@ export function ChatView({
           ) : (
             <div className="space-y-5 pt-6">
               {messages.map((m) => (
-                <MessageItem key={m.id} t={t} message={m} />
+                <MessageItem
+                  key={m.id}
+                  t={t}
+                  message={m}
+                  isLatest={m.id === messages[messages.length - 1]?.id}
+                  onQuote={setQuoteDraft}
+                />
               ))}
             </div>
           )}
@@ -69,6 +77,8 @@ export function ChatView({
         onPickWorkspace={onPickWorkspace}
         onSend={onSend}
         onStop={onStop}
+        initialText={quoteDraft}
+        onConsumed={() => setQuoteDraft("")}
       />
     </main>
   );
