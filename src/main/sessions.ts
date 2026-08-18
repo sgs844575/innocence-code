@@ -148,8 +148,9 @@ function hydrate(record: SessionRecord): void {
   } catch {
     return; // No transcript yet (created but never chatted in).
   }
-  // Each line appends one turn whose history is the full conversation so far,
-  // so the last parseable line carries everything.
+  // Each line appends one turn whose history is the full conversation so far.
+  // 取"最全的快照"而非盲取最后一行：重启后 runtime 若曾以空历史发言，最后
+  // 一行会是只含那一轮的短快照（写侧已修，读侧兜底救回旧行里的完整历史）。
   let history: unknown[] | null = null;
   let at = record.createdAt;
   for (const line of raw.split("\n")) {
@@ -157,7 +158,7 @@ function hydrate(record: SessionRecord): void {
     if (!trimmed) continue;
     try {
       const rec = JSON.parse(trimmed) as TranscriptTurn;
-      if (Array.isArray(rec.history)) {
+      if (Array.isArray(rec.history) && (history === null || rec.history.length >= history.length)) {
         history = rec.history;
         const parsed = Date.parse(typeof rec.at === "string" ? rec.at : "");
         if (!Number.isNaN(parsed)) at = parsed;

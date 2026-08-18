@@ -188,6 +188,33 @@ describe("session store persistence", () => {
     expect(listSessions()[0].messageCount).toBe(2);
   });
 
+  it("短快照覆盖防护：取最全快照而非最后一行（重启后短 persist 行不再吞掉历史）", () => {
+    const s = createSession();
+    mkdirSync(path.join(dir, "transcripts"), { recursive: true });
+    const full = [
+      { role: "user", parts: [{ type: "text", text: "问1" }] },
+      { role: "assistant", parts: [{ type: "text", text: "答1" }] },
+      { role: "user", parts: [{ type: "text", text: "问2" }] },
+      { role: "assistant", parts: [{ type: "text", text: "答2" }] },
+    ];
+    const short = [
+      { role: "user", parts: [{ type: "text", text: "问3" }] },
+      { role: "assistant", parts: [{ type: "text", text: "答3" }] },
+    ];
+    writeFileSync(
+      path.join(dir, "transcripts", `${s.id}.jsonl`),
+      [
+        JSON.stringify({ at: "2026-08-18T10:00:00.000Z", type: "turn", user: "问2", history: full }),
+        JSON.stringify({ at: "2026-08-18T11:00:00.000Z", type: "turn", user: "问3", history: short }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    initSessionStore(dir);
+    const msgs = listMessages(s.id);
+    expect(msgs.map((m) => messageText(m.parts))).toEqual(["问1", "答1", "问2", "答2"]);
+    expect(listSessions()[0].messageCount).toBe(4);
+  });
+
   it("hydrate 保留 toolCall/toolResult parts 并按 live 形状配对", () => {
     const s = createSession();
     mkdirSync(path.join(dir, "transcripts"), { recursive: true });

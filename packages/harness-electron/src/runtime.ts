@@ -59,6 +59,10 @@ export interface RuntimeOptions {
   persistDir?: string;
   /** Replaces the settings-based provider construction (test seam). */
   providerFactory?: (settings: HarnessSettings) => Provider;
+  /** 回灌历史：runtime 进程内没有某会话的缓存时（典型：应用重启后首次
+   *  在该会话发言），从宿主的会话存储取既有消息，种进新建的 agent——
+   *  否则 persist 会写出一个只含本轮的短快照，覆盖视图里的完整历史。 */
+  loadHistory?: (chatSessionId: string) => Message[] | Promise<Message[]>;
 }
 
 let seq = 0;
@@ -166,6 +170,13 @@ export class HarnessRuntime {
       session.history.push(
         ...cached.session.history.map((m) => ({ role: m.role, parts: [...m.parts] })),
       );
+    } else if (this.options.loadHistory) {
+      // 全新条目（应用重启后首次在该会话发言）：回灌磁盘上的既有历史，
+      // 让 persist 写出的仍是完整对话快照，模型也拿得到全部上下文。
+      const prior = await this.options.loadHistory(chatSessionId);
+      if (prior.length > 0) {
+        session.history.push(...prior.map((m) => ({ role: m.role, parts: [...m.parts] })));
+      }
     }
     this.sessions.set(chatSessionId, { key, session });
     return session;

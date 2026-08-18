@@ -85,6 +85,31 @@ describe("HarnessRuntime", () => {
     expect(record.history.at(-1).parts[0].text).toContain("你好，我是回复");
   });
 
+  it("loadHistory 回灌：重启后（无缓存）首轮 persist 含完整历史而非短快照", async () => {
+    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+    const full: HarnessSettings = { ...DEFAULT_SETTINGS, workspaceRoot: workspace };
+    const runtime = new HarnessRuntime({
+      settings: () => full,
+      hooks: makeHooks(recorded),
+      persistDir,
+      providerFactory: () => createMockProvider({ turns: [{ text: "接着说" }] }),
+      // 模拟重启后从会话存储读回的既有两轮
+      loadHistory: () => [
+        { role: "user", parts: [{ type: "text", text: "第一问" }] },
+        { role: "assistant", parts: [{ type: "text", text: "第一答" }] },
+      ],
+    });
+    await runtime.send("sess-seed", "新问题", "msg_seed");
+    expect(recorded.completed).toBe(1);
+    const lines = (await fs.readFile(path.join(persistDir, "sess-seed.jsonl"), "utf8"))
+      .trim()
+      .split("\n");
+    const history = JSON.parse(lines[lines.length - 1]).history;
+    expect(history.map((h: { role: string }) => h.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(history[0].parts[0].text).toBe("第一问");
+    expect(history.at(-1).parts.at(-1).text).toContain("接着说");
+  });
+
   it("runs fs tools against the workspace with a permission ask", async () => {
     const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const runtime = makeRuntime(
