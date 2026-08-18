@@ -67,6 +67,32 @@ describe("createAnthropicProvider full path (stubbed fetch)", () => {
     });
   });
 
+  it("thinking_delta 思考增量转成 thinking delta", async () => {
+    const sse = [
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}',
+      "",
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"盘算"}}',
+      "",
+      'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"回答"}}',
+      "",
+      'data: {"type":"message_stop"}',
+      "",
+    ].join("\n");
+    const provider = createAnthropicProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: async () => new Response(sse, { status: 200 }),
+    });
+    const deltas = [];
+    for await (const d of provider.chat({ system: "s", messages: [], tools: [] })) {
+      deltas.push(d);
+    }
+    expect(deltas).toEqual([
+      { type: "thinking", text: "盘算" },
+      { type: "text", text: "回答" },
+    ]);
+  });
+
   it("surfaces HTTP errors with status and body snippet", async () => {
     const provider = createAnthropicProvider({
       apiKey: "k",

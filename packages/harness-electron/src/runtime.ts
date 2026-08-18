@@ -200,6 +200,9 @@ export class HarnessRuntime {
       case "token":
         hooks.onDelta(chatSessionId, messageId, event.text);
         break;
+      case "thinking":
+        hooks.onThinking(chatSessionId, messageId, event.text);
+        break;
       case "toolCall":
         hooks.onTool(chatSessionId, messageId, {
           type: "toolCall",

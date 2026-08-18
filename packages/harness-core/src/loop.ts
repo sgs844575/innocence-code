@@ -96,6 +96,11 @@ export async function runLoop(
             parts.push({ type: "text", text: delta.text });
             onEvent({ type: "token", text: delta.text });
           }
+        } else if (delta.type === "thinking") {
+          if (delta.text) {
+            parts.push({ type: "thinking", text: delta.text });
+            onEvent({ type: "thinking", text: delta.text });
+          }
         } else if (delta.type === "toolCall") {
           parts.push({
             type: "toolCall",
@@ -236,6 +241,8 @@ function mergeTextParts(parts: MessagePart[]): MessagePart[] {
   for (const part of parts) {
     const last = merged[merged.length - 1];
     if (part.type === "text" && last?.type === "text") {
+      last.text += part.text;
+    } else if (part.type === "thinking" && last?.type === "thinking") {
       last.text += part.text;
     } else {
       merged.push(part);

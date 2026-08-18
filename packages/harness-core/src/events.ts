@@ -5,6 +5,7 @@ import type { ToolCallInfo } from "./policy";
 export type HarnessEvent =
   | { type: "turnStart"; turn: number }
   | { type: "token"; text: string }
+  | { type: "thinking"; text: string }
   | { type: "assistantMessage"; parts: MessagePart[] }
   | { type: "toolCall"; id: string; call: ToolCallInfo }
   | {

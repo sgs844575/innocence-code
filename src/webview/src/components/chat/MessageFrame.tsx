@@ -5,7 +5,7 @@ import { MarkdownView } from "./MarkdownView";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { TurnCollapse } from "./TurnCollapse";
 import { WorkingRow, workingStateOf } from "./WorkingRow";
-import { segmentParts } from "./segmentParts";
+import { coalesceToolSegments, segmentParts } from "./segmentParts";
 
 interface Props {
   parts: MessagePart[];
@@ -23,7 +23,8 @@ export function MessageFrame({ parts, streaming, isLatest, t, onQuote }: Props):
       setTimeout(() => setCopied(false), 1500);
     });
   };
-  const segments = segmentParts(parts);
+  // 流式期间逐段渲染（贴近执行过程）；整轮完成后工具段归并成单个组行。
+  const segments = streaming ? segmentParts(parts) : coalesceToolSegments(segmentParts(parts));
   return (
     <div className="group/msg">
       <div className="mb-1 flex items-center gap-2">

@@ -38,6 +38,11 @@ export async function* openAIDeltasFromDataLines(
     if (!choice) continue;
     const text = choice.delta?.content;
     if (typeof text === "string" && text) yield { type: "text", text };
+    // 思考增量：DeepSeek/GLM 系用 reasoning_content，部分网关用 reasoning。
+    const reasoning = choice.delta?.reasoning_content ?? choice.delta?.reasoning;
+    if (typeof reasoning === "string" && reasoning) {
+      yield { type: "thinking", text: reasoning };
+    }
     for (const tc of choice.delta?.tool_calls ?? []) {
       const acc = toolAcc.get(tc.index) ?? { id: "", name: "", args: "" };
       if (tc.id) acc.id = tc.id;
@@ -78,6 +83,8 @@ interface OpenAIChunk {
   choices?: Array<{
     delta?: {
       content?: string;
+      reasoning_content?: string;
+      reasoning?: string;
       tool_calls?: Array<{
         index: number;
         id?: string;

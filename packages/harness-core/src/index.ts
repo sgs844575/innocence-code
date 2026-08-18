@@ -4,6 +4,7 @@ export type {
   MessagePart,
   MessageRole,
   TextPart,
+  ThinkingPart,
   ToolCallPart,
   ToolResultPart,
 } from "./types";

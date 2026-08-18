@@ -55,6 +55,9 @@ export async function* anthropicDeltasFromDataLines(
         const delta = evt.delta;
         if (delta?.type === "text_delta" && delta.text) {
           yield { type: "text", text: delta.text };
+        } else if (delta?.type === "thinking_delta" && delta.thinking) {
+          // 扩展思考增量（thinking budget 开启时）
+          yield { type: "thinking", text: delta.thinking };
         } else if (delta?.type === "input_json_delta" && current) {
           current.json += delta.partial_json ?? "";
         }
@@ -110,6 +113,7 @@ interface AnthropicEvent {
   content_block?: { type?: string; id?: string; name?: string };
   delta?:
     | { type: "text_delta"; text?: string }
+    | { type: "thinking_delta"; thinking?: string }
     | { type: "input_json_delta"; partial_json?: string };
   usage?: { input_tokens?: number; output_tokens?: number };
 }

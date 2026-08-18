@@ -52,6 +52,33 @@ describe("createOpenAIProvider full path (stubbed fetch)", () => {
     ]);
   });
 
+  it("reasoning_content / reasoning 思考增量转成 thinking delta", async () => {
+    const sse = [
+      'data: {"choices":[{"index":0,"delta":{"reasoning_content":"先想"}}]}',
+      "",
+      'data: {"choices":[{"index":0,"delta":{"reasoning":"再想"}}]}',
+      "",
+      'data: {"choices":[{"index":0,"delta":{"content":"答案"}}]}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    const provider = createOpenAIProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: async () => new Response(sse, { status: 200 }),
+    });
+    const deltas = [];
+    for await (const d of provider.chat({ system: "s", messages: [], tools: [] })) {
+      deltas.push(d);
+    }
+    expect(deltas).toEqual([
+      { type: "thinking", text: "先想" },
+      { type: "thinking", text: "再想" },
+      { type: "text", text: "答案" },
+    ]);
+  });
+
   it("surfaces HTTP errors with status and body snippet", async () => {
     const provider = createOpenAIProvider({
       apiKey: "k",

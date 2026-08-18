@@ -24,6 +24,7 @@ export interface ChatRequest {
  */
 export type Delta =
   | { type: "text"; text: string }
+  | { type: "thinking"; text: string }
   | {
       type: "toolCall";
       id: string;

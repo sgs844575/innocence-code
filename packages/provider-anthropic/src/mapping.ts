@@ -46,6 +46,8 @@ function mapPart(p: MessagePart): Record<string, unknown> | null {
   switch (p.type) {
     case "text":
       return p.text ? { type: "text", text: p.text } : null;
+    case "thinking":
+      return null; // 思考过程不回放给 API（每轮重新生成）
     case "toolCall":
       return { type: "tool_use", id: p.id, name: p.toolName, input: p.args };
     case "toolResult":

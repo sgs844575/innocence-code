@@ -11,6 +11,12 @@ export interface TextPart {
   text: string;
 }
 
+/** 推理/思考增量（DeepSeek reasoning_content、Anthropic thinking 等）。 */
+export interface ThinkingPart {
+  type: "thinking";
+  text: string;
+}
+
 export interface ToolCallPart {
   type: "toolCall";
   id: string;
@@ -25,7 +31,7 @@ export interface ToolResultPart {
   isError?: boolean;
 }
 
-export type MessagePart = TextPart | ToolCallPart | ToolResultPart;
+export type MessagePart = TextPart | ThinkingPart | ToolCallPart | ToolResultPart;
 
 export type MessageRole = "user" | "assistant";
 
@@ -64,6 +70,8 @@ export function toTranscript(messages: Message[]): string {
           switch (p.type) {
             case "text":
               return p.text;
+            case "thinking":
+              return `[思考] ${p.text.slice(0, 400)}`;
             case "toolCall":
               return `[调用工具 ${p.toolName}，参数 ${JSON.stringify(p.args)}]`;
             case "toolResult":
