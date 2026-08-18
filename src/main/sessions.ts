@@ -107,13 +107,15 @@ export function initSessionStore(userDataDir: string): void {
 
 /** Defensive mapping of one untyped transcript part onto the shared
  *  MessagePart union; anything malformed or unknown maps to null and is
- *  dropped. Tool parts survive hydration so restored transcripts match the
- *  live stream's structured view. */
+ *  dropped. Tool and thinking parts survive hydration so restored
+ *  transcripts match the live stream's structured view. */
 function toMessagePart(p: unknown): MessagePart | null {
   if (typeof p !== "object" || p === null) return null;
   const t = (p as { type?: unknown }).type;
   if (t === "text" && typeof (p as { text?: unknown }).text === "string")
     return { type: "text", text: (p as { text: string }).text };
+  if (t === "thinking" && typeof (p as { text?: unknown }).text === "string")
+    return { type: "thinking", text: (p as { text: string }).text };
   if (t === "toolCall")
     return {
       type: "toolCall",
@@ -165,15 +167,27 @@ function hydrate(record: SessionRecord): void {
   for (const m of history) {
     const role = (m as { role?: unknown }).role;
     if (role !== "user" && role !== "assistant") continue;
-    // Keep every valid part (text/toolCall/toolResult) so restored transcripts
-    // match the live structured stream; rows with no valid parts at all
-    // (empty text + empty tool) produce no message.
+    // Keep every valid part (text/thinking/toolCall/toolResult) so restored
+    // transcripts match the live structured stream; rows with no valid parts
+    // at all (empty text + empty tool) produce no message.
     const mapped = (
       Array.isArray((m as { parts?: unknown }).parts)
         ? ((m as { parts?: unknown[] }).parts ?? []).map(toMessagePart)
         : []
     ).filter((x): x is MessagePart => x !== null);
     if (mapped.length === 0) continue;
+    // Tool results are persisted as their own textless user turn (harness-core
+    // loop.ts pushes { role: "user", parts: resultParts }), while the live
+    // stream appends them to the assistant message — the shape pairTools
+    // expects. Merge such turns into the preceding assistant message; only a
+    // textless user turn with no assistant predecessor stays standalone.
+    if (role === "user" && !mapped.some((p) => p.type === "text")) {
+      const prev = messages[messages.length - 1];
+      if (prev?.role === "assistant") {
+        prev.parts.push(...mapped);
+        continue;
+      }
+    }
     messages.push({
       id: `msg_restored_${messages.length}`,
       role,

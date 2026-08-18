@@ -100,8 +100,10 @@ describe("session store persistence", () => {
               { type: "text", text: "有什么可以帮你？" },
             ],
           },
-          // Tool results arrive as user-role parts with no text — kept as
-          // their own message now that hydration preserves every valid part.
+          // Tool results arrive as their own user-role turn with no text
+          // (loop.ts pushes { role: "user", parts: resultParts }) — the
+          // hydrate merge folds them into the preceding assistant message to
+          // match the live stream's shape.
           { role: "user", parts: [{ type: "toolResult", content: "file body" }] },
         ],
       }),
@@ -111,19 +113,19 @@ describe("session store persistence", () => {
     // Simulate a restart so hydration (not the live array) is exercised.
     initSessionStore(dir);
     const messages = listMessages(s.id);
+    // No empty user bubble: the tool-result turn merged into the assistant message.
     expect(messages.map((m) => [m.role, messageText(m.parts)])).toEqual([
       ["user", "hi"],
       ["assistant", "你好，有什么可以帮你？"],
-      ["user", ""],
     ]);
-    expect(messages[1].parts).toHaveLength(3);
+    expect(messages[1].parts).toHaveLength(4);
     expect(messages[1].parts[1]).toMatchObject({ type: "toolCall", toolName: "fs.read" });
-    expect(messages[2].parts[0]).toMatchObject({ type: "toolResult", content: "file body" });
+    expect(messages[1].parts[3]).toMatchObject({ type: "toolResult", content: "file body" });
     expect(messages[1].createdAt).toBe(Date.parse("2026-08-18T10:00:05.000Z"));
-    expect(listSessions()[0].messageCount).toBe(3);
+    expect(listSessions()[0].messageCount).toBe(2);
   });
 
-  it("hydrate 保留 toolCall/toolResult parts", () => {
+  it("hydrate 保留 toolCall/toolResult parts 并按 live 形状配对", () => {
     const s = createSession();
     mkdirSync(path.join(dir, "transcripts"), { recursive: true });
     writeFileSync(
@@ -136,11 +138,16 @@ describe("session store persistence", () => {
           {
             role: "assistant",
             parts: [
+              { type: "thinking", text: "先看目录" },
               { type: "text", text: "看下" },
               { type: "toolCall", id: "t1", toolName: "Bash", args: { command: "ls" } },
-              { type: "toolResult", toolCallId: "t1", content: "a.txt", isError: false },
-              { type: "text", text: "完成" },
             ],
+          },
+          // Real transcript shape: tool results live in a follow-up user turn
+          // with no text (loop.ts pushes { role: "user", parts: resultParts }).
+          {
+            role: "user",
+            parts: [{ type: "toolResult", toolCallId: "t1", content: "a.txt", isError: false }],
           },
         ],
       }) + "\n",
@@ -149,9 +156,39 @@ describe("session store persistence", () => {
     // Restart so hydration (not the live array) is exercised.
     initSessionStore(dir);
     const msgs = listMessages(s.id);
-    expect(msgs[1].parts).toHaveLength(4);
-    expect(msgs[1].parts[1]).toMatchObject({ type: "toolCall", toolName: "Bash" });
-    expect(msgs[1].parts[2]).toMatchObject({ type: "toolResult", toolCallId: "t1", content: "a.txt" });
+    // The tool-result turn merges into the assistant message — no empty user bubble.
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant"]);
+    const parts = msgs[1].parts;
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toMatchObject({ type: "thinking", text: "先看目录" });
+    expect(parts[1]).toMatchObject({ type: "text", text: "看下" });
+    // toolCall and toolResult sit adjacent in one message so pairTools pairs them.
+    expect(parts[2]).toMatchObject({ type: "toolCall", id: "t1", toolName: "Bash" });
+    expect(parts[3]).toMatchObject({ type: "toolResult", toolCallId: "t1", content: "a.txt" });
+    expect(listSessions().find((x) => x.id === s.id)?.messageCount).toBe(2);
+
+    // Defensive: a textless user turn with no preceding assistant message
+    // survives as its own message instead of being dropped or lost.
+    const s2 = createSession();
+    writeFileSync(
+      path.join(dir, "transcripts", `${s2.id}.jsonl`),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        type: "turn",
+        history: [
+          {
+            role: "user",
+            parts: [{ type: "toolResult", toolCallId: "x", content: "orphan", isError: true }],
+          },
+        ],
+      }) + "\n",
+      "utf8",
+    );
+    initSessionStore(dir);
+    const orphan = listMessages(s2.id);
+    expect(orphan).toHaveLength(1);
+    expect(orphan[0].role).toBe("user");
+    expect(orphan[0].parts[0]).toMatchObject({ type: "toolResult", content: "orphan" });
   });
 
   it("returns empty messages for a session without transcript", () => {
