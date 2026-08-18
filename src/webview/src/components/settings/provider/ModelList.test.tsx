@@ -25,7 +25,7 @@ describe("ModelList", () => {
   });
   it("能力筛选 tab 只留视觉模型", () => {
     render(<ModelList profile={profile} onChange={() => {}} listModels={listModels} onPatchModel={() => {}} onToast={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: "👁" }));
+    fireEvent.click(screen.getByRole("button", { name: "视觉" }));
     expect(screen.queryByText("GLM-4.6")).toBeNull();
     expect(screen.getByText("GLM-4V")).toBeTruthy();
   });

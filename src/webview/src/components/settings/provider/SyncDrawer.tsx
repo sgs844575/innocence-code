@@ -1,5 +1,7 @@
-// 获取模型同步抽屉：拉回 → 新增/移除预览 → 批量应用（cherry 同步流程）。
-import { useEffect, useState } from "react";
+// 获取模型同步抽屉：拉回 → 新增/失效/保留三段预览 → 单条或批量应用（cherry 同步流程）。
+// plan 从 profile.models 派生而非一次性快照：每次应用后父级 settings 更新回流，
+// 三段计数与行归属即时刷新。
+import { useEffect, useMemo, useState } from "react";
 import { Check, Plus, Trash2 } from "lucide-react";
 import type { ModelInfo, ProviderProfile } from "../../../../../shared/ipc";
 import { CapabilityTags } from "../../tags/CapabilityTags";
@@ -15,7 +17,11 @@ interface Props {
   modelFromPreset: (providerName: string, id: string) => ModelInfo;
 }
 
-/** 获取模型同步抽屉：拉回 → 新增/移除预览 → 批量应用。 */
+const chipBtn =
+  "ml-auto flex items-center gap-1 rounded-full border border-(--color-app-border) px-2 py-0.5 text-[11px] text-(--color-app-muted) hover:bg-(--color-app-bubble)/50 hover:text-(--color-app-text)";
+const rowBtn =
+  "grid size-5 shrink-0 place-items-center rounded-md text-(--color-app-muted) hover:bg-(--color-app-bubble)/50";
+
 export function SyncDrawer({
   open,
   profile,
@@ -24,18 +30,39 @@ export function SyncDrawer({
   onApply,
   modelFromPreset,
 }: Props): React.JSX.Element {
-  const [plan, setPlan] = useState<SyncPlan | null>(null);
+  const [fetched, setFetched] = useState<string[] | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!open) return;
-    setPlan(null);
+    setFetched(null);
     setError("");
-    listModels(profile).then(
-      (ids) => setPlan(mergeSync(profile.models, ids, profile.name, modelFromPreset)),
-      (err) => setError((err as Error).message.slice(0, 200)),
+    listModels(profile).then(setFetched, (err) =>
+      setError(err instanceof Error ? err.message.slice(0, 200) : String(err)),
     );
-  }, [open, profile, listModels, modelFromPreset]);
+  }, [open, profile, listModels]);
+
+  const plan = useMemo(
+    () => (fetched ? mergeSync(profile.models, fetched, profile.name, modelFromPreset) : null),
+    [fetched, profile, modelFromPreset],
+  );
+
+  if (!open) return <></>;
+
+  // 单条操作：applySyncPlan 语义是 kept + added，所以单条添加把本地全部
+  //（kept ∪ removed）放 kept、目标单独放 added；单条移除从本地全部里剔除。
+  const addOne = (m: ModelInfo) => {
+    if (!plan) return;
+    onApply({ ...plan, kept: [...plan.kept, ...plan.removed], added: [m] });
+  };
+  const removeOne = (m: ModelInfo) => {
+    if (!plan) return;
+    onApply({
+      ...plan,
+      kept: [...plan.kept, ...plan.removed].filter((x) => x.id !== m.id),
+      added: [],
+    });
+  };
 
   return (
     <Drawer open={open} title="获取模型" onClose={onClose} width={420}>
@@ -56,8 +83,7 @@ export function SyncDrawer({
               {plan.added.length > 0 && (
                 <button
                   type="button"
-                  // 只加新不清失效：removed 一并入 kept（onApply 语义 = kept + added），
-                  // 避免"全部添加"顺手静默删除失效模型。
+                  // 只加新不清失效：removed 一并入 kept，避免批量添加顺手静默删除。
                   onClick={() =>
                     onApply({
                       ...plan,
@@ -65,9 +91,9 @@ export function SyncDrawer({
                       added: [],
                     })
                   }
-                  className="ml-auto rounded-lg border border-(--color-app-border) px-2 py-0.5 text-[11px] hover:bg-(--color-app-bubble)/50"
+                  className={chipBtn}
                 >
-                  全部添加
+                  <Plus size={11} />全部添加
                 </button>
               )}
             </div>
@@ -83,6 +109,9 @@ export function SyncDrawer({
                     {Math.round(m.contextWindow / 1000)}K
                   </span>
                 )}
+                <button type="button" aria-label={`添加 ${m.id}`} title="添加" onClick={() => addOne(m)} className={`${rowBtn} text-(--color-tool-ok)`}>
+                  <Plus size={13} />
+                </button>
               </div>
             ))}
           </section>
@@ -95,14 +124,14 @@ export function SyncDrawer({
                   type="button"
                   onClick={() =>
                     onApply({
-                      added: [],
-                      removed: plan.removed,
+                      ...plan,
                       kept: plan.kept.filter((k) => !plan.removed.some((r) => r.id === k.id)),
+                      added: [],
                     })
                   }
-                  className="ml-auto rounded-lg border border-(--color-app-border) px-2 py-0.5 text-[11px] hover:bg-(--color-app-bubble)/50"
+                  className={chipBtn}
                 >
-                  清理失效
+                  <Trash2 size={11} />清理失效
                 </button>
               )}
             </div>
@@ -114,6 +143,9 @@ export function SyncDrawer({
                 <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-(--color-app-muted) line-through">
                   {m.id}
                 </span>
+                <button type="button" aria-label={`移除 ${m.id}`} title="移除" onClick={() => removeOne(m)} className={`${rowBtn} text-(--color-tool-err)`}>
+                  <Trash2 size={13} />
+                </button>
               </div>
             ))}
           </section>

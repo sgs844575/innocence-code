@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Plus, RefreshCw, Search } from "lucide-react";
+import { BrainCircuit, ChevronRight, Eye, LayoutGrid, Plus, RefreshCw, Search, Wrench, type LucideIcon } from "lucide-react";
 import type { ModelInfo, ProviderProfile } from "../../../../../shared/ipc";
 import { ModelRow } from "./ModelRow";
 import { groupModels, modelGroupName, type CapabilityTab } from "./modelGrouping";
@@ -23,6 +23,14 @@ const TAB_PREDICATE: Record<Exclude<CapabilityTab, "all">, (m: ModelInfo) => boo
   tools: modelGroupName.tabTools,
   reasoning: modelGroupName.tabReasoning,
 };
+
+/** 筛选 tab 的图标/颜色与 CapabilityTags 一致，激活态着色。 */
+const TABS: { id: CapabilityTab; label: string; Icon: LucideIcon; color?: string }[] = [
+  { id: "all", label: "全部", Icon: LayoutGrid, color: "var(--color-app-accent)" },
+  { id: "vision", label: "视觉", Icon: Eye, color: "#00b96b" },
+  { id: "tools", label: "工具调用", Icon: Wrench, color: "var(--color-app-accent)" },
+  { id: "reasoning", label: "推理", Icon: BrainCircuit, color: "#8b5cf6" },
+];
 
 /** 模型列表：分组折叠卡 + 行内搜索 + 能力筛选 tab；编辑/删除走行内按钮。 */
 export function ModelList({ profile, onChange, onEditModel, onSync }: Props): React.JSX.Element {
@@ -52,10 +60,21 @@ export function ModelList({ profile, onChange, onEditModel, onSync }: Props): Re
             <Search size={11} className="text-(--color-app-muted)" />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索" className="w-28 bg-transparent text-[11.5px] outline-none" />
           </div>
-          <button type="button" onClick={() => setTab("all")} className={tabCls(tab, "all")}>全部</button>
-          <button type="button" onClick={() => setTab("vision")} className={tabCls(tab, "vision")}>👁</button>
-          <button type="button" onClick={() => setTab("tools")} className={tabCls(tab, "tools")}>🔧</button>
-          <button type="button" onClick={() => setTab("reasoning")} className={tabCls(tab, "reasoning")}>🧠</button>
+          <div className="flex items-center gap-0.5 rounded-lg border border-(--color-app-hairline) p-0.5">
+            {TABS.map(({ id, label, Icon, color }) => (
+              <button
+                key={id}
+                type="button"
+                aria-label={label}
+                aria-pressed={tab === id}
+                title={label}
+                onClick={() => setTab(id)}
+                className={`grid size-6 place-items-center rounded-md transition-colors ${tab === id ? "bg-(--color-app-accent-soft)" : "hover:bg-(--color-app-bubble)/50"}`}
+              >
+                <Icon size={12} className={tab === id ? "" : "text-(--color-app-muted)"} style={tab === id ? { color } : undefined} />
+              </button>
+            ))}
+          </div>
           {onSync && (
             <button type="button" aria-label="获取模型" title="获取模型" onClick={onSync} className="grid size-7 place-items-center rounded-lg border border-(--color-app-hairline) text-(--color-app-muted) hover:text-(--color-app-text)">
               <RefreshCw size={13} />
@@ -92,8 +111,6 @@ export function ModelList({ profile, onChange, onEditModel, onSync }: Props): Re
   );
 }
 
-const tabCls = (cur: CapabilityTab, mine: CapabilityTab): string =>
-  cur === mine ? "bg-(--color-app-accent-soft) text-(--color-app-accent)" : "";
 function toggle(prev: Set<string>, name: string): Set<string> {
   const next = new Set(prev);
   if (next.has(name)) next.delete(name); else next.add(name);
