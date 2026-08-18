@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { MarkdownView } from "./MarkdownView";
 
@@ -10,8 +10,10 @@ describe("MarkdownView", () => {
     expect(screen.getByText("b")).toBeTruthy();
   });
   it("围栏代码块走 CodeBlock（语言标签 + 复制按钮）", async () => {
-    render(<MarkdownView source={"```ts\nconst a = 1\n```"} />);
+    const { container } = render(<MarkdownView source={"```ts\nconst a = 1\n```"} />);
     expect(await screen.findByText("ts")).toBeTruthy();
     expect(screen.getByRole("button", { name: "复制" })).toBeTruthy();
+    // 钉住真实 Shiki 高亮路径：catch 回退（纯 pre）不会渲染 .code-html
+    await waitFor(() => expect(container.querySelector(".code-html")).toBeTruthy());
   });
 });
