@@ -8,6 +8,7 @@ import {
   HarnessRuntime,
   type AskResponse,
   type HarnessSettings,
+  type LiveToolPart,
   type RuntimeHooks,
 } from "../src";
 
@@ -39,8 +40,11 @@ describe("agent workflow end-to-end (bootstrap stand-in)", () => {
   it("runs read -> edit -> write -> verify through permission gates", async () => {
     const asks: string[] = [];
     const deltas: string[] = [];
+    const tools: LiveToolPart[] = [];
     const hooks: RuntimeHooks = {
       onDelta: (_s, _m, d) => deltas.push(d),
+      onTool: (_s, _m, part) => tools.push(part),
+      onThinking: () => {},
       onCompleted: () => {},
       onError: (_s, _m, e) => {
         throw new Error(`unexpected harness error: ${e}`);
@@ -110,11 +114,15 @@ describe("agent workflow end-to-end (bootstrap stand-in)", () => {
     // Every tool went through an approval ask.
     expect(asks).toEqual(["Read", "Edit", "Write", "Bash"]);
 
-    // The UI stream shows tool activity and the bash verification output.
+    // The UI stream shows the final text; tool activity arrives structured.
     const joined = deltas.join("");
-    expect(joined).toContain("🔧 **Edit**");
-    expect(joined).toContain("feature ok");
     expect(joined).toContain("补丁完成");
+    expect(tools.some((p) => p.type === "toolCall" && p.toolName === "Edit")).toBe(
+      true,
+    );
+    expect(
+      tools.some((p) => p.type === "toolResult" && p.content.includes("feature ok")),
+    ).toBe(true);
 
     // The transcript captured the full turn.
     const transcript = await fs.readFile(

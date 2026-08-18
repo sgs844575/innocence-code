@@ -20,6 +20,7 @@ export {
 export {
   HarnessRuntime,
   type AskResponse,
+  type LiveToolPart,
   type PermissionAsk,
   type RuntimeHooks,
   type RuntimeOptions,

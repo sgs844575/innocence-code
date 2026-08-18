@@ -7,6 +7,8 @@ import {
   type PermissionDecider,
   type Provider,
   type ToolCallInfo,
+  type ToolCallPart,
+  type ToolResultPart,
 } from "@innocencecode/harness-core";
 import { createMockProvider } from "@innocencecode/provider-mock";
 import { createOpenAIProvider } from "@innocencecode/provider-openai";
@@ -31,10 +33,18 @@ export interface PermissionAsk {
   call: ToolCallInfo;
 }
 
+/** Structured tool event forwarded to the host (call and result arrive
+ *  separately; pair them via id / toolCallId). */
+export type LiveToolPart = ToolCallPart | (ToolResultPart & { durationMs: number });
+
 /** Hooks the host implements to bridge UI, storage and dialogs. */
 export interface RuntimeHooks {
   /** Text delta for the streaming assistant message. */
   onDelta(sessionId: string, messageId: string, delta: string): void;
+  /** Structured tool events (call and result arrive separately; pair them via id/toolCallId). */
+  onTool(sessionId: string, messageId: string, part: LiveToolPart): void;
+  /** Thinking deltas (harness-core does not emit these yet; the channel is ready). */
+  onThinking(sessionId: string, messageId: string, delta: string): void;
   onCompleted(sessionId: string, messageId: string): void;
   onError(sessionId: string, messageId: string, error: string): void;
   /** Ask the user about a tool call; resolves with their choice. */
@@ -57,8 +67,7 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(seq+
 /**
  * Owns one AgentSession per chat session, rebuilt when settings change, and
  * translates harness events into the host's streaming UI hooks. Tool activity
- * is surfaced as blockquote lines inside the same markdown stream (M3
- * simplification until a proper activity feed lands).
+ * is forwarded as structured parts via onTool (paired by id/toolCallId).
  */
 export class HarnessRuntime {
   private readonly options: RuntimeOptions;
@@ -187,24 +196,23 @@ export class HarnessRuntime {
       case "token":
         hooks.onDelta(chatSessionId, messageId, event.text);
         break;
-      case "toolCall": {
-        const args = JSON.stringify(event.call.args);
-        hooks.onDelta(
-          chatSessionId,
-          messageId,
-          `\n\n> 🔧 **${event.call.toolName}** \`${shorten(args, 200)}\`\n`,
-        );
+      case "toolCall":
+        hooks.onTool(chatSessionId, messageId, {
+          type: "toolCall",
+          id: event.id,
+          toolName: event.call.toolName,
+          args: event.call.args,
+        });
         break;
-      }
-      case "toolResult": {
-        const icon = event.isError ? "❌" : "✅";
-        hooks.onDelta(
-          chatSessionId,
-          messageId,
-          `> ${icon} ${shorten(event.content.replace(/\n/g, " "), 160)} (${event.durationMs}ms)\n`,
-        );
+      case "toolResult":
+        hooks.onTool(chatSessionId, messageId, {
+          type: "toolResult",
+          toolCallId: event.toolCallId,
+          content: event.content,
+          isError: event.isError === true,
+          durationMs: event.durationMs,
+        });
         break;
-      }
       case "compaction":
         hooks.onDelta(chatSessionId, messageId, "\n\n> 🗜️ 已压缩较早的对话历史\n");
         break;
@@ -235,8 +243,4 @@ export class HarnessRuntime {
       this.options.hooks.log("warn", "persist failed", String(err));
     }
   }
-}
-
-function shorten(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max)}…` : s;
 }

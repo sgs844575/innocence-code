@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,7 @@ import {
   HarnessRuntime,
   type AskResponse,
   type HarnessSettings,
+  type LiveToolPart,
   type RuntimeHooks,
 } from "../src";
 
@@ -16,6 +17,7 @@ let workspace: string;
 
 interface Recorded {
   deltas: string[];
+  tools: LiveToolPart[];
   completed: number;
   errors: string[];
   asks: Array<{ toolName: string; answer: AskResponse }>;
@@ -24,6 +26,8 @@ interface Recorded {
 function makeHooks(recorded: Recorded, answer: AskResponse = "allow"): RuntimeHooks {
   return {
     onDelta: (_s, _m, delta) => recorded.deltas.push(delta),
+    onTool: (_s, _m, part) => recorded.tools.push(part),
+    onThinking: () => {},
     onCompleted: () => {
       recorded.completed += 1;
     },
@@ -64,7 +68,7 @@ afterAll(async () => {
 
 describe("HarnessRuntime", () => {
   it("streams a plain-text turn end-to-end and persists the transcript", async () => {
-    const recorded: Recorded = { deltas: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const runtime = makeRuntime([{ text: "你好，我是回复" }], { workspaceRoot: workspace }, recorded);
 
     await runtime.send("sess-1", "打个招呼", "msg_t1");
@@ -82,7 +86,7 @@ describe("HarnessRuntime", () => {
   });
 
   it("runs fs tools against the workspace with a permission ask", async () => {
-    const recorded: Recorded = { deltas: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const runtime = makeRuntime(
       [
         { toolCalls: [{ toolName: "Read", args: { path: "hello.txt" } }] },
@@ -97,14 +101,21 @@ describe("HarnessRuntime", () => {
 
     expect(recorded.asks).toEqual([{ toolName: "Read", answer: "allow" }]);
     const joined = recorded.deltas.join("");
-    expect(joined).toContain("🔧 **Read**");
-    expect(joined).toContain("hello harness");
     expect(joined).toContain("读完了");
+    // Tool activity arrives on the structured channel, not as markdown text.
+    expect(
+      recorded.tools.some((p) => p.type === "toolCall" && p.toolName === "Read"),
+    ).toBe(true);
+    expect(
+      recorded.tools.some(
+        (p) => p.type === "toolResult" && p.content.includes("hello harness"),
+      ),
+    ).toBe(true);
     expect(recorded.completed).toBe(1);
   });
 
   it("feeds a denied permission back as an error result the model can see", async () => {
-    const recorded: Recorded = { deltas: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const runtime = makeRuntime(
       [
         { toolCalls: [{ toolName: "Write", args: { path: "x.txt", content: "nope" } }] },
@@ -119,13 +130,15 @@ describe("HarnessRuntime", () => {
 
     expect(recorded.asks).toHaveLength(1);
     const joined = recorded.deltas.join("");
-    expect(joined).toContain("❌");
     expect(joined).toContain("好吧，我不写了");
+    expect(
+      recorded.tools.some((p) => p.type === "toolResult" && p.isError === true),
+    ).toBe(true);
     await expect(fs.access(path.join(workspace, "x.txt"))).rejects.toThrow();
   });
 
   it("rebuilds the cached agent session when settings change, keeping history", async () => {
-    const recorded: Recorded = { deltas: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const settings: HarnessSettings = { ...DEFAULT_SETTINGS, workspaceRoot: workspace };
     let currentTurns: MockTurn[] = [{ text: "来自设置A的回复" }];
     const runtime = new HarnessRuntime({
@@ -146,5 +159,36 @@ describe("HarnessRuntime", () => {
     expect(joined).toContain("来自设置A的回复");
     expect(joined).toContain("来自设置B的回复");
     expect(recorded.completed).toBe(2);
+  });
+
+  it("工具事件走结构化通道，不再注入 markdown 文本", async () => {
+    const onTool = vi.fn();
+    const onDelta = vi.fn();
+    // 会调用工具的 provider：首轮返回一次 toolCall（复用本文件既有的
+    // createMockProvider 工具回放手法），工具执行后次轮返回最终文本。
+    const runtime = new HarnessRuntime({
+      settings: () => ({ ...DEFAULT_SETTINGS, workspaceRoot: workspace }),
+      hooks: {
+        onDelta,
+        onTool,
+        onThinking: () => {},
+        onCompleted: () => {},
+        onError: () => {},
+        askPermission: async () => "allow",
+        log: () => {},
+      },
+      providerFactory: () =>
+        createMockProvider({
+          turns: [
+            { toolCalls: [{ toolName: "Read", args: { path: "hello.txt" } }] },
+            { text: "读完了" },
+          ],
+        }),
+    });
+    await runtime.send("sess-5", "跑一下测试", "msg_t5");
+    const kinds = onTool.mock.calls.map((c) => (c[2] as { type: string }).type);
+    expect(kinds).toContain("toolCall");
+    expect(kinds).toContain("toolResult");
+    expect(onDelta.mock.calls.some((c) => String(c[2]).includes("🔧"))).toBe(false);
   });
 });

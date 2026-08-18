@@ -50,6 +50,10 @@ const runtime = new HarnessRuntime({
       });
       send(IPC.chatDelta, { sessionId, messageId, delta });
     },
+    // Structured tool channel — wired up for real in the tool-activity task;
+    // no-ops keep the runtime compiling until then.
+    onTool: () => {},
+    onThinking: () => {},
     onCompleted: (sessionId, messageId) => {
       sessions.updateMessage(sessionId, messageId, { streaming: false });
       send(IPC.chatDone, { sessionId, messageId });
