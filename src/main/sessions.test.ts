@@ -38,6 +38,45 @@ describe("session store persistence", () => {
     expect(restored[0].messageCount).toBe(0);
   });
 
+  it("一轮内的多个工具轮归并为一条助手消息（重载后不拆分，对齐 live 形状）", () => {
+    const s = createSession();
+    mkdirSync(path.join(dir, "transcripts"), { recursive: true });
+    writeFileSync(
+      path.join(dir, "transcripts", `${s.id}.jsonl`),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        type: "turn",
+        user: "帮我跑测试",
+        history: [
+          { role: "user", parts: [{ type: "text", text: "帮我跑测试" }] },
+          { role: "assistant", parts: [
+            { type: "text", text: "先看结构：" },
+            { type: "toolCall", id: "t1", toolName: "Read", args: { path: "a.ts" } },
+          ] },
+          { role: "user", parts: [{ type: "toolResult", toolCallId: "t1", content: "hello", isError: false }] },
+          { role: "assistant", parts: [
+            { type: "toolCall", id: "t2", toolName: "Bash", args: { command: "npm test" } },
+          ] },
+          { role: "user", parts: [{ type: "toolResult", toolCallId: "t2", content: "9 passed", isError: false }] },
+          { role: "assistant", parts: [{ type: "text", text: "全部完成" }] },
+          // 第二轮：真实用户消息分隔，不得并入上一轮
+          { role: "user", parts: [{ type: "text", text: "再看看 README" }] },
+          { role: "assistant", parts: [{ type: "text", text: "好的" }] },
+        ],
+      }) + "\n",
+      "utf8",
+    );
+    initSessionStore(dir);
+    const msgs = listMessages(s.id);
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    const turn = msgs[1]!.parts;
+    expect(turn).toHaveLength(6); // text, call, result, call, result, text
+    expect(turn.map((p) => p.type)).toEqual(["text", "toolCall", "toolResult", "toolCall", "toolResult", "text"]);
+    expect(messageText(turn)).toBe("先看结构：全部完成");
+    expect(msgs[3]!.parts).toHaveLength(1); // 第二轮未被误并
+    expect(listSessions()[0].messageCount).toBe(4);
+  });
+
   it("workspaceRoot 随会话持久化并在重启后恢复（空值兜底为空串）", () => {
     const withProject = createSession({ workspaceRoot: "D:/x/alpha" });
     const without = createSession();

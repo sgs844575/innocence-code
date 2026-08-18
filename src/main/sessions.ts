@@ -224,8 +224,21 @@ function hydrate(record: SessionRecord): void {
       createdAt: at,
     });
   }
-  record.messages = messages;
-  record.messageCount = messages.length;
+  // 一轮 = 一条助手消息（对齐 live 形状）：transcript 里每个工具轮是独立的
+  // assistant 消息（中间夹 user 工具结果轮，上一步已并入），这里把连续的
+  // assistant 消息归并成一条——否则重载后一轮对话会被拆成多个气泡。
+  // 真实用户消息（含 text）天然分隔轮次，不会跨轮误并。
+  const coalesced: ChatMessage[] = [];
+  for (const m of messages) {
+    const prev = coalesced[coalesced.length - 1];
+    if (m.role === "assistant" && prev?.role === "assistant") {
+      prev.parts.push(...m.parts);
+    } else {
+      coalesced.push(m);
+    }
+  }
+  record.messages = coalesced;
+  record.messageCount = coalesced.length;
 }
 
 export function listSessions(): Session[] {
