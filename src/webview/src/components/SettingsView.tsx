@@ -1,19 +1,23 @@
 // Settings content area — renders the section picked in SettingsNav:
 // models (cherry-style provider list + detail pane), general
 // (workspace + permission mode), appearance (theme + language), about.
-import { useEffect, useRef, useState } from "react";
-import type {
-  HarnessSettings,
-  ModelInfo,
-  PermissionMode,
-  ProviderProfile,
-  ThemeMode,
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  PROVIDER_PRESET_MIRROR,
+  type HarnessSettings,
+  type ModelInfo,
+  type PermissionMode,
+  type ProviderProfile,
+  type ThemeMode,
 } from "../../../shared/ipc";
 import type { SettingsSection } from "./SettingsNav";
 import { api } from "../lib/ipc";
+import { AddProviderDialog } from "./settings/provider/AddProviderDialog";
 import { EditModelDrawer } from "./settings/provider/EditModelDrawer";
 import { ProviderDetail } from "./settings/provider/ProviderDetail";
 import { ProviderList } from "./settings/provider/ProviderList";
+import { SyncDrawer } from "./settings/provider/SyncDrawer";
+import type { SyncPlan } from "./settings/provider/mergeSync";
 
 const MOCK_PROFILE_ID = "__mock__";
 const MOCK_MODEL = "mock";
@@ -87,6 +91,11 @@ function ModelsSection({
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   // 编辑模型抽屉的目标：null 关闭；{id:""} 为新建，首个带 id 的保存才真正落库。
   const [editing, setEditing] = useState<ModelInfo | null>(null);
+  // 同步抽屉（↻ 获取模型）与添加厂家对话框的开合状态。
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  // Map 方案：打开抽屉前预取的预设元数据（IPC enrichModels），供 mergeSync 注入。
+  const [syncMap, setSyncMap] = useState<Map<string, ModelInfo>>(new Map());
   // 详情面板的轻提示（连接检查等）：4 秒后自清，App 的 showError 通道不进设置页。
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,10 +120,45 @@ function ModelsSection({
   const patchProfile = (id: string) => (patch: Partial<ProviderProfile>): void =>
     patchProfiles(settings.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)));
 
-  const listModels = (profile: ProviderProfile): Promise<string[]> =>
-    api.listProviderModels(profile.id);
+  // useCallback 稳定引用：SyncDrawer 的拉取 effect 以其为依赖，避免 toast 等
+  // 无关 state 更新触发重复拉取。
+  const listModels = useCallback(
+    (profile: ProviderProfile): Promise<string[]> => api.listProviderModels(profile.id),
+    [],
+  );
 
   const active = settings.profiles.find((p) => p.id === settings.activeProfileId);
+
+  /** ↻ 获取模型：先预取模型列表 + 预设元数据（渲染层无法 import harness-electron
+   *  包，经 IPC 在 main 侧补全），再打开同步抽屉。 */
+  const openSync = (): void => {
+    if (!active) return;
+    void (async () => {
+      try {
+        const ids = await api.listProviderModels(active.id);
+        const metas = await api.enrichModels(active.name, ids);
+        setSyncMap(new Map(metas.map((m) => [m.id, m])));
+        setSyncOpen(true);
+      } catch (err) {
+        showToast(`获取模型失败：${(err as Error).message.slice(0, 120)}`);
+      }
+    })();
+  };
+
+  /** mergeSync 第四参注入（Map 方案）：预取元数据按 id 查表，未命中退化为
+   *  最小 fetch 对象。 */
+  const syncModelFromPreset = useCallback(
+    (_providerName: string, id: string): ModelInfo =>
+      syncMap.get(id) ?? { id, source: "fetch" },
+    [syncMap],
+  );
+
+  /** 同步抽屉回写：models = kept + added（保序合并），removed 两组皆无 → 移除。 */
+  const applySyncPlan = (plan: SyncPlan): void => {
+    if (!active) return;
+    patchProfile(active.id)({ models: [...plan.kept, ...plan.added] });
+    setSyncOpen(false);
+  };
 
   /** 编辑抽屉回写：已有 id → 替换条目并带 dirty（enrich 不再覆盖）；新建未定 id →
    *  先累积进 editing，直到某个 patch 带 id 才作为 manual 模型插入。取消（id 仍为
@@ -205,9 +249,7 @@ function ModelsSection({
         }}
         onDuplicate={duplicate}
         onDelete={remove}
-        onAdd={() => {
-          // 任务 5 接 AddProviderDialog；本任务先留空。
-        }}
+        onAdd={() => setAddOpen(true)}
       />
       {/* 详情面板：未选中（或仅剩离线 mock）时保留占位。 */}
       {active ? (
@@ -217,6 +259,7 @@ function ModelsSection({
           onChange={patchProfile(active.id)}
           onToast={showToast}
           onEditModel={setEditing}
+          onSync={openSync}
         />
       ) : (
         <div className="grid min-w-0 flex-1 place-items-center text-sm text-(--color-app-muted)">
@@ -228,6 +271,22 @@ function ModelsSection({
         model={editing}
         onClose={() => setEditing(null)}
         onSave={applyModelPatch}
+      />
+      {active && (
+        <SyncDrawer
+          open={syncOpen}
+          profile={active}
+          onClose={() => setSyncOpen(false)}
+          listModels={listModels}
+          onApply={applySyncPlan}
+          modelFromPreset={syncModelFromPreset}
+        />
+      )}
+      <AddProviderDialog
+        open={addOpen}
+        presets={PROVIDER_PRESET_MIRROR}
+        onClose={() => setAddOpen(false)}
+        onCreate={(p) => patchProfiles([...settings.profiles, p])}
       />
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-(--color-app-border) bg-(--color-app-panel) px-4 py-1.5 text-[12px] shadow-(--shadow-pop)">

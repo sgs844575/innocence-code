@@ -34,6 +34,8 @@ const api: InnocenceCodeApi = {
   getHarnessSettings: () => ipcRenderer.invoke(IPC.settingsGet),
   setHarnessSettings: (settings) => ipcRenderer.invoke(IPC.settingsSet, settings),
   listProviderModels: (profileId) => ipcRenderer.invoke(IPC.settingsModelsList, profileId),
+  enrichModels: (providerName, ids) =>
+    ipcRenderer.invoke(IPC.settingsEnrichModels, providerName, ids),
   onMenuNewSession: (cb) => subscribe(IPC.uiNewSession, cb as never),
   popupMenu: (id) => ipcRenderer.invoke(IPC.menuPopup, id),
 };

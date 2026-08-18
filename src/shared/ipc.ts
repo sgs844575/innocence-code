@@ -27,6 +27,7 @@ export const IPC = {
   settingsGet: "settings:get",
   settingsSet: "settings:set",
   settingsModelsList: "settings:models-list",
+  settingsEnrichModels: "settings:enrich-models",
 } as const;
 
 export type ThemeMode = "system" | "dark" | "light";
@@ -178,6 +179,28 @@ export interface HarnessSettings {
   locale?: "zh-CN" | "en-US" | "";
 }
 
+/** AddProviderDialog 的预设选项（PROVIDER_PRESET_MIRROR 的条目形状）。 */
+export interface ProviderPresetMirror {
+  name: string;
+  kind: ProviderKind;
+  baseURL: string;
+  models: string[];
+}
+
+// 与 harness-electron PROVIDER_PRESETS（packages/harness-electron/src/settings.ts）
+// 同步的轻量镜像：渲染层无法 import node 侧包，添加厂家对话框的预设列表与
+// 默认值从这里取。修改任何一侧时必须同步另一侧。
+export const PROVIDER_PRESET_MIRROR: ProviderPresetMirror[] = [
+  { name: "OpenAI", kind: "openai", baseURL: "", models: ["gpt-4o", "gpt-4o-mini"] },
+  { name: "Anthropic", kind: "anthropic", baseURL: "", models: ["claude-sonnet-4-5", "claude-opus-4-1"] },
+  { name: "DeepSeek", kind: "openai", baseURL: "https://api.deepseek.com/v1", models: ["deepseek-chat", "deepseek-reasoner"] },
+  { name: "硅基流动", kind: "openai", baseURL: "https://api.siliconflow.cn/v1", models: ["deepseek-ai/DeepSeek-V3.2", "Qwen/Qwen3-32B"] },
+  { name: "OpenRouter", kind: "openai", baseURL: "https://openrouter.ai/api/v1", models: ["openai/gpt-4o", "anthropic/claude-sonnet-4"] },
+  { name: "智谱开放平台", kind: "openai", baseURL: "https://open.bigmodel.cn/api/paas/v4", models: ["glm-4.6", "glm-4.5-air", "glm-4-plus", "glm-4-flash"] },
+  { name: "Moonshot", kind: "openai", baseURL: "https://api.moonshot.cn/v1", models: ["kimi-k2-0905-preview", "moonshot-v1-32k"] },
+  { name: "Ollama 本地", kind: "openai", baseURL: "http://localhost:11434/v1", models: ["qwen3:8b", "llama3.1:8b"] },
+];
+
 export interface InnocenceCodeApi {
   getAppInfo(): Promise<AppInfo>;
   getTheme(): Promise<{ mode: ThemeMode; resolved: ResolvedTheme }>;
@@ -202,6 +225,8 @@ export interface InnocenceCodeApi {
   getHarnessSettings(): Promise<HarnessSettings>;
   setHarnessSettings(settings: HarnessSettings): Promise<void>;
   listProviderModels(profileId: string): Promise<string[]>;
+  /** 用 harness-electron 预设目录补全模型元数据（main 侧 modelFromPreset）。 */
+  enrichModels(providerName: string, ids: string[]): Promise<ModelInfo[]>;
   onMenuNewSession(cb: () => void): () => void;
   popupMenu(id: MenuId): Promise<void>;
 }

@@ -14,6 +14,7 @@ import {
   disposeSession,
 } from "./harnessGlue";
 import type { HarnessSettings } from "@innocencecode/harness-electron";
+import { modelFromPreset } from "@innocencecode/harness-electron";
 import { getMainWindow } from "./appWindow";
 import { popupMenu } from "./menu";
 import { logger } from "./logger";
@@ -88,6 +89,10 @@ export function registerIpcHandlers(): void {
     if (!profile) throw new Error(`profile not found: ${profileId}`);
     return listProviderModels(profile);
   });
+  ipcMain.handle(IPC.settingsEnrichModels, (_e, providerName: string, ids: string[]) =>
+    // 渲染层无法 import harness-electron（node 侧包），预设元数据在 main 补全。
+    ids.map((id) => modelFromPreset(providerName, id)),
+  );
 
   ipcMain.handle(IPC.menuPopup, (_e, id: MenuId) => {
     popupMenu(needWindow(), id);

@@ -25,3 +25,4 @@ export {
   type RuntimeHooks,
   type RuntimeOptions,
 } from "./runtime";
+export { modelFromPreset, resolvePresetMeta, type PresetModelMeta } from "./modelPresets";
