@@ -138,8 +138,77 @@ function toMessagePart(p: unknown): MessagePart | null {
 }
 
 /** Restores message bodies from the session's JSONL transcript, if any. */
+function sameSnapshotMessage(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Transcript lines are snapshots, but a restart can make the next snapshot
+ * independent of the previous in-memory agent. Keep cumulative prefixes
+ * compact while appending independent/restarted conversation fragments.
+ */
+function mergeSnapshotHistories(histories: unknown[][]): unknown[] | null {
+  if (histories.length === 0) return null;
+  const merged: unknown[] = [];
+  for (const history of histories) {
+    if (history.length === 0) continue;
+    if (merged.length === 0) {
+      merged.push(...history);
+      continue;
+    }
+    const prefix = Math.min(merged.length, history.length);
+    let mergedIsPrefix = merged.length <= history.length;
+    if (mergedIsPrefix) {
+      for (let i = 0; i < merged.length; i++) {
+        if (!sameSnapshotMessage(merged[i], history[i])) {
+          mergedIsPrefix = false;
+          break;
+        }
+      }
+    }
+    if (mergedIsPrefix) {
+      merged.splice(0, merged.length, ...history);
+      continue;
+    }
+    let historyIsPrefix = history.length <= merged.length;
+    if (historyIsPrefix) {
+      for (let i = 0; i < history.length; i++) {
+        if (!sameSnapshotMessage(merged[i], history[i])) {
+          historyIsPrefix = false;
+          break;
+        }
+      }
+    }
+    if (historyIsPrefix) continue;
+
+    // Only accept overlaps of two or more messages. A one-message overlap can
+    // be a legitimate repeated user prompt after a restart and would lose a turn.
+    let overlap = 0;
+    for (let size = prefix; size >= 2; size--) {
+      let matches = true;
+      for (let i = 0; i < size; i++) {
+        if (!sameSnapshotMessage(merged[merged.length - size + i], history[i])) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        overlap = size;
+        break;
+      }
+    }
+    merged.push(...history.slice(overlap));
+  }
+  return merged;
+}
+
 function hydrate(record: SessionRecord): void {
   record.messagesLoaded = true;
+  const indexedMessageCount = record.messageCount;
   const file = transcriptFile(record.id);
   if (!file) return;
   let raw: string;
@@ -148,18 +217,18 @@ function hydrate(record: SessionRecord): void {
   } catch {
     return; // No transcript yet (created but never chatted in).
   }
-  // Each line appends one turn whose history is the full conversation so far.
-  // 取"最全的快照"而非盲取最后一行：重启后 runtime 若曾以空历史发言，最后
-  // 一行会是只含那一轮的短快照（写侧已修，读侧兜底救回旧行里的完整历史）。
-  let history: unknown[] | null = null;
+  // 每行是一次 persist 快照：正常情况下是累计 history；应用重启后 runtime
+  // 可能从空 agent 写出独立短片段。先按时间顺序收集所有可解析快照，后面用
+  // mergeSnapshotHistories 处理"累计前缀"与"独立片段"两种形态。
+  const histories: unknown[][] = [];
   let at = record.createdAt;
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
       const rec = JSON.parse(trimmed) as TranscriptTurn;
-      if (Array.isArray(rec.history) && (history === null || rec.history.length >= history.length)) {
-        history = rec.history;
+      if (Array.isArray(rec.history)) {
+        histories.push(rec.history);
         const parsed = Date.parse(typeof rec.at === "string" ? rec.at : "");
         if (!Number.isNaN(parsed)) at = parsed;
       }
@@ -167,6 +236,7 @@ function hydrate(record: SessionRecord): void {
       // Skip a torn line rather than dropping the whole transcript.
     }
   }
+  const history = mergeSnapshotHistories(histories);
   if (!history) {
     // 空文件 = 从未聊过；有内容但一行都解不开 = 损坏（如断电后的全 NUL 文件：
     // 目录项还在、数据块清零）。把坏文件移开自愈，注入一条可见告知——不能让
@@ -191,6 +261,7 @@ function hydrate(record: SessionRecord): void {
       },
     ];
     record.messageCount = record.messages.length;
+    persistIndex();
     return;
   }
   const messages: ChatMessage[] = [];
@@ -240,6 +311,7 @@ function hydrate(record: SessionRecord): void {
   }
   record.messages = coalesced;
   record.messageCount = coalesced.length;
+  if (record.messageCount !== indexedMessageCount) persistIndex();
 }
 
 export function listSessions(): Session[] {

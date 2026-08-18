@@ -188,7 +188,7 @@ describe("session store persistence", () => {
     expect(listSessions()[0].messageCount).toBe(2);
   });
 
-  it("短快照覆盖防护：取最全快照而非最后一行（重启后短 persist 行不再吞掉历史）", () => {
+  it("短快照之后的独立片段也要追加，不能吞掉后续对话", () => {
     const s = createSession();
     mkdirSync(path.join(dir, "transcripts"), { recursive: true });
     const full = [
@@ -211,8 +211,8 @@ describe("session store persistence", () => {
     );
     initSessionStore(dir);
     const msgs = listMessages(s.id);
-    expect(msgs.map((m) => messageText(m.parts))).toEqual(["问1", "答1", "问2", "答2"]);
-    expect(listSessions()[0].messageCount).toBe(4);
+    expect(msgs.map((m) => messageText(m.parts))).toEqual(["问1", "答1", "问2", "答2", "问3", "答3"]);
+    expect(listSessions()[0].messageCount).toBe(6);
   });
 
   it("hydrate 保留 toolCall/toolResult parts 并按 live 形状配对", () => {
