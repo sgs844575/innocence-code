@@ -39,8 +39,16 @@ describe("cherry registry 适配层", () => {
     const counts = Object.entries(PRESET_MODELS).map(([name, t]) => [name, Object.keys(t).length]);
     expect(counts.length).toBe(12);
     for (const [, n] of counts) expect(n).toBeGreaterThan(0);
-    const zhipu = Object.keys(PRESET_MODELS["智谱开放平台"] ?? {}).length;
-    expect(zhipu).toBeGreaterThanOrEqual(37); // cherry zhipu 规范条目 37+
+    expect(Object.keys(PRESET_MODELS["智谱开放平台"] ?? {}).length).toBeGreaterThanOrEqual(37);
+    expect(Object.keys(PRESET_MODELS["Gemini"] ?? {}).length).toBeGreaterThanOrEqual(50); // google 厂牌 70 条
+    expect(Object.keys(PRESET_MODELS["xAI"] ?? {}).length).toBeGreaterThanOrEqual(30); // xai 厂牌 34 条
+    expect(Object.keys(PRESET_MODELS["阿里云百炼"] ?? {}).length).toBeGreaterThanOrEqual(80); // alibaba 110 条
+  });
+  it("归一化模糊回退：点风格 API id 命中连字符规范条目", () => {
+    // cherry 规范 id 是 gemini-2-0-flash-lite；API 原始 id gemini-2.0-flash-lite
+    // 不在手工层，只能经点→连字符归一化命中
+    const meta = resolvePresetMeta("Gemini", "gemini-2.0-flash-lite");
+    expect(meta?.contextWindow).toBeGreaterThan(0);
   });
   it("手工层优先于 cherry 数据", () => {
     // MANUAL 的 sonnet-4-5 maxOutput=32000，cherry 规范值是 64000——手工层必须赢

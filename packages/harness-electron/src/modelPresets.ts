@@ -59,20 +59,23 @@ interface CherryOverride {
   name?: string;
 }
 
-/** 我们的预设厂家名 → cherry 厂商 id（12 家一一对应）。 */
-const CHERRY_PROVIDER: Record<string, string> = {
-  OpenAI: "openai",
-  Anthropic: "anthropic",
-  DeepSeek: "deepseek",
-  Gemini: "gemini",
-  阿里云百炼: "dashscope",
-  智谱开放平台: "zhipu",
-  Moonshot: "moonshot",
-  xAI: "grok",
-  Mistral: "mistral",
-  硅基流动: "silicon",
-  OpenRouter: "openrouter",
-  "Ollama 本地": "ollama",
+/** 我们的预设厂家名 → cherry 定位（id 用于别名表；owners 是规范模型的
+ *  ownedBy 厂牌 id——上游 ownedBy 用厂牌而非供应商，如 gemini→google、
+ *  Grok→xai、Qwen→alibaba；网关型厂商（硅基/OpenRouter/Ollama）无自有
+ *  规范条目，纯靠别名表）。 */
+const CHERRY_PROVIDER: Record<string, { id: string; owners: string[] }> = {
+  OpenAI: { id: "openai", owners: ["openai"] },
+  Anthropic: { id: "anthropic", owners: ["anthropic"] },
+  DeepSeek: { id: "deepseek", owners: ["deepseek"] },
+  Gemini: { id: "gemini", owners: ["google"] },
+  阿里云百炼: { id: "dashscope", owners: ["alibaba"] },
+  智谱开放平台: { id: "zhipu", owners: ["zhipu"] },
+  Moonshot: { id: "moonshot", owners: ["moonshot"] },
+  xAI: { id: "grok", owners: ["xai"] },
+  Mistral: { id: "mistral", owners: ["mistral"] },
+  硅基流动: { id: "silicon", owners: [] },
+  OpenRouter: { id: "openrouter", owners: [] },
+  "Ollama 本地": { id: "ollama", owners: [] },
 };
 
 function toMeta(e: CherryModel): PresetModelMeta | null {
@@ -208,14 +211,15 @@ const MANUAL: Record<string, Record<string, PresetModelMeta>> = {
 
 export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = (() => {
   const out: Record<string, Record<string, PresetModelMeta>> = {};
-  for (const [name, cherryId] of Object.entries(CHERRY_PROVIDER)) {
+  for (const [name, { id, owners }] of Object.entries(CHERRY_PROVIDER)) {
     const table: Record<string, PresetModelMeta> = {};
+    const ownerSet = new Set(owners);
     for (const e of CHERRY_MODELS) {
-      if (e.ownedBy !== cherryId) continue;
+      if (!e.ownedBy || !ownerSet.has(e.ownedBy)) continue;
       const meta = toMeta(e);
       if (meta) table[e.id] = meta;
     }
-    for (const [apiId, meta] of ALIASES.get(cherryId) ?? []) {
+    for (const [apiId, meta] of ALIASES.get(id) ?? []) {
       table[apiId] ??= meta; // 别名不覆盖同名规范条目
     }
     Object.assign(table, MANUAL[name] ?? {}); // 手工层最优先
@@ -225,8 +229,21 @@ export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = ((
   return out;
 })();
 
+/** 点/下划线 → 连字符、小写：cherry 规范 id 是连字符风格（gemini-2-5-pro），
+ *  API 原始 id 常是点风格（gemini-2.5-pro）——归一化后做模糊回退。 */
+const norm = (id: string): string => id.replace(/[._]/g, "-").toLowerCase();
+
+const NORMALIZED: Record<string, Map<string, PresetModelMeta>> = {};
+for (const [name, table] of Object.entries(PRESET_MODELS)) {
+  const map = new Map<string, PresetModelMeta>();
+  for (const [id, meta] of Object.entries(table)) map.set(norm(id), meta);
+  NORMALIZED[name] = map;
+}
+
 export function resolvePresetMeta(providerName: string, modelId: string): PresetModelMeta | undefined {
-  return PRESET_MODELS[providerName]?.[modelId];
+  const table = PRESET_MODELS[providerName];
+  if (!table) return undefined;
+  return table[modelId] ?? NORMALIZED[providerName]?.get(norm(modelId));
 }
 
 /** 由预设生成落库模型对象；无元数据时生成仅含 id 的最小对象。 */
