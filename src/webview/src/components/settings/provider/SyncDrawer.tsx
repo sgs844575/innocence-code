@@ -13,7 +13,7 @@ interface Props {
   profile: ProviderProfile;
   onClose: () => void;
   listModels: (profile: ProviderProfile) => Promise<string[]>;
-  onApply: (plan: SyncPlan) => void;
+  onApply: (plan: SyncPlan, opts?: { closeAfter?: boolean }) => void;
   modelFromPreset: (providerName: string, id: string) => ModelInfo;
 }
 
@@ -157,7 +157,7 @@ export function SyncDrawer({
           </section>
           <button
             type="button"
-            onClick={() => onApply(plan)}
+            onClick={() => onApply(plan, { closeAfter: true })}
             className="self-start rounded-lg bg-(--color-app-accent) px-3 py-1.5 text-[12px] font-medium text-(--color-app-accent-fg)"
           >
             应用全部变更（+{plan.added.length} / −{plan.removed.length}）

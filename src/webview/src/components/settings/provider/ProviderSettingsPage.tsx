@@ -109,11 +109,13 @@ export function ProviderSettingsPage({
     [syncMap],
   );
 
-  /** 同步抽屉回写：models = kept + added（保序合并），removed 两组皆无 → 移除。 */
-  const applyPlan = (plan: SyncPlan): void => {
+  /** 同步抽屉回写：models = kept + added（保序合并），removed 两组皆无 → 移除。
+   *  closeAfter 默认不关——单条添加/移除与批量 chip 都保持抽屉打开（plan 从
+   *  profile 派生会即时刷新三段计数，便于连续操作）；仅"应用全部变更"关。 */
+  const applyPlan = (plan: SyncPlan, opts?: { closeAfter?: boolean }): void => {
     if (!selected) return;
     patchProfile(selected.id)({ models: applySyncPlan(plan) });
-    setSyncOpen(false);
+    if (opts?.closeAfter) setSyncOpen(false);
   };
 
   /** 编辑抽屉回写：已有 id → 替换条目并带 dirty（enrich 不再覆盖）；新建未定 id →
