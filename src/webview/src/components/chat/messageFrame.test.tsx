@@ -14,7 +14,7 @@ const onQuote = () => {};
 
 describe("MessageFrame 思考块的 live 判定", () => {
   it("思考是末段且流式中 → live（shimmer 预览）", () => {
-    render(
+    const { container } = render(
       <MessageFrame
         parts={[{ type: "thinking", text: "正在推理……" }] as MessagePart[]}
         streaming
@@ -23,7 +23,10 @@ describe("MessageFrame 思考块的 live 判定", () => {
         onQuote={onQuote}
       />,
     );
-    expect(screen.getByText(/chat.thinking.live/)).toBeTruthy();
+    // live 分支：shimmer 预览行（文本尾段 + .shimmer 类），无"已思考"静态行
+    expect(screen.getByText(/正在推理/)).toBeTruthy();
+    expect(container.querySelector(".shimmer")).toBeTruthy();
+    expect(screen.queryByText(/chat.thinking.done/)).toBeNull();
   });
   it("思考已结束（末段是正文）即使消息仍在流式 → 静态'已思考'，shimmer 消失", () => {
     render(
