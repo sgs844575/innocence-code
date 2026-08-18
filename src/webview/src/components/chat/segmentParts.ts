@@ -24,22 +24,19 @@ export function segmentParts(parts: MessagePart[]): Segment[] {
   return out;
 }
 
-/** 任务完成后的归并视图：一轮内所有工具段合成一个组（首个工具段的位置），
- *  纯空白 text 段丢弃；有意义的 text 段保持原顺序。流式期间不用——
- *  逐段展开更贴近执行过程，完成后合并成一行组记录（用户偏好）。 */
+/** 任务完成后的归并视图：把仅被空白 text 段（工具轮间的 "\n\n"）分隔的
+ *  工具段合成一个组，空白段丢弃。**不做任何重排**——正文一旦出现就是
+ *  时间线屏障，其前后的工具组保持原位：合并只发生在"连续工具活动"内部，
+ *  回顾时内容顺序与执行顺序严格一致。流式期间不用（逐段展开更贴近过程）。 */
 export function coalesceToolSegments(segments: Segment[]): Segment[] {
-  const toolsParts = segments.flatMap((s) => (s.kind === "tools" ? s.parts : []));
-  if (toolsParts.length === 0) return segments;
-  let placed = false;
   const out: Segment[] = [];
   for (const seg of segments) {
+    const last = out[out.length - 1];
     if (seg.kind === "tools") {
-      if (!placed) {
-        out.push({ kind: "tools", parts: toolsParts });
-        placed = true;
-      }
+      if (last?.kind === "tools") last.parts.push(...seg.parts);
+      else out.push({ kind: "tools", parts: [...seg.parts] });
     } else if (seg.kind === "text" && seg.text.trim() === "") {
-      // 空 text 段（轮间 "\n\n" 等）不产出空段落
+      // 空白 text 段不产出空段落，也不是时间线内容
     } else {
       out.push(seg);
     }

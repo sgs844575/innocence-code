@@ -27,7 +27,7 @@ describe("segmentParts", () => {
 });
 
 describe("coalesceToolSegments（任务完成后的归并视图）", () => {
-  it("多个工具段合成一个（首个工具段位置），空 text 段丢弃、有意义 text 保序", () => {
+  it("仅被空白 text 分隔的工具段合成一个；空 text 段丢弃、顺序不变", () => {
     const call1 = p({ type: "toolCall", id: "t1", toolName: "Read", args: {} });
     const res1 = p({ type: "toolResult", toolCallId: "t1", content: "a", isError: false });
     const call2 = p({ type: "toolCall", id: "t2", toolName: "Bash", args: {} });
@@ -44,6 +44,20 @@ describe("coalesceToolSegments（任务完成后的归并视图）", () => {
       { kind: "text", text: "先看：" },
       { kind: "tools", parts: [call1, res1, call2, res2] },
       { kind: "text", text: "完成" },
+    ]);
+  });
+  it("正文是时间线屏障：夹在工具之间的有意义 text 不被打乱、两侧不合并", () => {
+    const call1 = p({ type: "toolCall", id: "t1", toolName: "Read", args: {} });
+    const res1 = p({ type: "toolResult", toolCallId: "t1", content: "a", isError: false });
+    const call2 = p({ type: "toolCall", id: "t2", toolName: "Bash", args: {} });
+    const res2 = p({ type: "toolResult", toolCallId: "t2", content: "b", isError: false });
+    const out = coalesceToolSegments(
+      segmentParts([call1, res1, p({ type: "text", text: "结构清楚了，接着改：" }), call2, res2]),
+    );
+    expect(out).toEqual([
+      { kind: "tools", parts: [call1, res1] },
+      { kind: "text", text: "结构清楚了，接着改：" },
+      { kind: "tools", parts: [call2, res2] },
     ]);
   });
   it("无工具段或单一工具段原样返回（含 thinking）", () => {
