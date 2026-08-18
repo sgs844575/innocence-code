@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Plus, Folder, ShieldCheck, Square, ArrowUp, ChevronDown } from "lucide-react";
-import type { HarnessSettings, PermissionMode } from "../../../shared/ipc";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Plus, Square, ArrowUp } from "lucide-react";
+import type { HarnessSettings, ProviderProfile } from "../../../shared/ipc";
+import { ModelPicker } from "./composer/ModelPicker";
+import { PermissionModePicker } from "./composer/PermissionModePicker";
+import { WorkspaceChip } from "./composer/WorkspaceChip";
+import { useCommandK } from "./composer/useCommandK";
 
 interface Props {
   t: (key: string) => string;
@@ -15,8 +19,8 @@ interface Props {
   onConsumed?: () => void;
 }
 
-const MODES: PermissionMode[] = ["auto", "ask", "plan"];
-const MOCK_ID = "__mock__";
+const MOCK_PROFILE_ID = "__mock__";
+const MOCK_MODEL = "mock";
 
 export function Composer({
   t,
@@ -40,6 +44,14 @@ export function Composer({
     // 依赖只含 initialText：onConsumed 后 draft 已清空，回调引用不触发重复并入。
   }, [initialText]);
 
+  // ⌘K/Ctrl+K 唤起二级模型面板：点击 ModelPicker 的触发按钮（data 属性锚定，
+  // 免去 ref 穿透 Popover 组件树）。
+  useCommandK(
+    useCallback(() => {
+      document.querySelector<HTMLButtonElement>("[data-model-picker-trigger]")?.click();
+    }, []),
+  );
+
   const submit = (): void => {
     const text = value.trim();
     if (!text || streaming) return;
@@ -56,23 +68,22 @@ export function Composer({
   };
 
   const canSend = value.trim().length > 0 && !streaming;
-  const workspaceName = settings?.workspaceRoot
-    ? (settings.workspaceRoot.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? "")
-    : "";
 
-  const activeValue = settings
-    ? `${settings.activeProfileId}::${settings.activeModel}`
-    : `${MOCK_ID}::mock`;
-  const activeLabel = (() => {
-    if (!settings || settings.activeProfileId === MOCK_ID) return t("provider.mock");
-    const profile = settings.profiles.find((p) => p.id === settings.activeProfileId);
-    return profile ? `${profile.name} / ${settings.activeModel}` : t("provider.mock");
-  })();
+  // Mock 是虚拟厂家（不在 settings.profiles 中）——组装层注入伪 profile，
+  // 保持旧 select 的能力：chip 显示「本地 Mock」，且可从面板切回 mock。
+  const pickerSettings: HarnessSettings | null = settings
+    ? {
+        ...settings,
+        profiles: settings.profiles.some((p) => p.id === MOCK_PROFILE_ID)
+          ? settings.profiles
+          : [mockProfile(t), ...settings.profiles],
+      }
+    : null;
 
   return (
     <div className="shrink-0 px-[clamp(12px,3vw,24px)] pb-[clamp(10px,1.5vw,16px)]">
       <div className="mx-auto w-full max-w-3xl">
-        <div className="rounded-3xl border border-(--color-app-border) bg-(--color-app-panel) shadow-(--shadow-card) transition-colors focus-within:border-(--color-app-accent)">
+        <div className="rounded-[20px] border border-(--color-app-border) bg-(--color-app-panel) shadow-(--shadow-card) transition-colors focus-within:border-(--color-app-accent)">
           <textarea
             ref={ref}
             value={value}
@@ -93,63 +104,32 @@ export function Composer({
             >
               <Plus size={15} />
             </button>
-            <button
-              type="button"
-              onClick={onPickWorkspace}
-              title={settings?.workspaceRoot || t("workspace.none")}
-              className="flex max-w-[clamp(72px,22%,160px)] items-center gap-1 truncate rounded-full px-2 py-1 hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
-            >
-              <Folder size={13} className="shrink-0" />
-              <span className="truncate">{workspaceName || t("workspace.none")}</span>
-            </button>
-            <span className="flex items-center gap-1 rounded-full px-1.5 py-1">
-              <ShieldCheck size={13} />
-              <select
-                aria-label={t("permission.mode")}
-                value={settings?.permissionMode ?? "ask"}
-                onChange={(e) =>
-                  onSettingsChange({ permissionMode: e.target.value as PermissionMode })
-                }
-                className="cursor-pointer appearance-none bg-transparent outline-none"
-              >
-                {MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {t(`permission.mode.${mode}`)}
-                  </option>
-                ))}
-              </select>
-            </span>
+            <WorkspaceChip t={t} root={settings?.workspaceRoot ?? ""} onPick={onPickWorkspace} />
+            <PermissionModePicker
+              t={t}
+              value={settings?.permissionMode ?? "ask"}
+              onChange={(mode) => onSettingsChange({ permissionMode: mode })}
+            />
             <div className="flex-1" />
 
-            {/* 模型选择：平台分组下拉（可见标签上是全尺寸透明 select） */}
-            <div className="relative flex items-center rounded-full hover:bg-(--color-app-bubble)">
-              <span className="pointer-events-none flex max-w-[clamp(80px,26%,220px)] items-center gap-1 truncate px-1.5 py-1 text-[11px] font-medium">
-                <span className="truncate">{activeLabel}</span>
-                <ChevronDown size={11} className="shrink-0" />
-              </span>
-              <select
-                aria-label={t("composer.model")}
-                value={activeValue}
-                onChange={(e) => {
-                  const [profileId, model] = e.target.value.split("::");
-                  onSettingsChange({ activeProfileId: profileId, activeModel: model });
-                }}
-                className="absolute inset-0 w-full cursor-pointer opacity-0"
+            {pickerSettings ? (
+              <ModelPicker
+                settings={pickerSettings}
+                activeProfileId={pickerSettings.activeProfileId}
+                activeModel={pickerSettings.activeModel}
+                onSelect={(profileId, modelId) =>
+                  onSettingsChange({ activeProfileId: profileId, activeModel: modelId })
+                }
+              />
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="flex max-w-[200px] items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium"
               >
-                <option value={`${MOCK_ID}::mock`}>{t("provider.mock")}</option>
-                {(settings?.profiles ?? [])
-                  .filter((p) => p.enabled && p.models.length > 0)
-                  .map((p) => (
-                    <optgroup key={p.id} label={p.name}>
-                      {p.models.map((m) => (
-                        <option key={m.id} value={`${p.id}::${m.id}`}>
-                          {p.name} / {m.id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-              </select>
-            </div>
+                <span className="truncate">{t("provider.mock")}</span>
+              </button>
+            )}
 
             {streaming ? (
               <button
@@ -181,4 +161,16 @@ export function Composer({
 function autosize(el: HTMLTextAreaElement): void {
   el.style.height = "auto";
   el.style.height = `${Math.min(el.scrollHeight, 176)}px`;
+}
+
+function mockProfile(t: (key: string) => string): ProviderProfile {
+  return {
+    id: MOCK_PROFILE_ID,
+    name: t("provider.mock"),
+    kind: "openai",
+    apiKey: "",
+    baseURL: "",
+    enabled: true,
+    models: [{ id: MOCK_MODEL, name: t("provider.mock"), source: "preset" }],
+  };
 }
