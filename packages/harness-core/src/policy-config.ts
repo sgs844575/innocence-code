@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { matchGlob } from "./glob";
 import type { PermissionDecision, PolicyRule, ToolCallInfo } from "./policy";
 
@@ -67,4 +69,31 @@ function pickPath(args: Record<string, unknown>): string | undefined {
     if (typeof v === "string") return v;
   }
   return undefined;
+}
+
+/** MCP server entry in .innocence/config.json. */
+export interface McpServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+/** Full .innocence/config.json shape. */
+export interface InnocenceConfig {
+  permissions?: ProjectPermissionConfig;
+  mcpServers?: Record<string, McpServerConfig>;
+}
+
+/** Loads <root>/.innocence/config.json; missing/corrupt file -> empty config. */
+export async function loadInnocenceConfig(root: string): Promise<InnocenceConfig> {
+  try {
+    const raw = await fs.readFile(
+      path.join(root, ".innocence", "config.json"),
+      "utf8",
+    );
+    const parsed = JSON.parse(raw) as InnocenceConfig;
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
 }

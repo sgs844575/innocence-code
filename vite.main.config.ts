@@ -33,6 +33,7 @@ export default defineConfig({
       "@innocencecode/tools-shell": pkg("tools-shell"),
       "@innocencecode/plugin-subagent": pkg("plugin-subagent"),
       "@innocencecode/plugin-skills": pkg("plugin-skills"),
+      "@innocencecode/plugin-mcp": pkg("plugin-mcp"),
       "@innocencecode/harness-electron": pkg("harness-electron"),
     },
   },

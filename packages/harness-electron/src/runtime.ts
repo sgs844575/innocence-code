@@ -15,6 +15,8 @@ import { fsPlugin } from "@innocencecode/tools-fs";
 import { shellPlugin } from "@innocencecode/tools-shell";
 import { subagentPlugin } from "@innocencecode/plugin-subagent";
 import { skillsPlugin } from "@innocencecode/plugin-skills";
+import { mcpPlugin } from "@innocencecode/plugin-mcp";
+import { loadInnocenceConfig } from "@innocencecode/harness-core";
 import {
   DEFAULT_SYSTEM_PROMPT,
   MOCK_GREETING,
@@ -122,6 +124,11 @@ export class HarnessRuntime {
       },
     };
 
+    // Project config (.innocence/config.json): permission rules + MCP servers.
+    const projectConfig = await loadInnocenceConfig(
+      settings.workspaceRoot || process.cwd(),
+    );
+
     const session = await AgentSession.create({
       plugins: [
         fsPlugin,
@@ -130,6 +137,7 @@ export class HarnessRuntime {
         skillsPlugin({
           dirs: [path.join(settings.workspaceRoot || process.cwd(), ".innocence", "skills")],
         }),
+        mcpPlugin({ servers: projectConfig.mcpServers ?? {} }),
       ],
       provider:
         this.options.providerFactory?.(settings) ?? this.buildProvider(settings),
@@ -138,7 +146,7 @@ export class HarnessRuntime {
       permission: {
         mode: settings.permissionMode,
         decider,
-        projectConfig: undefined, // loaded by host later from .innocence/config.json
+        projectConfig: projectConfig.permissions,
       },
       logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
     });

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@innocencecode/harness-core": "*",
+    "@innocencecode/plugin-mcp": "*",
     "@innocencecode/plugin-skills": "*",
     "@innocencecode/plugin-subagent": "*",
     "@innocencecode/provider-anthropic": "*",

@@ -30,6 +30,9 @@ export {
 export {
   parseRuleSpec,
   rulesFromConfig,
+  loadInnocenceConfig,
+  type InnocenceConfig,
+  type McpServerConfig,
   type ProjectPermissionConfig,
 } from "./policy-config";
 export type { HarnessEvent, HarnessEventListener } from "./events";
