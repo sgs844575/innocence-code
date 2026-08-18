@@ -1,7 +1,16 @@
 // packages/harness-electron/src/modelPresets.ts
-// 模型预设元数据：上下文/输出/能力默认值（cherry registry 的子集形状）。
-// 键 = PROVIDER_PRESETS 的厂家名；值 = 该厂家常见模型的元数据。
+// 模型预设元数据：上下文/输出/能力默认值。
+//
+// 数据分三层合并（后者覆盖前者同名条目）：
+//   1. cherry 规范模型表（presets/models.json，ownedBy 归属）
+//   2. cherry 厂商别名表（presets/provider-models.json，API 原始 id → 规范 id）
+//   3. MANUAL 手工层（cherry 未覆盖/需校正的条目，优先级最高）
+// 1、2 来自 cherry-studio packages/provider-registry（MIT）的编译产物裁剪本，
+// 再生成方法见 presets/README.md。
 // 所有数值只是默认值，用户在编辑抽屉里改过的字段以 dirty 标记保护（见 settings v3）。
+
+import cherryModelsJson from "./presets/models.json";
+import cherryOverridesJson from "./presets/provider-models.json";
 
 export interface PresetModelMeta {
   name?: string;
@@ -32,7 +41,75 @@ export interface ModelInfo {
   dirty?: boolean;
 }
 
-export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = {
+// ---- cherry registry 数据形状（裁剪保留的字段） -------------------------------
+
+interface CherryModel {
+  id: string;
+  name?: string;
+  ownedBy?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  capabilities?: string[];
+}
+
+interface CherryOverride {
+  providerId: string;
+  modelId: string;
+  apiModelId?: string;
+  name?: string;
+}
+
+/** 我们的预设厂家名 → cherry 厂商 id（12 家一一对应）。 */
+const CHERRY_PROVIDER: Record<string, string> = {
+  OpenAI: "openai",
+  Anthropic: "anthropic",
+  DeepSeek: "deepseek",
+  Gemini: "gemini",
+  阿里云百炼: "dashscope",
+  智谱开放平台: "zhipu",
+  Moonshot: "moonshot",
+  xAI: "grok",
+  Mistral: "mistral",
+  硅基流动: "silicon",
+  OpenRouter: "openrouter",
+  "Ollama 本地": "ollama",
+};
+
+function toMeta(e: CherryModel): PresetModelMeta | null {
+  const caps = e.capabilities ?? [];
+  const meta: PresetModelMeta = {};
+  if (typeof e.contextWindow === "number") meta.contextWindow = e.contextWindow;
+  if (typeof e.maxOutputTokens === "number") meta.maxOutput = e.maxOutputTokens;
+  if (e.name) meta.name = e.name;
+  if (caps.includes("function-call")) meta.tools = true;
+  if (caps.includes("image-recognition")) meta.vision = true;
+  if (caps.includes("reasoning")) meta.reasoning = true;
+  return Object.keys(meta).length > 0 ? meta : null;
+}
+
+const CHERRY_MODELS = (cherryModelsJson as { models: CherryModel[] }).models;
+const CHERRY_OVERRIDES = (cherryOverridesJson as { overrides: CherryOverride[] }).overrides;
+
+/** 规范 id → 元数据（全厂商闭包：含别名引用到的其他家条目）。 */
+const CANONICAL = new Map<string, PresetModelMeta>();
+for (const e of CHERRY_MODELS) {
+  const meta = toMeta(e);
+  if (meta) CANONICAL.set(e.id, meta);
+}
+
+/** cherry 厂商 id →（API 原始 id → 规范元数据）。目标规范条目缺失时跳过。 */
+const ALIASES = new Map<string, Map<string, PresetModelMeta>>();
+for (const o of CHERRY_OVERRIDES) {
+  const meta = CANONICAL.get(o.modelId);
+  if (!meta) continue;
+  const per = ALIASES.get(o.providerId) ?? new Map<string, PresetModelMeta>();
+  per.set(o.apiModelId ?? o.modelId, o.name ? { ...meta, name: o.name } : meta);
+  ALIASES.set(o.providerId, per);
+}
+
+// ---- 手工层：cherry 数据的缺口与校正（优先级最高） ----------------------------
+
+const MANUAL: Record<string, Record<string, PresetModelMeta>> = {
   OpenAI: {
     "gpt-5": { contextWindow: 400000, maxOutput: 128000, tools: true, reasoning: true },
     "gpt-5-mini": { contextWindow: 400000, maxOutput: 128000, tools: true, reasoning: true },
@@ -42,9 +119,9 @@ export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = {
     "gpt-4.1-nano": { contextWindow: 1047576, maxOutput: 32768, tools: true },
     "gpt-4o": { contextWindow: 128000, maxOutput: 16384, vision: true, tools: true },
     "gpt-4o-mini": { contextWindow: 128000, maxOutput: 16384, vision: true, tools: true },
-    "o3": { contextWindow: 200000, maxOutput: 100000, tools: true, reasoning: true },
+    o3: { contextWindow: 200000, maxOutput: 100000, tools: true, reasoning: true },
     "o4-mini": { contextWindow: 200000, maxOutput: 100000, tools: true, reasoning: true },
-    "o1": { contextWindow: 200000, maxOutput: 100000, reasoning: true },
+    o1: { contextWindow: 200000, maxOutput: 100000, reasoning: true },
   },
   Anthropic: {
     "claude-opus-4-5": { contextWindow: 200000, maxOutput: 32000, tools: true },
@@ -52,8 +129,6 @@ export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = {
     "claude-haiku-4-5": { contextWindow: 200000, maxOutput: 32000, tools: true },
     "claude-opus-4-1": { contextWindow: 200000, maxOutput: 32000, tools: true },
     "claude-sonnet-4-5-20250929": { contextWindow: 200000, maxOutput: 32000, tools: true },
-    "claude-3-7-sonnet-20250219": { contextWindow: 200000, maxOutput: 64000, tools: true },
-    "claude-3-5-haiku-20241022": { contextWindow: 200000, maxOutput: 8192, tools: true },
   },
   DeepSeek: {
     "deepseek-chat": { contextWindow: 131072, maxOutput: 8192, tools: true },
@@ -108,19 +183,14 @@ export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = {
     "deepseek-ai/DeepSeek-V3.2": { contextWindow: 131072, maxOutput: 8192, tools: true },
     "deepseek-ai/DeepSeek-R1": { contextWindow: 65536, maxOutput: 16384, reasoning: true, tools: true },
     "Qwen/Qwen3-235B-A22B": { contextWindow: 131072, maxOutput: 8192, tools: true, reasoning: true },
-    "Qwen/Qwen3-32B": { contextWindow: 131072, maxOutput: 8192, tools: true },
     "zai-org/GLM-4.6": { contextWindow: 200000, maxOutput: 8192, tools: true },
     "moonshotai/Kimi-K2-Instruct": { contextWindow: 262144, maxOutput: 16384, tools: true },
   },
   OpenRouter: {
     "openai/gpt-5": { contextWindow: 400000, maxOutput: 128000, tools: true, reasoning: true },
-    "openai/gpt-4o": { contextWindow: 128000, maxOutput: 16384, vision: true, tools: true },
     "anthropic/claude-sonnet-4.5": { contextWindow: 200000, maxOutput: 32000, tools: true },
     "google/gemini-2.5-pro": { contextWindow: 1048576, maxOutput: 65536, vision: true, tools: true, reasoning: true },
-    "google/gemini-2.5-flash": { contextWindow: 1048576, maxOutput: 65536, vision: true, tools: true, reasoning: true },
-    "deepseek/deepseek-chat-v3.1": { contextWindow: 131072, maxOutput: 8192, tools: true },
     "x-ai/grok-4": { contextWindow: 256000, maxOutput: 32768, tools: true, reasoning: true },
-    "qwen/qwen3-235b-a22b": { contextWindow: 131072, maxOutput: 8192, tools: true, reasoning: true },
   },
   "Ollama 本地": {
     "qwen3:32b": { contextWindow: 131072, tools: true },
@@ -133,6 +203,27 @@ export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = {
     "mistral:7b": { contextWindow: 32768 },
   },
 };
+
+// ---- 三层合并 ------------------------------------------------------------------
+
+export const PRESET_MODELS: Record<string, Record<string, PresetModelMeta>> = (() => {
+  const out: Record<string, Record<string, PresetModelMeta>> = {};
+  for (const [name, cherryId] of Object.entries(CHERRY_PROVIDER)) {
+    const table: Record<string, PresetModelMeta> = {};
+    for (const e of CHERRY_MODELS) {
+      if (e.ownedBy !== cherryId) continue;
+      const meta = toMeta(e);
+      if (meta) table[e.id] = meta;
+    }
+    for (const [apiId, meta] of ALIASES.get(cherryId) ?? []) {
+      table[apiId] ??= meta; // 别名不覆盖同名规范条目
+    }
+    Object.assign(table, MANUAL[name] ?? {}); // 手工层最优先
+    out[name] = table;
+  }
+  for (const name of Object.keys(MANUAL)) out[name] ??= MANUAL[name]!;
+  return out;
+})();
 
 export function resolvePresetMeta(providerName: string, modelId: string): PresetModelMeta | undefined {
   return PRESET_MODELS[providerName]?.[modelId];
