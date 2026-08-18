@@ -23,4 +23,22 @@ describe("ModelPicker", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /GLM-4.6/ }));
     expect(onSelect).toHaveBeenCalledWith("p1", "glm-4.6");
   });
+
+  it("大量模型/厂家时双列各自滚动且面板限高（防溢出回归）", async () => {
+    const manyModels = Array.from({ length: 80 }, (_, i) => ({ id: `m${i}`, source: "preset" as const }));
+    const manyProfiles = Array.from({ length: 30 }, (_, i) => ({
+      id: `p${i}`, name: `厂家${i}`, kind: "openai" as const, apiKey: "", baseURL: "", enabled: true, models: manyModels,
+    }));
+    const big = { profiles: manyProfiles } as unknown as HarnessSettings;
+    render(<ModelPicker settings={big} activeProfileId="p0" activeModel="m0" onSelect={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /m0/ }));
+    const dialog = await waitFor(() => screen.getByRole("dialog"));
+    // 80 个模型全部渲染（不虚拟化），容器滚动而非撑开
+    expect(within(dialog).getAllByRole("button", { name: /m\d+/ })).toHaveLength(80);
+    const panes = dialog.querySelectorAll(".overflow-y-auto");
+    expect(panes.length).toBeGreaterThanOrEqual(2);
+    for (const pane of panes) expect(pane.className).toContain("scrollbar-thin");
+    const shell = panes[0]!.parentElement!;
+    expect(shell.className).toContain("max-h-");
+  });
 });

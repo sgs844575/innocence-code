@@ -48,8 +48,10 @@ export function ModelPicker({ settings, activeProfileId, activeModel, onSelect }
           />
         </div>
       </div>
-      <div className="flex min-h-[196px]">
-        <div className="w-[104px] shrink-0 border-r border-(--color-app-hairline) py-1">
+      {/* Two panes scroll independently; the popover never grows past 60vh
+          even with hundreds of models (OpenRouter/Ollama) or many providers. */}
+      <div className="flex max-h-[min(60vh,420px)] min-h-[196px]">
+        <div className="scrollbar-thin w-[104px] shrink-0 overflow-y-auto border-r border-(--color-app-hairline) py-1">
           {profiles.map((p) => (
             <button
               key={p.id}
@@ -61,7 +63,7 @@ export function ModelPicker({ settings, activeProfileId, activeModel, onSelect }
             </button>
           ))}
         </div>
-        <div className="flex-1 py-1">
+        <div className="scrollbar-thin flex-1 overflow-y-auto py-1">
           {current?.models.map((m) => (
             <button
               key={m.id}
