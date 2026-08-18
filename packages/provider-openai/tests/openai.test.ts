@@ -143,6 +143,8 @@ describe("toOpenAIBody", () => {
       messages: [{ role: "user" as const, parts: [{ type: "text" as const, text: "hi" }] }],
     };
     expect(toOpenAIBody(base, { model: "m", reasoningEffort: "high" }).reasoning_effort).toBe("high");
+    // max（GLM 系"最高"）原样透传，由端点解释
+    expect(toOpenAIBody(base, { model: "m", reasoningEffort: "max" }).reasoning_effort).toBe("max");
     expect(toOpenAIBody(base, { model: "m", reasoningEffort: "off" }).reasoning_effort).toBeUndefined();
     expect(toOpenAIBody(base, { model: "m" }).reasoning_effort).toBeUndefined();
   });

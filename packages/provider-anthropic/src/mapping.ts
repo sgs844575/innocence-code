@@ -36,7 +36,7 @@ export function toAnthropicBody(
   return body;
 }
 
-const THINKING_BUDGET: Record<string, number> = { low: 4096, medium: 16384, high: 32768 };
+const THINKING_BUDGET: Record<string, number> = { low: 4096, medium: 16384, high: 32768, max: 65536 };
 
 function mapMessage(m: Message): { role: string; content: unknown[] } {
   return { role: m.role, content: m.parts.map(mapPart).filter((p) => p !== null) };

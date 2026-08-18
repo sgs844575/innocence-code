@@ -40,10 +40,11 @@ export interface HarnessSettings {
   reasoningEffort?: ReasoningEffort;
 }
 
-/** 思考档位全集；空串 = 不带参数（跟随模型默认）。 */
-export type ReasoningEffort = "" | "off" | "low" | "medium" | "high";
+/** 思考档位全集；空串 = 不带参数（跟随模型默认）。max 透传给支持的端点
+ *  （GLM 系"最高"），Anthropic 映射最大预算。 */
+export type ReasoningEffort = "" | "off" | "low" | "medium" | "high" | "max";
 
-export const REASONING_EFFORTS: ReasoningEffort[] = ["", "off", "low", "medium", "high"];
+export const REASONING_EFFORTS: ReasoningEffort[] = ["", "off", "low", "medium", "high", "max"];
 
 function normalizeReasoningEffort(raw: unknown): ReasoningEffort {
   return REASONING_EFFORTS.includes(raw as ReasoningEffort) ? (raw as ReasoningEffort) : "";

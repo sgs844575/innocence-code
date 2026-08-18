@@ -1,7 +1,7 @@
 import { BrainCircuit, Check, ChevronDown } from "lucide-react";
 import { Popover } from "../ui/Popover";
 
-export type EffortValue = "" | "off" | "low" | "medium" | "high";
+export type EffortValue = "" | "off" | "low" | "medium" | "high" | "max";
 
 const OPTIONS: { value: EffortValue; key: string }[] = [
   { value: "", key: "reasoning.effort.default" },
@@ -9,6 +9,7 @@ const OPTIONS: { value: EffortValue; key: string }[] = [
   { value: "low", key: "reasoning.effort.low" },
   { value: "medium", key: "reasoning.effort.medium" },
   { value: "high", key: "reasoning.effort.high" },
+  { value: "max", key: "reasoning.effort.max" },
 ];
 
 /** 思考强度下拉（composer 工具栏）：默认/关闭/低/中/高，选中项带对勾。
