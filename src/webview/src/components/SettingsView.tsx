@@ -1,29 +1,18 @@
 // Settings content area — renders the section picked in SettingsNav:
-// models (the original platform list + detail two-pane), general
+// models (cherry-style provider list + detail pane), general
 // (workspace + permission mode), appearance (theme + language), about.
-import { useMemo, useState } from "react";
-import {
-  Search,
-  Plus,
-  Eye,
-  EyeOff,
-  RefreshCw,
-  X,
-  Cpu,
-} from "lucide-react";
+import { useState } from "react";
 import type {
   HarnessSettings,
-  ModelInfo,
   PermissionMode,
-  ProviderKind,
   ProviderProfile,
   ThemeMode,
 } from "../../../shared/ipc";
-import { api } from "../lib/ipc";
 import type { SettingsSection } from "./SettingsNav";
+import { ProviderList } from "./settings/provider/ProviderList";
 
-const MOCK_ID = "__mock__";
-const MOCK_NAME = "本地 Mock";
+const MOCK_PROFILE_ID = "__mock__";
+const MOCK_MODEL = "mock";
 
 interface Props {
   t: (key: string) => string;
@@ -56,7 +45,7 @@ export function SettingsView({
       </header>
 
       {section === "models" ? (
-        <ModelsSection t={t} settings={settings} onSettingsChange={onSettingsChange} />
+        <ModelsSection settings={settings} onSettingsChange={onSettingsChange} />
       ) : (
         <div className="scrollbar-thin min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-xl px-[clamp(14px,4vw,24px)] py-5">
@@ -82,329 +71,137 @@ export function SettingsView({
 let seq = 0;
 const newId = () => `custom_${Date.now().toString(36)}_${(seq++).toString(36)}`;
 
-// ---- 模型服务：平台二级列表 + 详情（原有设置页主体） ------------------------
+// ---- 模型服务：cherry 式厂家列表栏 + 详情（详情面板在任务 2 接入） -------------
 
 function ModelsSection({
-  t,
   settings,
   onSettingsChange,
 }: {
-  t: (key: string) => string;
   settings: HarnessSettings;
   onSettingsChange: (next: HarnessSettings) => void;
 }): React.JSX.Element {
-  const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string>(
-    settings.activeProfileId === MOCK_ID ? MOCK_ID : settings.activeProfileId,
-  );
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return settings.profiles;
-    return settings.profiles.filter((p) => p.name.toLowerCase().includes(q));
-  }, [settings.profiles, query]);
+  const patchProfiles = (profiles: ProviderProfile[]): void =>
+    onSettingsChange({ ...settings, profiles });
 
-  const selected =
-    selectedId === MOCK_ID
-      ? null
-      : (settings.profiles.find((p) => p.id === selectedId) ?? null);
-
-  const updateProfile = (id: string, patch: Partial<ProviderProfile>): void => {
-    onSettingsChange({
-      ...settings,
-      profiles: settings.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)),
-    });
+  /** 选中即切换会话所用厂家；模型沿用同 id 项，否则取首个，无模型回 mock。 */
+  const setActive = (id: string): void => {
+    if (id === settings.activeProfileId) return;
+    const p = settings.profiles.find((x) => x.id === id);
+    const activeModel = p?.models.some((m) => m.id === settings.activeModel)
+      ? settings.activeModel
+      : (p?.models[0]?.id ?? MOCK_MODEL);
+    onSettingsChange({ ...settings, activeProfileId: id, activeModel });
   };
 
-  const addCustomProfile = (): void => {
-    const profile: ProviderProfile = {
+  const reorder = (ids: string[]): void => {
+    const byId = new Map(settings.profiles.map((p) => [p.id, p]));
+    const next = ids
+      .map((id) => byId.get(id))
+      .filter((p): p is ProviderProfile => p !== undefined);
+    if (next.length === settings.profiles.length) patchProfiles(next);
+  };
+
+  const duplicate = (id: string): void => {
+    const src = settings.profiles.find((p) => p.id === id);
+    if (!src) return;
+    const copy: ProviderProfile = {
+      ...src,
       id: newId(),
-      name: "自定义平台",
-      kind: "openai",
-      apiKey: "",
-      baseURL: "",
-      enabled: true,
-      models: [],
+      name: `${src.name} 副本`,
+      preset: false,
+      models: src.models.map((m) => ({ ...m })),
     };
-    onSettingsChange({ ...settings, profiles: [...settings.profiles, profile] });
-    setSelectedId(profile.id);
+    const at = settings.profiles.indexOf(src) + 1;
+    patchProfiles([...settings.profiles.slice(0, at), copy, ...settings.profiles.slice(at)]);
+  };
+
+  const remove = (id: string): void => {
+    const next: HarnessSettings = {
+      ...settings,
+      profiles: settings.profiles.filter((p) => p.id !== id),
+    };
+    if (settings.activeProfileId === id) {
+      next.activeProfileId = MOCK_PROFILE_ID;
+      next.activeModel = MOCK_MODEL;
+    }
+    onSettingsChange(next);
+  };
+
+  const commitRename = (): void => {
+    if (!renaming) return;
+    const name = renaming.draft.trim();
+    if (name) {
+      patchProfiles(
+        settings.profiles.map((p) => (p.id === renaming.id ? { ...p, name } : p)),
+      );
+    }
+    setRenaming(null);
   };
 
   return (
-    <div className="flex min-h-0 flex-1 max-[900px]:flex-col">
-      {/* 平台列表：宽窗为侧栏，窄窗变为顶部横向滚动行 */}
-      <div className="flex w-[clamp(200px,26%,260px)] shrink-0 flex-col border-r border-(--color-app-hairline) max-[900px]:w-full max-[900px]:border-r-0 max-[900px]:border-b">
-        <div className="px-3 pt-3 pb-1">
-          <h2 className="px-1 text-[11px] font-semibold tracking-wider text-(--color-app-muted) uppercase">
-            {t("settings.modelsService")}
-          </h2>
-        </div>
-        <div className="px-3 pb-2 max-[900px]:pb-1">
-          <div className="flex items-center gap-1.5 rounded-full bg-(--color-app-bubble) px-3 py-1.5">
-            <Search size={13} className="text-(--color-app-muted)" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("settings.searchPlatforms")}
-              className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-(--color-app-muted)"
-            />
-          </div>
-        </div>
-        <div className="scrollbar-thin flex-1 overflow-y-auto px-2 pb-2 max-[900px]:flex max-[900px]:gap-1 max-[900px]:overflow-x-auto max-[900px]:overflow-y-hidden max-[900px]:px-3 max-[900px]:py-1.5">
-          <PlatformRow
-            name={MOCK_NAME}
-            enabled
-            selected={selectedId === MOCK_ID}
-            badge="M"
-            onSelect={() => setSelectedId(MOCK_ID)}
-          />
-          {filtered.map((p) => (
-            <PlatformRow
-              key={p.id}
-              name={p.name}
-              enabled={p.enabled && p.apiKey.length > 0}
-              selected={selectedId === p.id}
-              badge={p.name.slice(0, 1)}
-              onSelect={() => setSelectedId(p.id)}
-            />
-          ))}
-        </div>
-        <div className="border-t border-(--color-app-hairline) p-2">
+    <div className="flex h-full min-h-0">
+      <ProviderList
+        profiles={settings.profiles}
+        activeId={settings.activeProfileId}
+        onSelect={setActive}
+        onReorder={reorder}
+        onRename={(id) => {
+          const p = settings.profiles.find((x) => x.id === id);
+          if (p) setRenaming({ id, draft: p.name });
+        }}
+        onDuplicate={duplicate}
+        onDelete={remove}
+        onAdd={() => {
+          // 任务 5 接 AddProviderDialog；本任务先留空。
+        }}
+      />
+      {/* 占位详情：任务 2 挂 ProviderDetail。 */}
+      <div className="grid min-w-0 flex-1 place-items-center text-sm text-(--color-app-muted)">
+        选择左侧厂家
+      </div>
+      {renaming && (
+        <div className="fixed inset-0 z-50 grid place-items-center">
           <button
             type="button"
-            onClick={addCustomProfile}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-(--color-app-border) py-1.5 text-xs text-(--color-app-muted) hover:bg-(--color-app-bubble) hover:text-(--color-app-text)"
-          >
-            <Plus size={13} />
-            {t("settings.addCustom")}
-          </button>
-        </div>
-      </div>
-
-      {/* 详情面板 */}
-      <div className="scrollbar-thin min-w-0 flex-1 overflow-y-auto p-[clamp(14px,3vw,24px)]">
-        {selected === null ? (
-          <MockDetail t={t} />
-        ) : (
-          <ProfileDetail
-            t={t}
-            profile={selected}
-            onChange={(patch) => updateProfile(selected.id, patch)}
+            aria-label="取消重命名"
+            onClick={() => setRenaming(null)}
+            className="fade-in absolute inset-0 bg-black/25"
           />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PlatformRow({
-  name,
-  enabled,
-  selected,
-  badge,
-  onSelect,
-}: {
-  name: string;
-  enabled: boolean;
-  selected: boolean;
-  badge: string;
-  onSelect: () => void;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors max-[900px]:w-auto max-[900px]:shrink-0 ${
-        selected ? "bg-(--color-app-accent-soft) font-medium text-(--color-app-accent)" : "hover:bg-(--color-app-bubble)"
-      }`}
-    >
-      <span className="grid size-5 shrink-0 place-items-center rounded-md bg-(--color-app-bubble) text-[10px] font-semibold">
-        {badge}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{name}</span>
-      <span
-        title={enabled ? "已配置" : "未配置"}
-        className={`size-1.5 shrink-0 rounded-full ${enabled ? "bg-emerald-500" : "bg-transparent"}`}
-      />
-    </button>
-  );
-}
-
-function MockDetail({ t }: { t: (key: string) => string }): React.JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-(--color-app-muted)">
-      <div className="card flex max-w-sm flex-col items-center gap-2 p-6">
-        <Cpu size={24} />
-        <p>{t("settings.mockDetail")}</p>
-      </div>
-    </div>
-  );
-}
-
-function ProfileDetail({
-  t,
-  profile,
-  onChange,
-}: {
-  t: (key: string) => string;
-  profile: ProviderProfile;
-  onChange: (patch: Partial<ProviderProfile>) => void;
-}): React.JSX.Element {
-  const [showKey, setShowKey] = useState(false);
-  const [fetching, setFetching] = useState(false);
-  const [fetchError, setFetchError] = useState("");
-  const [newModel, setNewModel] = useState("");
-
-  const fetchModels = async (): Promise<void> => {
-    setFetching(true);
-    setFetchError("");
-    try {
-      const ids = await api.listProviderModels(profile.id);
-      const existing = new Set(profile.models.map((m) => m.id));
-      const added = ids
-        .filter((id) => !existing.has(id))
-        .map((id): ModelInfo => ({ id, source: "fetch" }));
-      onChange({ models: [...profile.models, ...added] });
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setFetching(false);
-    }
-  };
-
-  return (
-    <div className="mx-auto max-w-xl">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <input
-          value={profile.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          aria-label={t("settings.platformName")}
-          className="min-w-0 rounded-lg bg-transparent text-lg font-semibold outline-none hover:bg-(--color-app-bubble) focus:bg-(--color-app-bubble) focus:px-2"
-        />
-        <Toggle
-          checked={profile.enabled}
-          onChange={(enabled) => onChange({ enabled })}
-          label={t("settings.enabled")}
-        />
-      </div>
-
-      <h2 className="mb-2 ml-3 text-[11px] font-semibold tracking-wider text-(--color-app-muted) uppercase">
-        {t("settings.apiConfig")}
-      </h2>
-      {/* iOS 分组卡片：一个圆角容器，组内发丝分隔线 */}
-      <div className="card divide-y divide-(--color-app-hairline)">
-        {!profile.preset && (
-          <div className="p-3.5">
-            <Field label={t("settings.kind")}>
-              <select
-                value={profile.kind}
-                onChange={(e) => onChange({ kind: e.target.value as ProviderKind })}
-                className="w-full rounded-xl border border-(--color-app-hairline) bg-(--color-app-bubble) px-3 py-2 text-sm outline-none"
-              >
-                <option value="openai">OpenAI 兼容协议</option>
-                <option value="anthropic">Anthropic 协议</option>
-              </select>
-            </Field>
-          </div>
-        )}
-
-        <div className="p-3.5">
-          <Field label={t("settings.apiKey")}>
-            <div className="flex items-center gap-2 rounded-xl border border-(--color-app-hairline) bg-(--color-app-bubble) px-3 py-2">
-              <input
-                type={showKey ? "text" : "password"}
-                value={profile.apiKey}
-                onChange={(e) => onChange({ apiKey: e.target.value })}
-                placeholder="sk-..."
-                autoComplete="off"
-                className="min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
-              />
+          <div className="relative flex w-[320px] flex-col gap-3 rounded-2xl border border-(--color-app-border) bg-(--color-app-panel) p-4 shadow-(--shadow-pop)">
+            <h2 className="text-[13px] font-semibold">重命名厂家</h2>
+            <input
+              autoFocus
+              value={renaming.draft}
+              onChange={(e) => setRenaming({ ...renaming, draft: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setRenaming(null);
+              }}
+              aria-label="厂家名称"
+              className="h-8 rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) px-2 text-[12.5px] outline-none"
+            />
+            <div className="flex justify-end gap-2 text-[12px]">
               <button
                 type="button"
-                onClick={() => setShowKey((v) => !v)}
-                aria-label={t("settings.showKey")}
-                className="text-(--color-app-muted) hover:text-(--color-app-text)"
+                onClick={() => setRenaming(null)}
+                className="rounded-lg border border-(--color-app-border) px-3 py-1.5"
               >
-                {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={!renaming.draft.trim()}
+                onClick={commitRename}
+                className="rounded-lg bg-(--color-app-accent) px-3 py-1.5 font-medium text-(--color-app-accent-fg) disabled:opacity-40"
+              >
+                确定
               </button>
             </div>
-          </Field>
-        </div>
-
-        <div className="p-3.5">
-          <Field label={t("settings.baseURL")}>
-            <input
-              type="text"
-              value={profile.baseURL}
-              onChange={(e) => onChange({ baseURL: e.target.value })}
-              placeholder={profile.kind === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"}
-              className="w-full rounded-xl border border-(--color-app-hairline) bg-(--color-app-bubble) px-3 py-2 font-mono text-sm outline-none"
-            />
-          </Field>
-        </div>
-      </div>
-
-      <h2 className="mt-5 mb-2 ml-3 text-[11px] font-semibold tracking-wider text-(--color-app-muted) uppercase">
-        {t("settings.models")}
-      </h2>
-      <div className="mb-2 flex items-center justify-end">
-        <button
-          type="button"
-          onClick={() => void fetchModels()}
-          disabled={fetching || !profile.apiKey}
-          className="flex items-center gap-1.5 rounded-full border border-(--color-app-border) px-2.5 py-1 text-xs hover:bg-(--color-app-bubble) disabled:opacity-40"
-        >
-          <RefreshCw size={12} className={fetching ? "animate-spin" : ""} />
-          {fetching ? t("settings.fetching") : t("settings.fetchModels")}
-        </button>
-      </div>
-      {fetchError && (
-        <p className="mb-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          {fetchError}
-        </p>
-      )}
-      <div className="card divide-y divide-(--color-app-hairline)">
-        {profile.models.map((m) => (
-          <div key={m.id} className="group flex items-center gap-2 px-3.5 py-2">
-            <code className="min-w-0 flex-1 truncate font-mono text-xs">{m.id}</code>
-            <button
-              type="button"
-              aria-label={`删除模型 ${m.id}`}
-              onClick={() =>
-                onChange({ models: profile.models.filter((x) => x.id !== m.id) })
-              }
-              className="hidden text-(--color-app-muted) hover:text-red-400 group-hover:block"
-            >
-              <X size={13} />
-            </button>
           </div>
-        ))}
-        {profile.models.length === 0 && (
-          <p className="px-3.5 py-4 text-center text-xs text-(--color-app-muted)">
-            {t("settings.noModels")}
-          </p>
-        )}
-        <div className="flex items-center gap-2 p-2.5">
-          <input
-            value={newModel}
-            onChange={(e) => setNewModel(e.target.value)}
-            placeholder={t("settings.addModelPlaceholder")}
-            className="min-w-0 flex-1 rounded-lg bg-(--color-app-bubble) px-3 py-1.5 font-mono text-xs outline-none"
-          />
-          <button
-            type="button"
-            disabled={!newModel.trim()}
-            onClick={() => {
-              onChange({ models: [...profile.models, { id: newModel.trim(), source: "manual" }] });
-              setNewModel("");
-            }}
-            className="grid size-7 shrink-0 place-items-center rounded-full bg-(--color-app-accent) text-(--color-app-accent-fg) transition-transform active:scale-95 disabled:opacity-30"
-            aria-label={t("settings.addModelPlaceholder")}
-          >
-            <Plus size={13} />
-          </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -572,46 +369,5 @@ function SettingRow({
       </div>
       <div className="shrink-0">{children}</div>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div>
-      <label className="mb-1.5 block text-xs font-medium text-(--color-app-muted)">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}): React.JSX.Element {
-  // iOS-style switch.
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-[26px] w-11 shrink-0 rounded-full transition-colors ${
-        checked
-          ? "bg-(--color-app-accent)"
-          : "border border-(--color-app-border) bg-(--color-app-bubble)"
-      }`}
-    >
-      <span
-        className={`absolute top-1/2 size-[22px] -translate-y-1/2 rounded-full bg-white shadow transition-all ${
-          checked ? "left-[20px]" : "left-[2px]"
-        }`}
-      />
-    </button>
   );
 }
