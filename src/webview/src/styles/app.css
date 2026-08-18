@@ -130,6 +130,18 @@
     animation: toast-in 180ms ease-out;
   }
 
+  /* Markdown body typography for rendered assistant messages (MarkdownView). */
+  .md-body > :first-child { margin-top: 0; }
+  .md-body > :last-child { margin-bottom: 0; }
+  .md-body p { margin: 0.5em 0; }
+  .md-body pre { margin: 0.5em 0; }
+  .md-body ul, .md-body ol { margin: 0.5em 0; padding-left: 1.4em; }
+  .md-body h1, .md-body h2, .md-body h3 { font-weight: 600; margin: 0.8em 0 0.4em; }
+  .md-body blockquote { border-left: 2px solid var(--color-app-border); padding-left: 0.75em; color: var(--color-app-muted); margin: 0.5em 0; }
+  .code-block .code-html pre { margin: 0; background: transparent; }
+  .code-fade { max-height: 264px; position: relative; overflow: hidden; }
+  .code-fade::after { content: ""; position: absolute; inset-inline: 0; bottom: 0; height: 36px; background: linear-gradient(transparent, var(--color-code-bg)); }
+
   @media (prefers-reduced-motion: reduce) {
     .drawer-in,
     .fade-in,
