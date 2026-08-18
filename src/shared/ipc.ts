@@ -187,6 +187,12 @@ export interface ProviderPresetMirror {
   models: string[];
 }
 
+// 镜像契约：与 harness-electron settings.ts 的同名常量保持一致（shared 不
+// import 包），渲染层从这里取，避免各组件散落 "__mock__"/"mock" 魔法串。
+// 修改任何一侧时必须同步另一侧（tests/mirror.test.ts 有 drift-guard）。
+export const MOCK_PROFILE_ID = "__mock__";
+export const MOCK_MODEL = "mock";
+
 // 与 harness-electron PROVIDER_PRESETS（packages/harness-electron/src/settings.ts）
 // 同步的轻量镜像：渲染层无法 import node 侧包，添加厂家对话框的预设列表与
 // 默认值从这里取。修改任何一侧时必须同步另一侧。

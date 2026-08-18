@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Plus, Square, ArrowUp } from "lucide-react";
-import type { HarnessSettings, ProviderProfile } from "../../../shared/ipc";
+import {
+  MOCK_MODEL,
+  MOCK_PROFILE_ID,
+  type HarnessSettings,
+  type ProviderProfile,
+} from "../../../shared/ipc";
 import { ModelPicker } from "./composer/ModelPicker";
 import { PermissionModePicker } from "./composer/PermissionModePicker";
 import { WorkspaceChip } from "./composer/WorkspaceChip";
@@ -18,9 +23,6 @@ interface Props {
   initialText?: string;
   onConsumed?: () => void;
 }
-
-const MOCK_PROFILE_ID = "__mock__";
-const MOCK_MODEL = "mock";
 
 export function Composer({
   t,
