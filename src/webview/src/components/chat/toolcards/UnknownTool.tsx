@@ -5,7 +5,7 @@ import type { ToolCardProps } from "./registry";
 /** 兜底卡：mcp__* 与未来工具统一走这里——工具名 + args JSON + 结果。 */
 export function UnknownTool({ call, result, open, onToggle }: ToolCardProps): React.JSX.Element {
   return (
-    <div className="my-1 overflow-hidden rounded-[10px] border border-(--color-app-hairline) bg-(--color-app-panel)">
+    <div className={`my-1 overflow-hidden rounded-[10px] border border-(--color-app-hairline) bg-(--color-app-panel) ${result ? "" : "tool-sweep"}`}>
       <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left font-mono text-[11px] text-(--color-app-muted) hover:bg-(--color-app-bubble)/40">
         <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
         <Puzzle size={12} className="shrink-0" />

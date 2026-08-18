@@ -7,7 +7,7 @@ export function TaskTool({ call, result, open, onToggle }: ToolCardProps): React
   const desc = typeof call.args.description === "string" ? call.args.description : "";
   const agentType = typeof call.args.agentType === "string" ? call.args.agentType : "explore";
   return (
-    <div className="my-1 overflow-hidden rounded-[10px] border border-(--color-app-hairline) bg-(--color-app-panel)">
+    <div className={`my-1 overflow-hidden rounded-[10px] border border-(--color-app-hairline) bg-(--color-app-panel) ${result ? "" : "tool-sweep"}`}>
       <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-(--color-app-muted) hover:bg-(--color-app-bubble)/40">
         <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
         <Bot size={12} className="shrink-0 text-(--color-app-accent)" />

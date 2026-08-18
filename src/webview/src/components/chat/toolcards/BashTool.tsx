@@ -6,7 +6,7 @@ import type { ToolCardProps } from "./registry";
 export function BashTool({ call, result, open, onToggle }: ToolCardProps): React.JSX.Element {
   const command = typeof call.args.command === "string" ? call.args.command : JSON.stringify(call.args);
   return (
-    <div className="my-1 overflow-hidden rounded-[10px] border border-(--color-app-hairline) bg-(--color-code-bg)">
+    <div className={`my-1 overflow-hidden rounded-[10px] border border-(--color-app-hairline) bg-(--color-code-bg) ${result ? "" : "tool-sweep"}`}>
       <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left font-mono text-[11px] text-(--color-code-fg)/80 hover:bg-white/5">
         <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
         <Terminal size={12} className="shrink-0" />

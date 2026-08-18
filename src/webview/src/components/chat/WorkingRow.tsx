@@ -43,7 +43,7 @@ export function WorkingRow({ state, t }: { state: WorkingState; t: (key: string)
   }
   if (state.kind === "tool") {
     return (
-      <div className="flex items-center gap-2 py-1 text-[11.5px] text-(--color-app-muted)">
+      <div className="tool-sweep flex items-center gap-2 rounded-lg py-1 text-[11.5px] text-(--color-app-muted)">
         <Terminal size={13} className="text-(--color-app-accent)" />
         <Loader2 size={12} className="animate-spin text-(--color-app-accent)" />
         {t("chat.working.tool").replace("{tool}", state.toolName)}
@@ -51,7 +51,7 @@ export function WorkingRow({ state, t }: { state: WorkingState; t: (key: string)
     );
   }
   return (
-    <div className="flex items-center gap-2 py-1 text-[11.5px] text-(--color-app-muted)">
+    <div className="tool-sweep flex items-center gap-2 rounded-lg py-1 text-[11.5px] text-(--color-app-muted)">
       <Loader2 size={13} className="animate-spin text-(--color-app-accent)" />
       {t("chat.working.start")}
     </div>

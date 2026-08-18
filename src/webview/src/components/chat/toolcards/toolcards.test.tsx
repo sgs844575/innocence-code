@@ -30,6 +30,17 @@ describe("tool cards registry", () => {
     expect(screen.getByText("npm test")).toBeTruthy();
     expect(screen.getByText(/9 passed/)).toBeTruthy();
   });
+  it("运行中的工具卡带左→右扫光（tool-sweep），完成态没有", () => {
+    const Card = getToolCard("Bash")!;
+    const { container: running } = render(
+      <Card call={call("Bash", { command: "npm test" })} open onToggle={() => {}} />,
+    );
+    expect(running.querySelector(".tool-sweep")).toBeTruthy();
+    const { container: done } = render(
+      <Card call={call("Bash", { command: "npm test" })} result={res("ok")} open onToggle={() => {}} />,
+    );
+    expect(done.querySelector(".tool-sweep")).toBeNull();
+  });
   it("Edit 卡渲染 +/- diff 行", () => {
     const Card = getToolCard("Edit")!;
     render(

@@ -109,6 +109,33 @@
     }
   }
 
+  /* 运行中的工具卡/工作行：一道 accent 光带从左到右循环扫过（执行中反馈）。 */
+  .tool-sweep {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .tool-sweep::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      100deg,
+      transparent 25%,
+      color-mix(in srgb, var(--color-app-accent) 13%, transparent) 50%,
+      transparent 75%
+    );
+    transform: translateX(-100%);
+    animation: tool-sweep 1.6s ease-in-out infinite;
+  }
+
+  @keyframes tool-sweep {
+    to {
+      transform: translateX(100%);
+    }
+  }
+
   /* Narrow-window sidebar drawer + scrim entrance. */
   @keyframes drawer-in {
     from {
@@ -193,6 +220,10 @@
     /* 流式文字淡入（streamdown [data-sd-animate]）同样尊重减弱动效偏好 */
     [data-sd-animate] {
       animation: none;
+    }
+    .tool-sweep::before {
+      animation: none;
+      opacity: 0;
     }
   }
 }
