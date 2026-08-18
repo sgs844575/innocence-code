@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Plus, Square, ArrowUp } from "lucide-react";
 import {
   MOCK_MODEL,
@@ -9,7 +9,6 @@ import {
 import { ModelPicker } from "./composer/ModelPicker";
 import { PermissionModePicker } from "./composer/PermissionModePicker";
 import { ThinkingEffortPicker } from "./composer/ThinkingEffortPicker";
-import { WorkspaceChip } from "./composer/WorkspaceChip";
 import { useCommandK } from "./composer/useCommandK";
 
 interface Props {
@@ -17,12 +16,13 @@ interface Props {
   streaming: boolean;
   settings: HarnessSettings | null;
   onSettingsChange: (patch: Partial<HarnessSettings>) => void;
-  onPickWorkspace: () => void;
   onSend: (text: string) => void;
   onStop: () => void;
   /** 引用通道注入文本：并入输入框后立即回调 onConsumed 清掉 draft。 */
   initialText?: string;
   onConsumed?: () => void;
+  /** 面板首行（落地态的项目选择器；聊天态不传 = 无此行）。 */
+  header?: ReactNode;
 }
 
 export function Composer({
@@ -30,11 +30,11 @@ export function Composer({
   streaming,
   settings,
   onSettingsChange,
-  onPickWorkspace,
   onSend,
   onStop,
   initialText,
   onConsumed,
+  header,
 }: Props): React.JSX.Element {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -86,7 +86,8 @@ export function Composer({
   return (
     <div className="shrink-0 px-[clamp(12px,3vw,24px)] pb-[clamp(10px,1.5vw,16px)]">
       <div className="mx-auto w-full max-w-3xl">
-        <div className="rounded-[20px] border border-(--color-app-border) bg-(--color-app-panel) shadow-(--shadow-card) transition-colors focus-within:border-(--color-app-accent)">
+        <div className="rounded-[18px] border border-(--color-app-border) bg-(--color-app-panel) shadow-(--shadow-card) transition-colors focus-within:border-(--color-app-accent)">
+          {header}
           <textarea
             ref={ref}
             value={value}
@@ -107,7 +108,6 @@ export function Composer({
             >
               <Plus size={15} />
             </button>
-            <WorkspaceChip t={t} root={settings?.workspaceRoot ?? ""} onPick={onPickWorkspace} />
             <PermissionModePicker
               t={t}
               value={settings?.permissionMode ?? "ask"}

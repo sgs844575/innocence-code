@@ -91,6 +91,8 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  /** 会话绑定的项目根目录；空串 = 不在项目中。侧边栏按它分组。 */
+  workspaceRoot?: string;
 }
 
 export interface ChatDeltaEvent {
@@ -220,7 +222,7 @@ export interface InnocenceCodeApi {
   setTheme(mode: ThemeMode): Promise<void>;
   onThemeChanged(cb: (mode: ThemeMode, resolved: ResolvedTheme) => void): () => void;
   listSessions(): Promise<Session[]>;
-  createSession(title?: string): Promise<Session>;
+  createSession(options?: { title?: string; workspaceRoot?: string }): Promise<Session>;
   deleteSession(id: string): Promise<void>;
   /** Fired after every session-store mutation (create/delete/append/retitle). */
   onSessionsChanged(cb: (list: Session[]) => void): () => void;

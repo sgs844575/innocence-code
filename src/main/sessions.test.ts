@@ -38,8 +38,18 @@ describe("session store persistence", () => {
     expect(restored[0].messageCount).toBe(0);
   });
 
-  it("corrupt transcript (NUL-filled after power loss) heals aside + surfaces a notice, not a silent blank", () => {
-    const session = createSession();
+  it("workspaceRoot 随会话持久化并在重启后恢复（空值兜底为空串）", () => {
+    const withProject = createSession({ workspaceRoot: "D:/x/alpha" });
+    const without = createSession();
+    initSessionStore(dir); // restart
+    const restored = listSessions();
+    const a = restored.find((s) => s.id === withProject.id)!;
+    const b = restored.find((s) => s.id === without.id)!;
+    expect(a.workspaceRoot).toBe("D:/x/alpha");
+    expect(b.workspaceRoot ?? "").toBe("");
+  });
+
+  it("corrupt transcript (NUL-filled after power loss) heals aside + surfaces a notice, not a silent blank", () => {    const session = createSession();
     mkdirSync(path.join(dir, "transcripts"), { recursive: true });
     writeFileSync(path.join(dir, "transcripts", `${session.id}.jsonl`), "\u0000".repeat(512), "utf8");
     initSessionStore(dir); // restart → hydrate hits the corrupt file

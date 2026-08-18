@@ -40,8 +40,8 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(IPC.sessionsList, () => sessions.listSessions());
-  ipcMain.handle(IPC.sessionCreate, (_e, title?: string) => {
-    const session = sessions.createSession(title);
+  ipcMain.handle(IPC.sessionCreate, (_e, options?: { title?: string; workspaceRoot?: string }) => {
+    const session = sessions.createSession({ title: options?.title, workspaceRoot: options?.workspaceRoot });
     broadcastSessions();
     return session;
   });

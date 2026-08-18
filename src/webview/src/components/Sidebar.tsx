@@ -1,6 +1,6 @@
-// Sidebar: brand row (search/notifications), icon nav row, a single project
-// folder holding the session list (this app has one workspace, so one real
-// folder beats fabricating fake projects), and a footer badge.
+// Sidebar: brand row (search/notifications), icon nav row, sessions grouped by
+// project (workspaceRoot), and a footer badge. 新建会话不创建条目——只在首条
+// 消息发送后由 App 建会话（落地态规则），侧栏永远只显示真实会话。
 import { useMemo, useState } from "react";
 import {
   ChevronDown,
@@ -10,11 +10,10 @@ import {
   Star,
   Clock,
   Puzzle,
-  Folder,
-  FolderOpen,
   Settings,
 } from "lucide-react";
 import type { Session } from "../../../shared/ipc";
+import { groupSessions, projectColor } from "./sidebar/groupSessions";
 
 interface Props {
   t: (key: string) => string;
@@ -36,13 +35,14 @@ const NAV_ITEMS = [
 
 export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDelete, onOpenSettings }: Props): React.JSX.Element {
   const [query, setQuery] = useState("");
-  const [projectOpen, setProjectOpen] = useState(true);
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return sessions;
+  const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return sessions.filter((s) => s.title.toLowerCase().includes(q));
-  }, [sessions, query]);
+    const filtered = q
+      ? sessions.filter((s) => s.title.toLowerCase().includes(q))
+      : sessions;
+    return groupSessions(filtered, t("sidebar.noProject"));
+  }, [sessions, query, t]);
 
   return (
     <aside className="flex h-full w-full flex-col overflow-hidden">
@@ -89,37 +89,23 @@ export function Sidebar({ t, appName, sessions, activeId, onSelect, onNew, onDel
           className="mb-2 w-full rounded-full border border-transparent bg-(--color-app-bubble) px-3.5 py-1.5 text-xs outline-none placeholder:text-(--color-app-muted) focus:border-(--color-app-accent)"
         />
 
-        <section>
-          <button
-            type="button"
-            onClick={() => setProjectOpen((v) => !v)}
-            className="flex w-full items-center gap-1.5 rounded-xl px-2 py-1.5 text-left text-sm font-medium hover:bg-(--color-app-bubble)"
-          >
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-(--color-app-muted)">
-              {t("sidebar.projects")}
-            </span>
-          </button>
-          <div className="ml-1">
+        {groups.map((g) => (
+          <section key={g.key || "__none__"} className="mb-1">
             <div className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm">
-              {projectOpen ? (
-                <FolderOpen size={15} className="shrink-0 text-(--color-app-muted)" />
-              ) : (
-                <Folder size={15} className="shrink-0 text-(--color-app-muted)" />
-              )}
-              <span className="truncate font-medium">{appName}</span>
+              <span className="size-[7px] shrink-0 rounded-full" style={{ background: g.key ? projectColor(g.key) : "var(--color-app-muted)" }} />
+              <span className="truncate font-medium" title={g.key || undefined}>{g.name}</span>
+              <span className="ml-auto text-[10px] text-(--color-app-muted)">{g.sessions.length}</span>
             </div>
-            {projectOpen && (
-              <ul className="ml-3 space-y-0.5 border-l border-(--color-app-border) pl-2">
-                {filtered.map((s) => (
-                  <SessionRow key={s.id} session={s} active={s.id === activeId} onSelect={onSelect} onDelete={onDelete} deleteLabel={t("sidebar.delete")} />
-                ))}
-                {filtered.length === 0 && (
-                  <li className="px-2 py-3 text-center text-xs text-(--color-app-muted)">{t("sidebar.empty")}</li>
-                )}
-              </ul>
-            )}
-          </div>
-        </section>
+            <ul className="ml-[13px] space-y-0.5 border-l border-(--color-app-border) pl-2">
+              {g.sessions.map((s) => (
+                <SessionRow key={s.id} session={s} active={s.id === activeId} onSelect={onSelect} onDelete={onDelete} deleteLabel={t("sidebar.delete")} />
+              ))}
+            </ul>
+          </section>
+        ))}
+        {groups.length === 0 && (
+          <div className="px-2 py-3 text-center text-xs text-(--color-app-muted)">{t("sidebar.empty")}</div>
+        )}
       </div>
 
       <footer className="flex items-center justify-between border-t border-(--color-app-hairline) px-3 py-2.5">

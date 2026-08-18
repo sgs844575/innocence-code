@@ -16,7 +16,8 @@ const api: InnocenceCodeApi = {
   setTheme: (mode: ThemeMode) => ipcRenderer.invoke(IPC.themeSet, mode),
   onThemeChanged: (cb) => subscribe(IPC.themeChanged, cb as never),
   listSessions: () => ipcRenderer.invoke(IPC.sessionsList),
-  createSession: (title?: string) => ipcRenderer.invoke(IPC.sessionCreate, title),
+  createSession: (options?: { title?: string; workspaceRoot?: string }) =>
+    ipcRenderer.invoke(IPC.sessionCreate, options),
   deleteSession: (id) => ipcRenderer.invoke(IPC.sessionDelete, id),
   onSessionsChanged: (cb) => subscribe(IPC.sessionsChanged, cb as never),
   listMessages: (sessionId) => ipcRenderer.invoke(IPC.messagesList, sessionId),

@@ -57,10 +57,14 @@ describe("历史会话恢复渲染（ChatView 全链路）", () => {
         settings={null}
         permission={null}
         onSettingsChange={() => {}}
-        onPickWorkspace={() => {}}
         onPermissionRespond={() => {}}
         onSend={() => {}}
         onStop={() => {}}
+        landing={false}
+        pendingProject=""
+        onPickProject={() => {}}
+        recentProjects={[]}
+        onOpenProjectDir={() => {}}
       />,
     );
     expect(screen.getByText("帮我跑下测试")).toBeTruthy();

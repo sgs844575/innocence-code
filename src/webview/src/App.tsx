@@ -81,14 +81,6 @@ export function App(): React.JSX.Element {
     if (isWide) setDrawerOpen(false);
   }, [isWide]);
 
-  const handleSelectSession = useCallback(
-    (id: string) => {
-      setActiveId(id);
-      if (!isWide) setDrawerOpen(false); // Drawer mode: selection dismisses it.
-    },
-    [isWide],
-  );
-
   // Permission asks arrive mid-stream; only one card at a time (the loop
   // resolves asks sequentially).
   useEffect(() => {
@@ -119,6 +111,20 @@ export function App(): React.JSX.Element {
     [],
   );
 
+  // 会话切换携带项目：agent 的工作区（settings.workspaceRoot）跟随所选
+  // 会话的绑定项目——侧栏分组与实际执行目录永远一致。
+  const handleSelectSession = useCallback(
+    (id: string) => {
+      setActiveId(id);
+      if (!isWide) setDrawerOpen(false); // Drawer mode: selection dismisses it.
+      const ws = sessions.find((s) => s.id === id)?.workspaceRoot ?? "";
+      if (settings && ws !== settings.workspaceRoot) {
+        handleSettingsChange({ workspaceRoot: ws });
+      }
+    },
+    [isWide, sessions, settings, handleSettingsChange],
+  );
+
   /** Full-settings replacement (settings page edits whole profiles). */
   const handleSettingsSet = useCallback((next: HarnessSettings) => {
     setSettings(next);
@@ -129,6 +135,27 @@ export function App(): React.JSX.Element {
     const dir = await api.pickWorkspace();
     if (dir) handleSettingsChange({ workspaceRoot: dir });
   }, [handleSettingsChange]);
+
+  /** 落地态「打开项目…」：结果只进选择器，不直接改全局（发送时才生效）。 */
+  const handleOpenProjectDir = useCallback(async () => {
+    const dir = await api.pickWorkspace();
+    if (dir) setPendingProject(dir);
+  }, []);
+
+  /** 近期聊天的项目：从会话历史聚合（最近使用优先，最多 5 个）。 */
+  const recentProjects = useMemo(() => {
+    const byPath = new Map<string, { path: string; count: number; last: number }>();
+    for (const s of sessions) {
+      const p = s.workspaceRoot ?? "";
+      if (!p) continue;
+      const cur = byPath.get(p);
+      byPath.set(p, { path: p, count: (cur?.count ?? 0) + 1, last: Math.max(cur?.last ?? 0, s.updatedAt) });
+    }
+    return [...byPath.values()]
+      .sort((a, b) => b.last - a.last)
+      .slice(0, 5)
+      .map(({ path, count }) => ({ path, count }));
+  }, [sessions]);
 
   useEffect(() => {
     if (!activeId) {
@@ -202,19 +229,20 @@ export function App(): React.JSX.Element {
     };
   }, [activeId]);
 
-  const handleNewSession = useCallback(async () => {
-    try {
-      const session = await api.createSession();
-      // Optimistic insert; the sessions:changed broadcast reconciles right after.
-      setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
-      setActiveId(session.id);
-      setView("chat");
-      if (!isWide) setDrawerOpen(false);
-    } catch (err) {
-      console.error("create session failed", err);
-      showError(t("error.createSession"));
-    }
-  }, [isWide, t, showError]);
+  // 落地态选中的项目："" = 不在项目中。进入落地态时默认取当前工作区。
+  const [pendingProject, setPendingProject] = useState("");
+  useEffect(() => {
+    if (activeId === null) setPendingProject(settings?.workspaceRoot ?? "");
+  }, [activeId, settings?.workspaceRoot]);
+
+  // 新建 ≠ 创建：点「新建会话」只回到落地态（输入居中 + 项目选择），侧栏
+  // 不出条目；真正的 createSession 在首条消息发送时发生（见 handleSend）。
+  const handleNewSession = useCallback(() => {
+    setActiveId(null);
+    setMessages([]);
+    setView("chat");
+    if (!isWide) setDrawerOpen(false);
+  }, [isWide]);
 
   const handleDeleteSession = useCallback(async (id: string) => {
     try {
@@ -230,10 +258,14 @@ export function App(): React.JSX.Element {
   const handleSend = useCallback(async (text: string) => {
     let sessionId = activeId;
     if (!sessionId) {
-      // Typing from the empty state (no session yet) creates one on demand,
-      // same as picking a suggestion card in a fresh chat client.
+      // 落地态首条消息：此刻才创建会话，绑定所选项目并同步全局工作区
+      //（runtime 的 agent 以 settings.workspaceRoot 为根）。
+      const ws = pendingProject;
       try {
-        sessionId = (await api.createSession()).id;
+        if (ws !== (settings?.workspaceRoot ?? "")) {
+          handleSettingsChange({ workspaceRoot: ws });
+        }
+        sessionId = (await api.createSession({ workspaceRoot: ws })).id;
       } catch (err) {
         console.error("create session failed", err);
         showError(t("error.createSession"));
@@ -266,7 +298,7 @@ export function App(): React.JSX.Element {
       streaming: true,
     };
     setMessages((prev) => [...prev, optimisticUser, pendingAssistant]);
-  }, [activeId, t, showError]);
+  }, [activeId, pendingProject, settings?.workspaceRoot, handleSettingsChange, t, showError]);
 
   const handleStop = useCallback(() => {
     if (activeId && streamingId) void api.stopMessage(activeId, streamingId);
@@ -381,10 +413,14 @@ export function App(): React.JSX.Element {
               settings={settings}
               permission={permission}
               onSettingsChange={handleSettingsChange}
-              onPickWorkspace={() => void handlePickWorkspace()}
               onPermissionRespond={handlePermissionRespond}
               onSend={handleSend}
               onStop={handleStop}
+              landing={activeId === null}
+              pendingProject={pendingProject}
+              onPickProject={setPendingProject}
+              recentProjects={recentProjects}
+              onOpenProjectDir={() => void handleOpenProjectDir()}
             />
           )}
         </main>

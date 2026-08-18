@@ -19,6 +19,8 @@ interface SessionIndexEntry {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  /** 会话绑定的项目根；旧索引缺省为空串。 */
+  workspaceRoot?: string;
 }
 
 /** Shape of one transcript line written by HarnessRuntime.persist. */
@@ -57,6 +59,7 @@ function persistIndex(): void {
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       messageCount: r.messageCount,
+      workspaceRoot: r.workspaceRoot,
     };
   });
   try {
@@ -98,6 +101,7 @@ export function initSessionStore(userDataDir: string): void {
       createdAt: typeof e.createdAt === "number" ? e.createdAt : Date.now(),
       updatedAt: typeof e.updatedAt === "number" ? e.updatedAt : Date.now(),
       messageCount: typeof e.messageCount === "number" ? e.messageCount : 0,
+      workspaceRoot: typeof e.workspaceRoot === "string" ? e.workspaceRoot : "",
       messages: [],
       messagesLoaded: false,
     });
@@ -228,15 +232,16 @@ export function listSessions(): Session[] {
   return order.map((id) => publicView(sessions.get(id)!));
 }
 
-export function createSession(title?: string): Session {
+export function createSession(options?: { title?: string; workspaceRoot?: string }): Session {
   const id = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const now = Date.now();
   const record: SessionRecord = {
     id,
-    title: title?.trim() || "新会话",
+    title: options?.title?.trim() || "新会话",
     createdAt: now,
     updatedAt: now,
     messageCount: 0,
+    workspaceRoot: options?.workspaceRoot ?? "",
     messages: [],
     messagesLoaded: true, // Fresh session: nothing on disk to restore.
   };

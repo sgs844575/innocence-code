@@ -18,7 +18,7 @@ afterEach(cleanup);
 describe("Composer", () => {
   it("输入回车发送并清空", () => {
     const onSend = vi.fn();
-    render(<Composer t={t} streaming={false} settings={settings} onSettingsChange={() => {}} onPickWorkspace={() => {}} onSend={onSend} onStop={() => {}} />);
+    render(<Composer t={t} streaming={false} settings={settings} onSettingsChange={() => {}} onSend={onSend} onStop={() => {}} />);
     const ta = screen.getByRole("textbox");
     fireEvent.change(ta, { target: { value: "hi" } });
     fireEvent.keyDown(ta, { key: "Enter" });
@@ -27,10 +27,24 @@ describe("Composer", () => {
   });
   it("权限模式切换走 Popover 而非原生 select", () => {
     const onSettingsChange = vi.fn();
-    render(<Composer t={t} streaming={false} settings={settings} onSettingsChange={onSettingsChange} onPickWorkspace={() => {}} onSend={() => {}} onStop={() => {}} />);
+    render(<Composer t={t} streaming={false} settings={settings} onSettingsChange={onSettingsChange} onSend={() => {}} onStop={() => {}} />);
     expect(screen.queryByRole("combobox")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /permission.mode/ }));
     fireEvent.click(screen.getByRole("button", { name: /permission.mode.auto/ }));
     expect(onSettingsChange).toHaveBeenCalledWith({ permissionMode: "auto" });
+  });
+  it("header 插槽渲染在面板首行（落地态项目选择行）", () => {
+    render(
+      <Composer
+        t={t}
+        streaming={false}
+        settings={settings}
+        onSettingsChange={() => {}}
+        onSend={() => {}}
+        onStop={() => {}}
+        header={<button type="button">选择项目</button>}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "选择项目" })).toBeTruthy();
   });
 });
