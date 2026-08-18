@@ -10,10 +10,14 @@ export const PRESET_LINKS: Record<string, PresetLink> = {
   OpenAI: { baseURL: "", website: "https://openai.com", apiKeyWebsite: "https://platform.openai.com/api-keys" },
   Anthropic: { baseURL: "", apiKeyWebsite: "https://console.anthropic.com/settings/keys" },
   DeepSeek: { baseURL: "https://api.deepseek.com/v1", apiKeyWebsite: "https://platform.deepseek.com" },
+  Gemini: { baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", website: "https://ai.google.dev", apiKeyWebsite: "https://aistudio.google.com/apikey" },
+  阿里云百炼: { baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", apiKeyWebsite: "https://bailian.console.aliyun.com" },
   硅基流动: { baseURL: "https://api.siliconflow.cn/v1", apiKeyWebsite: "https://cloud.siliconflow.cn" },
   OpenRouter: { baseURL: "https://openrouter.ai/api/v1", apiKeyWebsite: "https://openrouter.ai/settings/keys" },
   智谱开放平台: { baseURL: "https://open.bigmodel.cn/api/paas/v4", apiKeyWebsite: "https://open.bigmodel.cn/usercenter/apikeys" },
   Moonshot: { baseURL: "https://api.moonshot.cn/v1", apiKeyWebsite: "https://platform.moonshot.cn/console/api-keys" },
+  xAI: { baseURL: "https://api.x.ai/v1", website: "https://x.ai", apiKeyWebsite: "https://console.x.ai" },
+  Mistral: { baseURL: "https://api.mistral.ai/v1", website: "https://mistral.ai", apiKeyWebsite: "https://console.mistral.ai/api-keys" },
   "Ollama 本地": { baseURL: "http://localhost:11434/v1" },
 };
 
