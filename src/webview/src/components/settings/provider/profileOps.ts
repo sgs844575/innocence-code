@@ -94,3 +94,61 @@ export function presetModelLookup(
   return (_providerName: string, id: string): ModelInfo =>
     byId.get(id) ?? { id, source: "fetch" };
 }
+
+// ---- 逐字段 enrich（规格 §4.4：只填空缺、不覆盖已有、dirty 完全不动） --------
+
+/** enrich 允许填充的字段（source/id/dirty/streaming 不在其中）。 */
+const ENRICHABLE_FIELDS = [
+  "name",
+  "group",
+  "contextWindow",
+  "maxInput",
+  "maxOutput",
+  "vision",
+  "tools",
+  "reasoning",
+] as const;
+
+/** 用预设元数据填充模型的 undefined/缺失字段：仅填空，不覆盖已有值；
+ * dirty（用户手改）与未命中（meta === undefined）时原样返回同一引用。 */
+export function fillModelGaps(model: ModelInfo, meta: ModelInfo | undefined): ModelInfo {
+  if (!meta || model.dirty) return model;
+  const filled: ModelInfo = { ...model };
+  let changed = false;
+  for (const field of ENRICHABLE_FIELDS) {
+    if (filled[field] === undefined && meta[field] !== undefined) {
+      (filled as Record<(typeof ENRICHABLE_FIELDS)[number], unknown>)[field] = meta[field];
+      changed = true;
+    }
+  }
+  return changed ? filled : model;
+}
+
+/** 按元数据列表批量填充（基于预设创建厂家时给裸模型补元数据的路径）。 */
+export function enrichProfileModels(models: ModelInfo[], metas: ModelInfo[]): ModelInfo[] {
+  const byId = new Map(metas.map((m) => [m.id, m]));
+  return models.map((m) => fillModelGaps(m, byId.get(m.id)));
+}
+
+// ---- 浏览选中态（浏览 ≠ 激活：选中只改本地 state，不写 activeProfileId） ------
+
+/** 初始浏览选中：激活厂家可见则跟随激活，否则取首个 profile，全空退空串。 */
+export function initialSelectedId(settings: {
+  profiles: { id: string }[];
+  activeProfileId: string;
+}): string {
+  return settings.profiles.some((p) => p.id === settings.activeProfileId)
+    ? settings.activeProfileId
+    : (settings.profiles[0]?.id ?? "");
+}
+
+/** 删除后回落：删的不是选中则不动；否则取相邻（优先后继，末位取前驱）。 */
+export function nextSelectedId(
+  profiles: { id: string }[],
+  removedId: string,
+  selectedId: string,
+): string {
+  if (selectedId !== removedId) return selectedId;
+  const idx = profiles.findIndex((p) => p.id === removedId);
+  return (profiles[idx + 1] ?? profiles[idx - 1])?.id ?? "";
+}

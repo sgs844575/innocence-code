@@ -4,6 +4,10 @@ import {
   applyModelPatch,
   applySyncPlan,
   duplicateProfile,
+  enrichProfileModels,
+  fillModelGaps,
+  initialSelectedId,
+  nextSelectedId,
   presetModelLookup,
   removeProfile,
   reorderProfiles,
@@ -141,5 +145,64 @@ describe("presetModelLookup", () => {
     const lookup = presetModelLookup([model("glm-4.6", { contextWindow: 200000 })]);
     expect(lookup("智谱开放平台", "glm-4.6").contextWindow).toBe(200000);
     expect(lookup("智谱开放平台", "unknown")).toEqual({ id: "unknown", source: "fetch" });
+  });
+});
+
+// ---- 逐字段 enrich（规格 §4.4：只填空、不覆盖、dirty 不动） ------------------
+
+describe("fillModelGaps", () => {
+  it("仅填空缺字段，已有值不被覆盖", () => {
+    const out = fillModelGaps(
+      model("glm-4.6", { source: "fetch", contextWindow: 999, name: "自定义名" }),
+      model("glm-4.6", { name: "GLM-4.6", group: "chat", contextWindow: 200000, maxOutput: 8192, tools: true }),
+    );
+    expect(out).toEqual({
+      id: "glm-4.6",
+      source: "fetch",
+      name: "自定义名",
+      group: "chat",
+      contextWindow: 999,
+      maxOutput: 8192,
+      tools: true,
+    });
+  });
+  it("dirty 模型完全不动（同一引用返回）", () => {
+    const dirty = model("glm-4.6", { dirty: true });
+    expect(fillModelGaps(dirty, model("glm-4.6", { contextWindow: 200000 }))).toBe(dirty);
+  });
+  it("无元数据（未命中预设）不动", () => {
+    const bare = model("x", { source: "fetch" });
+    expect(fillModelGaps(bare, undefined)).toBe(bare);
+  });
+});
+
+describe("enrichProfileModels", () => {
+  it("基于预设创建的裸模型按 id 填充元数据（source 等非元数据字段保留）", () => {
+    const out = enrichProfileModels(
+      [model("glm-4-plus", { source: "preset" }), model("unknown", { source: "preset" })],
+      [model("glm-4-plus", { contextWindow: 128000, maxOutput: 4096, tools: true }), model("unknown")],
+    );
+    expect(out[0]).toEqual({ id: "glm-4-plus", source: "preset", contextWindow: 128000, maxOutput: 4096, tools: true });
+    expect(out[1]).toEqual({ id: "unknown", source: "preset" });
+  });
+});
+
+// ---- 浏览选中（与 activeProfileId 解耦后的选中态派生） ------------------------
+
+describe("initialSelectedId", () => {
+  it("激活厂家可见时跟随激活，否则取首个 profile，全空退空串", () => {
+    expect(initialSelectedId({ profiles: [profile("a"), profile("b")], activeProfileId: "b" })).toBe("b");
+    expect(initialSelectedId({ profiles: [profile("a"), profile("b")], activeProfileId: MOCK_PROFILE_ID })).toBe("a");
+    expect(initialSelectedId({ profiles: [], activeProfileId: MOCK_PROFILE_ID })).toBe("");
+  });
+});
+
+describe("nextSelectedId", () => {
+  it("删除非选中 → 选中不动；删除选中 → 回落相邻（优先后继）", () => {
+    const profiles = [profile("a"), profile("b"), profile("c")];
+    expect(nextSelectedId(profiles, "a", "b")).toBe("b");
+    expect(nextSelectedId(profiles, "b", "b")).toBe("c");
+    expect(nextSelectedId([profile("a"), profile("b")], "b", "b")).toBe("a");
+    expect(nextSelectedId([profile("a")], "a", "a")).toBe("");
   });
 });

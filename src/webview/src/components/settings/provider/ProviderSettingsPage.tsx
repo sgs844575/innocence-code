@@ -3,7 +3,6 @@
 // 从 SettingsView 原样迁入（行为不变），变换细节提纯在 profileOps。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  MOCK_MODEL,
   PROVIDER_PRESET_MIRROR,
   type HarnessSettings,
   type ModelInfo,
@@ -20,6 +19,9 @@ import {
   applyModelPatch,
   applySyncPlan,
   duplicateProfile,
+  enrichProfileModels,
+  initialSelectedId,
+  nextSelectedId,
   presetModelLookup,
   removeProfile,
   reorderProfiles,
@@ -76,16 +78,22 @@ export function ProviderSettingsPage({
     [],
   );
 
-  const active = settings.profiles.find((p) => p.id === settings.activeProfileId);
+  // 浏览选中（≠ 激活，cherry 语义）：点选厂家只切换详情面板，不写
+  // activeProfileId——否则选中已禁用厂家/关闭当前厂家开关时，main 侧
+  // mergeSettings 会把 activeProfileId 归一回 mock 落盘（激活 profile 必须
+  // enabled），聊天静默降级。激活仍由 composer 的 ModelPicker 决定。
+  // 初始跟随激活厂家（若在列表中可见），否则取首个 profile。
+  const [selectedId, setSelectedId] = useState(() => initialSelectedId(settings));
+  const selected = settings.profiles.find((p) => p.id === selectedId) ?? null;
 
   /** ↻ 获取模型：先预取模型列表 + 预设元数据（渲染层无法 import harness-electron
    *  包，经 IPC 在 main 侧补全），再打开同步抽屉。 */
   const openSync = (): void => {
-    if (!active) return;
+    if (!selected) return;
     void (async () => {
       try {
-        const ids = await api.listProviderModels(active.id);
-        const metas = await api.enrichModels(active.name, ids);
+        const ids = await api.listProviderModels(selected.id);
+        const metas = await api.enrichModels(selected.name, ids);
         setSyncMap(new Map(metas.map((m) => [m.id, m])));
         setSyncOpen(true);
       } catch (err) {
@@ -103,8 +111,8 @@ export function ProviderSettingsPage({
 
   /** 同步抽屉回写：models = kept + added（保序合并），removed 两组皆无 → 移除。 */
   const applyPlan = (plan: SyncPlan): void => {
-    if (!active) return;
-    patchProfile(active.id)({ models: applySyncPlan(plan) });
+    if (!selected) return;
+    patchProfile(selected.id)({ models: applySyncPlan(plan) });
     setSyncOpen(false);
   };
 
@@ -112,20 +120,30 @@ export function ProviderSettingsPage({
    *  先累积进 editing，直到某个 patch 带 id 才作为 manual 模型插入。取消（id 仍为
    *  空）则什么都不落。纯变换见 profileOps.applyModelPatch。 */
   const onModelPatch = (patch: Partial<ModelInfo> & { dirty?: boolean }): void => {
-    if (!active || !editing) return;
-    const result = applyModelPatch(active.models, editing, patch);
-    if (result.models) patchProfile(active.id)({ models: result.models });
+    if (!selected || !editing) return;
+    const result = applyModelPatch(selected.models, editing, patch);
+    if (result.models) patchProfile(selected.id)({ models: result.models });
     setEditing(result.editing);
   };
 
-  /** 选中即切换会话所用厂家；模型沿用同 id 项，否则取首个，无模型回 mock。 */
-  const setActive = (id: string): void => {
-    if (id === settings.activeProfileId) return;
-    const p = settings.profiles.find((x) => x.id === id);
-    const activeModel = p?.models.some((m) => m.id === settings.activeModel)
-      ? settings.activeModel
-      : (p?.models[0]?.id ?? MOCK_MODEL);
-    onSettingsChange({ ...settings, activeProfileId: id, activeModel });
+  /** 添加厂家：对话框"基于预设创建"给的是裸模型（{id, source:"preset"}），
+   *  经 IPC enrichModels 取预设元数据逐字段填空（与 mergeSync kept 的填充
+   *  同一路径 profileOps.fillModelGaps）；enrich 失败不阻断创建（退化裸模型）。 */
+  const addProvider = (p: ProviderProfile): void => {
+    void (async () => {
+      let metas: ModelInfo[] = [];
+      if (p.models.length > 0) {
+        try {
+          metas = await api.enrichModels(p.name, p.models.map((m) => m.id));
+        } catch {
+          // enrich 是尽力而为：拿不到元数据就保留裸模型，创建流程不回滚。
+        }
+      }
+      patchProfiles([
+        ...settings.profiles,
+        { ...p, models: enrichProfileModels(p.models, metas) },
+      ]);
+    })();
   };
 
   const reorder = (ids: string[]): void => {
@@ -139,6 +157,8 @@ export function ProviderSettingsPage({
   };
 
   const remove = (id: string): void => {
+    // 删的是正在浏览的厂家时，选中回落相邻（优先后继）。
+    setSelectedId(nextSelectedId(settings.profiles, id, selectedId));
     onSettingsChange(removeProfile(settings, id));
   };
 
@@ -157,8 +177,8 @@ export function ProviderSettingsPage({
     <div className="flex h-full min-h-0">
       <ProviderList
         profiles={settings.profiles}
-        activeId={settings.activeProfileId}
-        onSelect={setActive}
+        activeId={selectedId}
+        onSelect={setSelectedId}
         onReorder={reorder}
         onRename={(id) => {
           const p = settings.profiles.find((x) => x.id === id);
@@ -169,11 +189,11 @@ export function ProviderSettingsPage({
         onAdd={() => setAddOpen(true)}
       />
       {/* 详情面板：未选中（或仅剩离线 mock）时保留占位。 */}
-      {active ? (
+      {selected ? (
         <ProviderDetail
-          profile={active}
+          profile={selected}
           listModels={listModels}
-          onChange={patchProfile(active.id)}
+          onChange={patchProfile(selected.id)}
           onToast={showToast}
           onEditModel={setEditing}
           onSync={openSync}
@@ -189,10 +209,10 @@ export function ProviderSettingsPage({
         onClose={() => setEditing(null)}
         onSave={onModelPatch}
       />
-      {active && (
+      {selected && (
         <SyncDrawer
           open={syncOpen}
-          profile={active}
+          profile={selected}
           onClose={() => setSyncOpen(false)}
           listModels={listModels}
           onApply={applyPlan}
@@ -203,7 +223,7 @@ export function ProviderSettingsPage({
         open={addOpen}
         presets={PROVIDER_PRESET_MIRROR}
         onClose={() => setAddOpen(false)}
-        onCreate={(p) => patchProfiles([...settings.profiles, p])}
+        onCreate={addProvider}
       />
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-(--color-app-border) bg-(--color-app-panel) px-4 py-1.5 text-[12px] shadow-(--shadow-pop)">

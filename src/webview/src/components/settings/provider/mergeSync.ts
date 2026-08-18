@@ -1,5 +1,6 @@
 // 预设目录 ∪ API 拉回 与本地模型的合并预览（cherry 同步抽屉的纯逻辑核）。
 import type { ModelInfo } from "../../../../../shared/ipc";
+import { fillModelGaps } from "./profileOps";
 
 export interface SyncPlan {
   added: ModelInfo[];
@@ -22,8 +23,12 @@ export function mergeSync(
   for (const m of local) {
     // 用户手改过的模型不当"失效"清理：交集或 dirty 都归 kept，
     // 否则"应用全部变更"（models = kept + added）会把它静默删掉。
-    if (fetchedSet.has(m.id) || m.dirty) kept.push(m);
-    else removed.push(m);
+    if (fetchedSet.has(m.id) || m.dirty) {
+      // 规格 §4.4 逐字段 enrich：非 dirty 的 kept 用预设元数据填空缺字段
+      // （仅填空不覆盖；dirty 完全不动）。未命中预设时 meta 为最小 fetch
+      // 对象，无可填字段，等价原样保留。
+      kept.push(m.dirty ? m : fillModelGaps(m, modelFromPreset(providerName, m.id)));
+    } else removed.push(m);
   }
   const localIds = new Set(local.map((m) => m.id));
   for (const id of fetched) {
