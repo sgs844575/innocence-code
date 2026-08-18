@@ -56,7 +56,15 @@ export function SyncDrawer({
               {plan.added.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => onApply({ ...plan, kept: [...plan.kept, ...plan.added], added: [] })}
+                  // 只加新不清失效：removed 一并入 kept（onApply 语义 = kept + added），
+                  // 避免"全部添加"顺手静默删除失效模型。
+                  onClick={() =>
+                    onApply({
+                      ...plan,
+                      kept: [...plan.kept, ...plan.removed, ...plan.added],
+                      added: [],
+                    })
+                  }
                   className="ml-auto rounded-lg border border-(--color-app-border) px-2 py-0.5 text-[11px] hover:bg-(--color-app-bubble)/50"
                 >
                   全部添加
