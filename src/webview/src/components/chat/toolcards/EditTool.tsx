@@ -25,7 +25,7 @@ export function EditTool({ call, result, open, onToggle }: ToolCardProps): React
         </span>
       </button>
       {open && (
-        <pre className="border-t border-(--color-app-hairline) px-2.5 py-2 font-mono text-[11px] leading-relaxed">
+        <pre className="scrollbar-thin max-h-56 overflow-auto border-t border-(--color-app-hairline) px-2.5 py-2 font-mono text-[11px] leading-relaxed">
           {oldS.split("\n").map((l, i) => (
             <span key={`d${i}`} className="block bg-(--color-diff-del-bg) px-1.5 text-(--color-diff-del)">− {l}</span>
           ))}
