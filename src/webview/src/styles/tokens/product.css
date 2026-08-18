@@ -1,0 +1,13 @@
+@layer theme {
+  :root {
+    --color-diff-add: var(--palette-green-500);
+    --color-diff-add-bg: rgb(52 211 153 / 0.09);
+    --color-diff-del: var(--palette-red-500);
+    --color-diff-del-bg: rgb(248 113 113 / 0.09);
+    --color-tool-running: var(--color-app-accent);
+    --color-tool-ok: var(--palette-green-500);
+    --color-tool-err: var(--palette-red-500);
+    --color-code-bg: #232326;
+    --color-code-fg: #ececf0;
+  }
+}

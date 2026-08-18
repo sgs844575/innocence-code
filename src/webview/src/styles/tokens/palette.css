@@ -1,0 +1,11 @@
+/* 原始色板：语义层从这里取值。当前沿用既有 hex（迁移自 v2 单文件）。 */
+@layer theme {
+  :root {
+    --palette-teal-500: #0d9488;
+    --palette-teal-400: #2dd4bf;
+    --palette-teal-ink: #04211d;
+    --palette-green-500: #34d399;
+    --palette-red-500: #f87171;
+    --palette-amber-500: #fbbf24;
+  }
+}

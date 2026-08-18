@@ -1,0 +1,33 @@
+@layer theme {
+  :root {
+    --color-app-bg: #f7f7f9;
+    --color-app-sidebar: #ececf0;
+    --color-app-panel: #ffffff;
+    --color-app-border: rgb(0 0 0 / 0.1);
+    --color-app-hairline: rgb(0 0 0 / 0.07);
+    --color-app-text: #1a1a1e;
+    --color-app-muted: #6b6b76;
+    --color-app-accent: var(--palette-teal-500);
+    --color-app-accent-soft: rgb(13 148 136 / 0.12);
+    --color-app-accent-fg: #ffffff;
+    --color-app-bubble: #e4e4ea;
+    --radius-card: 14px;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.05);
+    --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.12);
+  }
+  :root.electron-dark {
+    --color-app-bg: #0f0f13;
+    --color-app-sidebar: #17171c;
+    --color-app-panel: #1c1c22;
+    --color-app-border: rgb(255 255 255 / 0.1);
+    --color-app-hairline: rgb(255 255 255 / 0.08);
+    --color-app-text: #e6e6ea;
+    --color-app-muted: #8e8e98;
+    --color-app-accent: var(--palette-teal-400);
+    --color-app-accent-soft: rgb(45 212 191 / 0.16);
+    --color-app-accent-fg: var(--palette-teal-ink);
+    --color-app-bubble: #26262e;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-pop: 0 8px 28px rgb(0 0 0 / 0.5);
+  }
+}

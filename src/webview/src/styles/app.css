@@ -1,44 +1,7 @@
 @import "tailwindcss";
-
-/* Theme tokens follow the electron-dark / electron-light root-class
-   convention set by the main process; falls back to prefers-color-scheme.
-   The shell is one continuous surface: a shared app background, a slightly
-   tinted sidebar column, and a panel tone for content cards. Columns are
-   separated by hairlines only — no floating cards, no gradients. */
-@layer theme {
-  :root {
-    --color-app-bg: #f7f7f9;
-    --color-app-sidebar: #ececf0;
-    --color-app-panel: #ffffff;
-    --color-app-border: rgb(0 0 0 / 0.1);
-    --color-app-hairline: rgb(0 0 0 / 0.07);
-    --color-app-text: #1a1a1e;
-    --color-app-muted: #6b6b76;
-    --color-app-accent: #0d9488;
-    --color-app-accent-soft: rgb(13 148 136 / 0.12);
-    --color-app-accent-fg: #ffffff;
-    --color-app-bubble: #e4e4ea;
-    --radius-card: 14px;
-    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.05);
-    --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.12);
-  }
-
-  :root.electron-dark {
-    --color-app-bg: #0f0f13;
-    --color-app-sidebar: #17171c;
-    --color-app-panel: #1c1c22;
-    --color-app-border: rgb(255 255 255 / 0.1);
-    --color-app-hairline: rgb(255 255 255 / 0.08);
-    --color-app-text: #e6e6ea;
-    --color-app-muted: #8e8e98;
-    --color-app-accent: #2dd4bf;
-    --color-app-accent-soft: rgb(45 212 191 / 0.16);
-    --color-app-accent-fg: #04211d;
-    --color-app-bubble: #26262e;
-    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
-    --shadow-pop: 0 8px 28px rgb(0 0 0 / 0.5);
-  }
-}
+@import "./tokens/palette.css";
+@import "./tokens/semantic.css";
+@import "./tokens/product.css";
 
 @layer base {
   html,
