@@ -6,6 +6,7 @@ import { createMockProvider, type MockTurn } from "@innocencecode/provider-mock"
 import {
   DEFAULT_SETTINGS,
   HarnessRuntime,
+  decodeTranscript,
   type AskResponse,
   type HarnessSettings,
   type LiveToolPart,
@@ -67,7 +68,7 @@ afterAll(async () => {
 });
 
 describe("HarnessRuntime", () => {
-  it("streams a plain-text turn end-to-end and persists the transcript", async () => {
+  it("streams a plain-text turn end-to-end and persists one append-only turn-v2 record", async () => {
     const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const runtime = makeRuntime([{ text: "你好，我是回复" }], { workspaceRoot: workspace }, recorded);
 
@@ -81,33 +82,48 @@ describe("HarnessRuntime", () => {
     const lines = (await fs.readFile(file, "utf8")).trim().split("\n");
     expect(lines).toHaveLength(1);
     const record = JSON.parse(lines[0]);
-    expect(record.user).toBe("打个招呼");
-    expect(record.history.at(-1).parts[0].text).toContain("你好，我是回复");
+    expect(record.type).toBe("turn-v2");
+    expect(record.turnId).toBe("msg_t1");
+    expect(record.messages.map((m: { role: string }) => m.role)).toEqual(["user", "assistant"]);
+    expect(record.messages.at(-1).parts[0].text).toContain("你好，我是回复");
   });
 
-  it("loadHistory 回灌：重启后（无缓存）首轮 persist 含完整历史而非短快照", async () => {
-    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+  it("关闭应用后继续旧会话：runtime 从 transcript 回灌，新增 turn-v2 不重复旧历史", async () => {
     const full: HarnessSettings = { ...DEFAULT_SETTINGS, workspaceRoot: workspace };
-    const runtime = new HarnessRuntime({
+    const rec1: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+    const first = new HarnessRuntime({
       settings: () => full,
-      hooks: makeHooks(recorded),
+      hooks: makeHooks(rec1),
       persistDir,
-      providerFactory: () => createMockProvider({ turns: [{ text: "接着说" }] }),
-      // 模拟重启后从会话存储读回的既有两轮
-      loadHistory: () => [
-        { role: "user", parts: [{ type: "text", text: "第一问" }] },
-        { role: "assistant", parts: [{ type: "text", text: "第一答" }] },
-      ],
+      providerFactory: () => createMockProvider({ turns: [{ text: "第一答" }] }),
     });
-    await runtime.send("sess-seed", "新问题", "msg_seed");
-    expect(recorded.completed).toBe(1);
-    const lines = (await fs.readFile(path.join(persistDir, "sess-seed.jsonl"), "utf8"))
-      .trim()
-      .split("\n");
-    const history = JSON.parse(lines[lines.length - 1]).history;
-    expect(history.map((h: { role: string }) => h.role)).toEqual(["user", "assistant", "user", "assistant"]);
-    expect(history[0].parts[0].text).toBe("第一问");
-    expect(history.at(-1).parts.at(-1).text).toContain("接着说");
+    await first.send("sess-restart", "第一问", "turn-1");
+
+    // New runtime instance = fully closed/reopened app.
+    const rec2: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+    const seenRequests: string[][] = [];
+    const second = new HarnessRuntime({
+      settings: () => full,
+      hooks: makeHooks(rec2),
+      persistDir,
+      providerFactory: () =>
+        createMockProvider({
+          turns: [{ text: "第二答" }],
+          onChat: (req) =>
+            seenRequests.push(req.messages.map((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text).join(""))),
+        }),
+    });
+    await second.send("sess-restart", "第二问", "turn-2");
+
+    expect(seenRequests[0]).toEqual(["第一问", "第一答", "第二问"]); // 模型拿到完整上下文且本轮仅一次
+    const raw = await fs.readFile(path.join(persistDir, "sess-restart.jsonl"), "utf8");
+    const records = raw.trim().split("\n").map((line) => JSON.parse(line));
+    expect(records.map((r) => r.turnId)).toEqual(["turn-1", "turn-2"]);
+    expect(records.map((r) => r.messages.length)).toEqual([2, 2]); // 每行只存本轮，不存全量快照
+    const decoded = decodeTranscript(raw).history;
+    expect(decoded.map((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text).join(""))).toEqual([
+      "第一问", "第一答", "第二问", "第二答",
+    ]);
   });
 
   it("runs fs tools against the workspace with a permission ask", async () => {

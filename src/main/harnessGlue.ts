@@ -44,17 +44,6 @@ function send(channel: string, payload: unknown): void {
 const runtime = new HarnessRuntime({
   settings: () => settings,
   persistDir: transcriptsDir(),
-  // 回灌：runtime 重启后无缓存时，把会话存储里的既有消息种进新 agent，
-  // 避免 persist 写出只含一轮的短快照覆盖完整历史（并让模型拿到上下文）。
-  loadHistory: (chatSessionId) =>
-    sessions.listMessages(chatSessionId).map((m) => ({
-      role: m.role,
-      parts: m.parts.map((p) =>
-        p.type === "toolResult"
-          ? { type: "toolResult" as const, toolCallId: p.toolCallId, content: p.content, isError: p.isError }
-          : p,
-      ),
-    })),
   hooks: {
     onDelta: (sessionId, messageId, delta) => {
       sessions.updateMessage(sessionId, messageId, (m) => {

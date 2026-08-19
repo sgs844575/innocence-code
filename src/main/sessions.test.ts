@@ -276,9 +276,7 @@ describe("session store persistence", () => {
     );
     initSessionStore(dir);
     const orphan = listMessages(s2.id);
-    expect(orphan).toHaveLength(1);
-    expect(orphan[0].role).toBe("user");
-    expect(orphan[0].parts[0]).toMatchObject({ type: "toolResult", content: "orphan" });
+    expect(orphan).toEqual([]); // 未完成的孤立工具结果不产生空用户气泡
   });
 
   it("returns empty messages for a session without transcript", () => {

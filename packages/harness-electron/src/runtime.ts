@@ -25,6 +25,7 @@ import {
   resolveActive,
   type HarnessSettings,
 } from "./settings";
+import { decodeTranscript, encodeTurnV2 } from "./transcript";
 
 export type AskResponse = "allow" | "allowSession" | "deny";
 
@@ -59,10 +60,6 @@ export interface RuntimeOptions {
   persistDir?: string;
   /** Replaces the settings-based provider construction (test seam). */
   providerFactory?: (settings: HarnessSettings) => Provider;
-  /** 回灌历史：runtime 进程内没有某会话的缓存时（典型：应用重启后首次
-   *  在该会话发言），从宿主的会话存储取既有消息，种进新建的 agent——
-   *  否则 persist 会写出一个只含本轮的短快照，覆盖视图里的完整历史。 */
-  loadHistory?: (chatSessionId: string) => Message[] | Promise<Message[]>;
 }
 
 let seq = 0;
@@ -92,6 +89,7 @@ export class HarnessRuntime {
 
     try {
       const agent = await this.agentFor(chatSessionId, messageId);
+      const historyStart = agent.history.length;
       const unsubscribe = agent.on((event) =>
         this.forwardEvent(chatSessionId, messageId, event),
       );
@@ -102,7 +100,7 @@ export class HarnessRuntime {
         this.running.delete(chatSessionId);
       }
       this.options.hooks.onCompleted(chatSessionId, messageId);
-      await this.persist(chatSessionId, text, agent.history);
+      await this.persistTurn(chatSessionId, messageId, agent.history.slice(historyStart));
     } catch (err) {
       this.options.hooks.onError(
         chatSessionId,
@@ -170,12 +168,22 @@ export class HarnessRuntime {
       session.history.push(
         ...cached.session.history.map((m) => ({ role: m.role, parts: [...m.parts] })),
       );
-    } else if (this.options.loadHistory) {
-      // 全新条目（应用重启后首次在该会话发言）：回灌磁盘上的既有历史，
-      // 让 persist 写出的仍是完整对话快照，模型也拿得到全部上下文。
-      const prior = await this.options.loadHistory(chatSessionId);
-      if (prior.length > 0) {
-        session.history.push(...prior.map((m) => ({ role: m.role, parts: [...m.parts] })));
+    } else if (this.options.persistDir) {
+      // Fresh runtime after app restart: seed from the canonical transcript
+      // codec, never from renderer/UI-coalesced session messages.
+      try {
+        const raw = await fs.readFile(
+          path.join(this.options.persistDir, `${chatSessionId}.jsonl`),
+          "utf8",
+        );
+        const prior = decodeTranscript(raw).history;
+        if (prior.length > 0) {
+          session.history.push(...prior.map((m) => ({ role: m.role, parts: [...m.parts] })));
+        }
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+          this.options.hooks.log("warn", "history seed failed", String(err));
+        }
       }
     }
     this.sessions.set(chatSessionId, { key, session });
@@ -242,19 +250,13 @@ export class HarnessRuntime {
     }
   }
 
-  private async persist(chatSessionId: string, userText: string, history: Message[]): Promise<void> {
-    if (!this.options.persistDir) return;
+  private async persistTurn(chatSessionId: string, turnId: string, messages: Message[]): Promise<void> {
+    if (!this.options.persistDir || messages.length === 0) return;
     try {
       await fs.mkdir(this.options.persistDir, { recursive: true });
-      const record = {
-        at: new Date().toISOString(),
-        type: "turn",
-        user: userText,
-        history: history.map((m) => ({ role: m.role, parts: m.parts })),
-      };
       await fs.appendFile(
         path.join(this.options.persistDir, `${chatSessionId}.jsonl`),
-        `${JSON.stringify(record)}\n`,
+        encodeTurnV2(turnId, new Date().toISOString(), messages),
         "utf8",
       );
     } catch (err) {

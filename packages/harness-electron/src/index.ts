@@ -26,3 +26,10 @@ export {
   type RuntimeOptions,
 } from "./runtime";
 export { modelFromPreset, resolvePresetMeta, type PresetModelMeta } from "./modelPresets";
+export {
+  canonicalizeHistory,
+  decodeTranscript,
+  encodeTurnV2,
+  type DecodedTranscript,
+  type TurnRecordV2,
+} from "./transcript";
