@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   AgentSession,
+  createExecutionScope,
+  type ExecutionScope,
   type HarnessEvent,
+  type HarnessPlugin,
   type Message,
   type PermissionDecider,
   type PermissionRequest,
@@ -13,12 +16,6 @@ import {
 import { createMockProvider } from "@innocencecode/provider-mock";
 import { createOpenAIProvider } from "@innocencecode/provider-openai";
 import { createAnthropicProvider } from "@innocencecode/provider-anthropic";
-import { fsPlugin } from "@innocencecode/tools-fs";
-import { shellPlugin } from "@innocencecode/tools-shell";
-import { subagentPlugin } from "@innocencecode/plugin-subagent";
-import { skillsPlugin } from "@innocencecode/plugin-skills";
-import { mcpPlugin } from "@innocencecode/plugin-mcp";
-import { loadInnocenceConfig } from "@innocencecode/harness-core";
 import {
   DEFAULT_SYSTEM_PROMPT,
   MOCK_GREETING,
@@ -54,9 +51,34 @@ export interface RuntimeHooks {
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void;
 }
 
+/**
+ * Everything the host composition root needs to assemble one session's
+ * plugin set. The runtime owns no concrete plugin — hosts (Electron glue,
+ * CLI, tests) decide which capabilities each session gets.
+ */
+export interface PluginFactoryContext {
+  /** Host-level chat session id (the runtime's cache key). */
+  sessionId: string;
+  /** Id of the message/turn that triggered this session build. */
+  messageId: string;
+  /** Settings value this session is built under (settings() at build time). */
+  settings: HarnessSettings;
+  /** Resolved workspace root (never empty; falls back to process.cwd()). */
+  workspaceRoot: string;
+  /**
+   * Correlation scope for the session bootstrap: a fresh invocation id
+   * stamped with the chat session identity (no tool is involved).
+   */
+  scope: ExecutionScope;
+}
+
 export interface RuntimeOptions {
   settings(): HarnessSettings;
   hooks: RuntimeHooks;
+  /** Host composition root: supplies the plugin set for each agent session. */
+  pluginsForSession(
+    context: PluginFactoryContext,
+  ): Promise<HarnessPlugin[]> | HarnessPlugin[];
   /** Directory for JSONL session transcripts; omitted = no persistence. */
   persistDir?: string;
   /** Replaces the settings-based provider construction (test seam). */
@@ -115,9 +137,34 @@ export class HarnessRuntime {
     this.running.get(chatSessionId)?.abort();
   }
 
-  /** Drops cached agent state (e.g. when the chat session is deleted). */
-  dispose(chatSessionId: string): void {
+  /**
+   * Releases one chat session's agent resources: aborts any active run,
+   * waits for it to settle and disposes the session's plugins. Deleting a
+   * cache entry alone is not resource cleanup. Never rejects — disposal
+   * failures are reported through the log hook.
+   */
+  async dispose(chatSessionId: string): Promise<void> {
+    const cached = this.sessions.get(chatSessionId);
+    if (!cached) return;
     this.sessions.delete(chatSessionId);
+    await this.settleDispose(chatSessionId, cached.session);
+  }
+
+  /** Releases every cached agent session (e.g. app shutdown). */
+  async disposeAll(): Promise<void> {
+    const entries = [...this.sessions];
+    this.sessions.clear();
+    await Promise.all(
+      entries.map(([chatSessionId, entry]) => this.settleDispose(chatSessionId, entry.session)),
+    );
+  }
+
+  private async settleDispose(chatSessionId: string, session: AgentSession): Promise<void> {
+    try {
+      await session.dispose();
+    } catch (err) {
+      this.options.hooks.log("error", "session dispose failed", `${chatSessionId}: ${String(err)}`);
+    }
   }
 
   private async agentFor(
@@ -129,6 +176,8 @@ export class HarnessRuntime {
     const cached = this.sessions.get(chatSessionId);
     if (cached && cached.key === key) return cached.session;
 
+    const workspaceRoot = settings.workspaceRoot || process.cwd();
+
     const decider: PermissionDecider = {
       ask: async (request) => {
         const ask: PermissionAsk = { requestId: nextId("perm"), call: request };
@@ -137,29 +186,25 @@ export class HarnessRuntime {
       },
     };
 
-    // Project config (.innocence/config.json): permission rules + MCP servers.
-    const projectConfig = await loadInnocenceConfig(
-      settings.workspaceRoot || process.cwd(),
-    );
+    // Plugins come from the host composition root — the runtime owns no
+    // concrete capability, so tools/skills/MCP wiring lives in the host.
+    const plugins = await this.options.pluginsForSession({
+      sessionId: chatSessionId,
+      messageId,
+      settings,
+      workspaceRoot,
+      scope: createExecutionScope("session", undefined, { sessionId: chatSessionId }),
+    });
 
     const session = await AgentSession.create({
-      plugins: [
-        fsPlugin,
-        shellPlugin,
-        subagentPlugin,
-        skillsPlugin({
-          dirs: [path.join(settings.workspaceRoot || process.cwd(), ".innocence", "skills")],
-        }),
-        mcpPlugin({ servers: projectConfig.mcpServers ?? {} }),
-      ],
+      plugins,
       provider:
         this.options.providerFactory?.(settings) ?? this.buildProvider(settings),
-      workspaceRoot: settings.workspaceRoot || process.cwd(),
+      workspaceRoot,
       systemPrompt: DEFAULT_SYSTEM_PROMPT,
       permission: {
         mode: settings.permissionMode,
         decider,
-        projectConfig: projectConfig.permissions,
         // Every resolution (including full mode) is audited through the host
         // log with the persisted request — raw args never reach this surface.
         audit: (entry) => {
@@ -174,9 +219,11 @@ export class HarnessRuntime {
       },
       logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
     });
-    // Rebuilds (settings changed) keep the conversation: copy the previous
-    // session's history so switching providers mid-chat is not destructive.
     if (cached) {
+      // Rebuilds (settings changed) keep the conversation: copy the previous
+      // session's canonical history FIRST, then release the old session —
+      // dispose aborts its in-flight work, so the snapshot must not depend
+      // on anything that teardown touches.
       session.history.push(
         ...cached.session.history.map((m) => ({ role: m.role, parts: [...m.parts] })),
       );
@@ -199,6 +246,9 @@ export class HarnessRuntime {
       }
     }
     this.sessions.set(chatSessionId, { key, session });
+    if (cached) {
+      await this.settleDispose(chatSessionId, cached.session);
+    }
     return session;
   }
 

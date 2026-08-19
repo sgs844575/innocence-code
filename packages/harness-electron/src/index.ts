@@ -22,6 +22,7 @@ export {
   type AskResponse,
   type LiveToolPart,
   type PermissionAsk,
+  type PluginFactoryContext,
   type RuntimeHooks,
   type RuntimeOptions,
 } from "./runtime";

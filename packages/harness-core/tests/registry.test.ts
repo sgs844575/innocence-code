@@ -141,6 +141,51 @@ describe("PluginRegistry lifecycle", () => {
     expect(calls).toEqual(["b", "a"]);
   });
 
+  it("concurrent dispose calls share one in-flight disposal", async () => {
+    const order: string[] = [];
+    let releaseB!: () => void;
+    const gateB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    const registry = new PluginRegistry();
+    await registry.load([
+      { name: "a", activate() {}, async dispose() { order.push("dispose-a"); } },
+      { name: "b", activate() {}, async dispose() { order.push("dispose-b"); await gateB; } },
+    ]);
+
+    const first = registry.dispose(); // starts the reverse pass: b first, parked on its gate
+    const second = registry.dispose(); // must JOIN the in-flight pass, not pop a concurrently
+    order.push("second-joined");
+    expect(order).toEqual(["dispose-b", "second-joined"]);
+    releaseB();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["dispose-b", "second-joined", "dispose-a"]);
+  });
+
+  it("concurrent dispose calls surface the same failure", async () => {
+    let disposeCalls = 0;
+    const registry = new PluginRegistry();
+    await registry.load([
+      {
+        name: "boom",
+        activate() {},
+        async dispose() {
+          disposeCalls += 1;
+          throw new Error("boom failed");
+        },
+      },
+    ]);
+
+    const results = await Promise.allSettled([registry.dispose(), registry.dispose()]);
+    expect(disposeCalls).toBe(1);
+    for (const r of results) {
+      expect(r.status).toBe("rejected");
+      if (r.status === "rejected") {
+        expect((r.reason as Error).message).toContain("boom failed");
+      }
+    }
+  });
+
   it("rolls back already activated plugins when activation fails", async () => {
     const calls: string[] = [];
     const registry = new PluginRegistry();

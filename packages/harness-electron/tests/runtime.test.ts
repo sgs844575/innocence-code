@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createMockProvider, type MockTurn } from "@innocencecode/provider-mock";
+import { fsPlugin } from "@innocencecode/tools-fs";
+import { shellPlugin } from "@innocencecode/tools-shell";
 import {
   DEFAULT_SETTINGS,
   HarnessRuntime,
@@ -10,7 +12,9 @@ import {
   type AskResponse,
   type HarnessSettings,
   type LiveToolPart,
+  type PluginFactoryContext,
   type RuntimeHooks,
+  type RuntimeOptions,
 } from "../src";
 
 let persistDir: string;
@@ -23,6 +27,8 @@ interface Recorded {
   errors: string[];
   asks: Array<{ toolName: string; answer: AskResponse }>;
 }
+
+const emptyRecorded = (): Recorded => ({ deltas: [], tools: [], completed: 0, errors: [], asks: [] });
 
 function makeHooks(recorded: Recorded, answer: AskResponse = "allow"): RuntimeHooks {
   return {
@@ -41,19 +47,30 @@ function makeHooks(recorded: Recorded, answer: AskResponse = "allow"): RuntimeHo
   };
 }
 
+/** Default options with the test-side composition root (fs + shell tools). */
+function runtimeOptions(
+  turns: MockTurn[],
+  settings: Partial<HarnessSettings> = {},
+  recorded: Recorded = emptyRecorded(),
+  answer: AskResponse = "allow",
+): RuntimeOptions {
+  const full: HarnessSettings = { ...DEFAULT_SETTINGS, ...settings };
+  return {
+    settings: () => full,
+    hooks: makeHooks(recorded, answer),
+    persistDir,
+    providerFactory: () => createMockProvider({ turns }),
+    pluginsForSession: () => [fsPlugin, shellPlugin],
+  };
+}
+
 function makeRuntime(
   turns: MockTurn[],
   settings: Partial<HarnessSettings> = {},
   recorded: Recorded,
   answer: AskResponse = "allow",
 ) {
-  const full: HarnessSettings = { ...DEFAULT_SETTINGS, ...settings };
-  return new HarnessRuntime({
-    settings: () => full,
-    hooks: makeHooks(recorded, answer),
-    persistDir,
-    providerFactory: () => createMockProvider({ turns }),
-  });
+  return new HarnessRuntime(runtimeOptions(turns, settings, recorded, answer));
 }
 
 beforeAll(async () => {
@@ -69,7 +86,7 @@ afterAll(async () => {
 
 describe("HarnessRuntime", () => {
   it("streams a plain-text turn end-to-end and persists one append-only turn-v2 record", async () => {
-    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = emptyRecorded();
     const runtime = makeRuntime([{ text: "你好，我是回复" }], { workspaceRoot: workspace }, recorded);
 
     await runtime.send("sess-1", "打个招呼", "msg_t1");
@@ -90,22 +107,15 @@ describe("HarnessRuntime", () => {
 
   it("关闭应用后继续旧会话：runtime 从 transcript 回灌，新增 turn-v2 不重复旧历史", async () => {
     const full: HarnessSettings = { ...DEFAULT_SETTINGS, workspaceRoot: workspace };
-    const rec1: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const first = new HarnessRuntime({
-      settings: () => full,
-      hooks: makeHooks(rec1),
-      persistDir,
-      providerFactory: () => createMockProvider({ turns: [{ text: "第一答" }] }),
+      ...runtimeOptions([{ text: "第一答" }], full),
     });
     await first.send("sess-restart", "第一问", "turn-1");
 
     // New runtime instance = fully closed/reopened app.
-    const rec2: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
     const seenRequests: string[][] = [];
     const second = new HarnessRuntime({
-      settings: () => full,
-      hooks: makeHooks(rec2),
-      persistDir,
+      ...runtimeOptions([], full),
       providerFactory: () =>
         createMockProvider({
           turns: [{ text: "第二答" }],
@@ -127,7 +137,7 @@ describe("HarnessRuntime", () => {
   });
 
   it("runs fs tools against the workspace with a permission ask", async () => {
-    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = emptyRecorded();
     const runtime = makeRuntime(
       [
         { toolCalls: [{ toolName: "Read", args: { path: "hello.txt" } }] },
@@ -156,7 +166,7 @@ describe("HarnessRuntime", () => {
   });
 
   it("feeds a denied permission back as an error result the model can see", async () => {
-    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = emptyRecorded();
     const runtime = makeRuntime(
       [
         { toolCalls: [{ toolName: "Write", args: { path: "x.txt", content: "nope" } }] },
@@ -179,13 +189,12 @@ describe("HarnessRuntime", () => {
   });
 
   it("rebuilds the cached agent session when settings change, keeping history", async () => {
-    const recorded: Recorded = { deltas: [], tools: [], completed: 0, errors: [], asks: [] };
+    const recorded: Recorded = emptyRecorded();
     const settings: HarnessSettings = { ...DEFAULT_SETTINGS, workspaceRoot: workspace };
     let currentTurns: MockTurn[] = [{ text: "来自设置A的回复" }];
     const runtime = new HarnessRuntime({
+      ...runtimeOptions([], {}, recorded),
       settings: () => settings,
-      hooks: makeHooks(recorded),
-      persistDir,
       providerFactory: () => createMockProvider({ turns: currentTurns }),
     });
 
@@ -208,7 +217,7 @@ describe("HarnessRuntime", () => {
     // 会调用工具的 provider：首轮返回一次 toolCall（复用本文件既有的
     // createMockProvider 工具回放手法），工具执行后次轮返回最终文本。
     const runtime = new HarnessRuntime({
-      settings: () => ({ ...DEFAULT_SETTINGS, workspaceRoot: workspace }),
+      ...runtimeOptions([], { workspaceRoot: workspace }),
       hooks: {
         onDelta,
         onTool,
@@ -231,5 +240,133 @@ describe("HarnessRuntime", () => {
     expect(kinds).toContain("toolCall");
     expect(kinds).toContain("toolResult");
     expect(onDelta.mock.calls.some((c) => String(c[2]).includes("🔧"))).toBe(false);
+  });
+});
+
+describe("HarnessRuntime plugin composition", () => {
+  it("creates plugins from the host composition root", async () => {
+    const created: string[] = [];
+    const disposed: string[] = [];
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }),
+      pluginsForSession: async ({ sessionId, workspaceRoot }) => [{
+        name: `plugin-${sessionId}`,
+        activate() { created.push(workspaceRoot); },
+        async dispose() { disposed.push(sessionId); },
+      }],
+    });
+
+    await runtime.send("s1", "hello", "m1");
+    await runtime.dispose("s1");
+    expect(created).toEqual([expect.any(String)]);
+    expect(disposed).toEqual(["s1"]);
+  });
+
+  it("hands the factory the full PluginFactoryContext", async () => {
+    const contexts: PluginFactoryContext[] = [];
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }),
+      pluginsForSession: (context) => {
+        contexts.push(context);
+        return [];
+      },
+    });
+
+    await runtime.send("ctx-1", "你好", "m-ctx");
+
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0].sessionId).toBe("ctx-1");
+    expect(contexts[0].messageId).toBe("m-ctx");
+    expect(contexts[0].workspaceRoot).toBe(workspace);
+    expect(contexts[0].settings).toMatchObject({ workspaceRoot: workspace });
+    expect(contexts[0].scope.sessionId).toBe("ctx-1");
+  });
+
+  it("settings change rebuild: copies canonical history, then awaits the old session dispose", async () => {
+    const events: string[] = [];
+    const seenRequests: string[][] = [];
+    const settings: HarnessSettings = { ...DEFAULT_SETTINGS, workspaceRoot: workspace };
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([], {}, emptyRecorded()),
+      settings: () => settings,
+      providerFactory: () =>
+        createMockProvider({
+          turns: [{ text: "答" }],
+          onChat: (req) =>
+            seenRequests.push(
+              req.messages.map((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text).join("")).filter(Boolean),
+            ),
+        }),
+      pluginsForSession: () => [{
+        name: "witness",
+        activate() { events.push("activate"); },
+        async dispose() {
+          events.push("dispose-start");
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          events.push("dispose-end");
+        },
+      }],
+    });
+
+    await runtime.send("rb-1", "一", "m-rb1");
+    settings.permissionMode = "plan";
+    await runtime.send("rb-1", "二", "m-rb2");
+
+    // The rebuilt session carried the canonical history over.
+    expect(seenRequests[1]).toEqual(["一", "答", "二"]);
+    // The new session is created (and receives the copied history) BEFORE the
+    // old one is disposed, and that dispose is fully awaited inside the
+    // rebuild — before the new turn's chat runs.
+    expect(events).toEqual(["activate", "activate", "dispose-start", "dispose-end"]);
+    // disposeAll now releases the rebuilt (cached) session — the second and
+    // final witness disposal.
+    await runtime.disposeAll();
+    expect(events).toEqual([
+      "activate", "activate", "dispose-start", "dispose-end", "dispose-start", "dispose-end",
+    ]);
+  });
+
+  it("dispose() drops the cache so the next send builds a fresh session", async () => {
+    const disposed: string[] = [];
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }),
+      pluginsForSession: ({ sessionId }) => [{
+        name: `p-${sessionId}`,
+        activate() {},
+        async dispose() { disposed.push(sessionId); },
+      }],
+    });
+
+    await runtime.send("fresh-1", "一", "m-f1");
+    await runtime.dispose("fresh-1");
+    // Repeated dispose is a no-op (the cached session is gone).
+    await runtime.dispose("fresh-1");
+    expect(disposed).toEqual(["fresh-1"]);
+
+    await runtime.send("fresh-1", "二", "m-f2");
+    expect(disposed).toEqual(["fresh-1"]); // the new session is still alive
+    await runtime.disposeAll();
+    expect(disposed).toEqual(["fresh-1", "fresh-1"]);
+  });
+
+  it("disposeAll() releases every cached session", async () => {
+    const disposed: string[] = [];
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }),
+      pluginsForSession: ({ sessionId }) => [{
+        name: `p-${sessionId}`,
+        activate() {},
+        async dispose() { disposed.push(sessionId); },
+      }],
+    });
+
+    await runtime.send("all-1", "x", "m-a1");
+    await runtime.send("all-2", "y", "m-a2");
+    await runtime.disposeAll();
+
+    expect([...disposed].sort()).toEqual(["all-1", "all-2"]);
+    // disposeAll cleared the cache: a second sweep finds nothing.
+    await runtime.disposeAll();
+    expect([...disposed].sort()).toEqual(["all-1", "all-2"]);
   });
 });

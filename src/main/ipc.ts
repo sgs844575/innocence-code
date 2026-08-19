@@ -46,7 +46,8 @@ export function registerIpcHandlers(): void {
     return session;
   });
   ipcMain.handle(IPC.sessionDelete, (_e, id: string) => {
-    disposeSession(id);
+    // Agent teardown continues in the background; the UI list updates now.
+    void disposeSession(id);
     sessions.deleteSession(id);
     broadcastSessions();
   });

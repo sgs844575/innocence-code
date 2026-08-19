@@ -59,6 +59,8 @@ export class PluginRegistry {
   private readonly registeredMessageProcessors: MessageProcessor[] = [];
   /** Successfully activated plugins, awaiting reverse-order disposal. */
   private readonly activated: HarnessPlugin[] = [];
+  /** Shared in-flight disposal: concurrent dispose() calls join one pass. */
+  private disposeInFlight: Promise<void> | undefined;
 
   get messageProcessors(): readonly MessageProcessor[] {
     return this.registeredMessageProcessors;
@@ -78,8 +80,24 @@ export class PluginRegistry {
     }
   }
 
-  /** Idempotent: pops the activated stack once, so repeated calls are no-ops. */
+  /**
+   * Idempotent: pops the activated stack once, so repeated calls are no-ops.
+   * Concurrent calls share the same in-flight pass (each plugin disposed
+   * exactly once, strict reverse order, same outcome — including failures).
+   */
   async dispose(): Promise<void> {
+    if (!this.disposeInFlight) {
+      const disposal = this.disposeOnce();
+      // Cleared when settled so the field never pins a finished promise;
+      // later calls run a fresh (empty-stack) pass instead of replaying it.
+      this.disposeInFlight = disposal.finally(() => {
+        this.disposeInFlight = undefined;
+      });
+    }
+    return this.disposeInFlight;
+  }
+
+  private async disposeOnce(): Promise<void> {
     const errors: unknown[] = [];
     await this.disposeActivated((_plugin, error) => errors.push(error));
     if (errors.length > 0) {

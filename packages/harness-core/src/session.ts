@@ -91,6 +91,8 @@ export class AgentSession {
   private activeRun: Promise<unknown> | undefined;
   private logger: Logger;
   private activeSubagents = 0;
+  /** Set as soon as dispose() starts: a released session never runs again. */
+  private disposed = false;
 
   private constructor(
     options: AgentSessionOptions,
@@ -214,6 +216,9 @@ export class AgentSession {
     signal?: AbortSignal,
     scopePatch: ExecutionScopeIdentity = {},
   ): Promise<RunSummary> {
+    if (this.disposed) {
+      throw new Error(`会话已释放（${this.sessionId}），不能再运行`);
+    }
     const canonical = canonicalUserMessage(input);
     this.abort = new AbortController();
     if (signal) {
@@ -263,8 +268,14 @@ export class AgentSession {
     this.abort?.abort();
   }
 
-  /** Aborts the active run, waits for it to settle, then disposes all plugins. */
+  /**
+   * Aborts the active run, waits for it to settle, then disposes all plugins.
+   * The disposed flag flips first, so run() calls racing this teardown reject
+   * with 会话已释放 instead of driving a released registry. Idempotent:
+   * repeat calls join the same cleanup (registry disposal deduplicates).
+   */
   async dispose(): Promise<void> {
+    this.disposed = true;
     this.abort?.abort();
     if (this.activeRun) {
       await this.activeRun.catch(() => {});

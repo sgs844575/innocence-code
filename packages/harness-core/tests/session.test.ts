@@ -254,6 +254,34 @@ describe("AgentSession", () => {
     expect(events).toEqual(["chat", "disposed"]);
   });
 
+  it("run() after dispose rejects with 会话已释放", async () => {
+    const session = await AgentSession.create({ plugins: [], ...baseOptions() });
+    await session.run("第一次");
+    await session.dispose();
+
+    await expect(session.run("再来一次")).rejects.toThrow("会话已释放");
+    // The rejected run never entered the history.
+    expect(session.history).toHaveLength(2);
+  });
+
+  it("dispose is idempotent and repeated dispose stays a no-op", async () => {
+    let disposed = 0;
+    const plugin: HarnessPlugin = {
+      name: "count",
+      activate() {},
+      async dispose() {
+        disposed += 1;
+      },
+    };
+    const session = await AgentSession.create({
+      plugins: [plugin],
+      ...baseOptions(),
+    });
+    await session.dispose();
+    await session.dispose();
+    expect(disposed).toBe(1);
+  });
+
   it("applies project permission config rules", async () => {
     let asked = 0;
     const session = await AgentSession.create({

@@ -1,5 +1,7 @@
 // Harness glue — owns settings persistence, the HarnessRuntime instance and
-// the permission-ask bridge between the runtime and the renderer.
+// the permission-ask bridge between the runtime and the renderer. This module
+// is the host composition root: it assembles the concrete plugin set (fs/shell
+// tools, subagents, project skills, MCP) per agent session.
 import { app, dialog, type BrowserWindow } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -10,6 +12,17 @@ import {
   mergeSettings,
   type HarnessSettings as PkgSettings,
 } from "@innocencecode/harness-electron";
+import {
+  loadInnocenceConfig,
+  rulesFromConfig,
+  type HarnessPlugin,
+  type ProjectPermissionConfig,
+} from "@innocencecode/harness-core";
+import { fsPlugin } from "@innocencecode/tools-fs";
+import { shellPlugin } from "@innocencecode/tools-shell";
+import { subagentPlugin } from "@innocencecode/plugin-subagent";
+import { skillsPlugin } from "@innocencecode/plugin-skills";
+import { mcpPlugin } from "@innocencecode/plugin-mcp";
 import {
   IPC,
   appendText,
@@ -41,9 +54,36 @@ function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
+/** Project permission rules (.innocence/config.json) as a plugin, so the
+ *  runtime never loads project config itself — the composition root owns it. */
+function projectRulesPlugin(config: ProjectPermissionConfig | undefined): HarnessPlugin {
+  return {
+    name: "project-permission-rules",
+    activate(ctx) {
+      if (!config) return;
+      for (const rule of rulesFromConfig(config)) ctx.registerPolicyRule(rule);
+    },
+  };
+}
+
+/** Host composition root: one workspace's plugin set — workspace tools,
+ *  subagents, project permission rules, project skills and MCP servers. */
+async function composePlugins(workspaceRoot: string): Promise<HarnessPlugin[]> {
+  const config = await loadInnocenceConfig(workspaceRoot);
+  return [
+    fsPlugin,
+    shellPlugin,
+    subagentPlugin,
+    projectRulesPlugin(config.permissions),
+    skillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }),
+    mcpPlugin({ servers: config.mcpServers ?? {} }),
+  ];
+}
+
 const runtime = new HarnessRuntime({
   settings: () => settings,
   persistDir: transcriptsDir(),
+  pluginsForSession: ({ workspaceRoot }) => composePlugins(workspaceRoot),
   hooks: {
     onDelta: (sessionId, messageId, delta) => {
       sessions.updateMessage(sessionId, messageId, (m) => {
@@ -189,6 +229,8 @@ export function stopChatTurn(sessionId: string): void {
   runtime.stop(sessionId);
 }
 
-export function disposeSession(sessionId: string): void {
-  runtime.dispose(sessionId);
+/** Releases one chat session's agent resources (aborts runs, disposes its
+ *  plugins). Never rejects — failures surface through the harness log. */
+export async function disposeSession(sessionId: string): Promise<void> {
+  await runtime.dispose(sessionId);
 }

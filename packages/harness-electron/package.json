@@ -13,12 +13,11 @@
   },
   "dependencies": {
     "@innocencecode/harness-core": "*",
-    "@innocencecode/plugin-mcp": "*",
-    "@innocencecode/plugin-skills": "*",
-    "@innocencecode/plugin-subagent": "*",
     "@innocencecode/provider-anthropic": "*",
     "@innocencecode/provider-mock": "*",
-    "@innocencecode/provider-openai": "*",
+    "@innocencecode/provider-openai": "*"
+  },
+  "devDependencies": {
     "@innocencecode/tools-fs": "*",
     "@innocencecode/tools-shell": "*"
   }
