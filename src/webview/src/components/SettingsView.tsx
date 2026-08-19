@@ -3,6 +3,7 @@
 import type { HarnessSettings } from "../../../shared/ipc";
 import type { SettingsSection } from "./SettingsNav";
 import { AboutSection, AppearanceSection, GeneralSection } from "./settings/BasicSections";
+import { PluginsSection } from "./settings/PluginsSection";
 import { ProviderSettingsPage } from "./settings/provider/ProviderSettingsPage";
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
 const SECTION_TITLE_KEY: Record<SettingsSection, string> = {
   models: "settings.section.models",
   general: "settings.section.general",
+  plugins: "settings.section.plugins",
   appearance: "settings.section.appearance",
   about: "settings.section.about",
 };
@@ -47,6 +49,9 @@ export function SettingsView({
                 onSettingsChange={onSettingsChange}
                 onPickWorkspace={onPickWorkspace}
               />
+            )}
+            {section === "plugins" && (
+              <PluginsSection t={t} settings={settings} onSettingsChange={onSettingsChange} />
             )}
             {section === "appearance" && (
               <AppearanceSection t={t} settings={settings} onSettingsChange={onSettingsChange} />

@@ -12,6 +12,7 @@ export {
   type ActiveResolution,
   type HarnessSettings,
   type PermissionMode,
+  type PluginToggleSource,
   type ProviderKind,
   type ProviderPreset,
   type ProviderProfile,

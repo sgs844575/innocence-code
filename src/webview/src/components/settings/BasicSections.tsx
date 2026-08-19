@@ -152,7 +152,7 @@ export function AboutSection({
 
 // ---- 共享小组件 --------------------------------------------------------------
 
-function SettingRow({
+export function SettingRow({
   label,
   desc,
   children,

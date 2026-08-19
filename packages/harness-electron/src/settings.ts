@@ -4,9 +4,11 @@
 
 import { modelFromPreset, resolvePresetMeta, type ModelInfo } from "./modelPresets";
 import { AGENT_IDS, type AgentId } from "./agents";
+import type { PluginToggleSource } from "@innocencecode/harness-core";
 
 export type { AgentId } from "./agents";
 export type { ModelInfo } from "./modelPresets";
+export type { PluginToggleSource } from "@innocencecode/harness-core";
 
 export type ProviderKind = "openai" | "anthropic";
 export type PermissionMode = "auto" | "ask" | "plan" | "full";
@@ -42,6 +44,9 @@ export interface HarnessSettings {
   reasoningEffort?: ReasoningEffort;
   /** 当前内置 agent（default/plan/full），决定系统提示词；非法值回落 default。 */
   activeAgent?: AgentId;
+  /** 用户级插件开关（四键 subagent/skills/mcp/todo）；缺失键 = 默认开。
+   *  项目 .innocence/plugins.yml 优先于此设置（resolvePluginSet 两级覆盖）。 */
+  pluginToggles?: PluginToggleSource;
 }
 
 /** 思考档位全集；空串 = 不带参数（跟随模型默认）。max 透传给支持的端点
@@ -186,6 +191,24 @@ function normalizeLocale(raw: unknown): UiLocale {
   return raw === "zh-CN" || raw === "en-US" ? raw : "";
 }
 
+const PLUGIN_TOGGLE_KEYS = ["subagent", "skills", "mcp", "todo"] as const;
+
+/** 四键中布尔值保留、非布尔剔除；无有效键回落 undefined（undefined =
+ *  默认全开，与 resolvePluginSet 的两级覆盖语义一致）。 */
+function normalizePluginToggles(raw: unknown): PluginToggleSource | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const src = raw as Record<string, unknown>;
+  const out: PluginToggleSource = {};
+  let hasAny = false;
+  for (const key of PLUGIN_TOGGLE_KEYS) {
+    if (typeof src[key] === "boolean") {
+      out[key] = src[key];
+      hasAny = true;
+    }
+  }
+  return hasAny ? out : undefined;
+}
+
 /** v1 (single-provider) shape, for migration. */
 interface SettingsV1 {
   providerId?: string;
@@ -269,7 +292,8 @@ export function mergeSettings(raw: unknown): HarnessSettings {
       permissionMode: normalizePermissionMode(src.permissionMode),
       themeMode: normalizeThemeMode(src.themeMode), locale: normalizeLocale(src.locale),
       reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),
-      activeAgent: normalizeActiveAgent(src.activeAgent) };
+      activeAgent: normalizeActiveAgent(src.activeAgent),
+      pluginToggles: normalizePluginToggles(src.pluginToggles) };
   }
 
   const profiles = src.profiles
@@ -289,6 +313,7 @@ export function mergeSettings(raw: unknown): HarnessSettings {
     locale: normalizeLocale(src.locale),
     reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),
     activeAgent: normalizeActiveAgent(src.activeAgent),
+    pluginToggles: normalizePluginToggles(src.pluginToggles),
   };
 }
 

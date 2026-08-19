@@ -120,6 +120,25 @@ describe("mergeSettings", () => {
     expect(mergeSettings({ profiles: [], activeAgent: "nope" }).activeAgent).toBe("default");
     expect(mergeSettings({ profiles: [] }).activeAgent).toBe("default");
   });
+
+  it("pluginToggles 归一化：布尔键保留，非布尔剔除", () => {
+    expect(
+      mergeSettings({ profiles: [], pluginToggles: { subagent: false, mcp: "yes" } }).pluginToggles,
+    ).toEqual({ subagent: false });
+  });
+
+  it("pluginToggles 四键布尔往返；全无效/缺失回落 undefined（=默认全开）", () => {
+    const toggles = { subagent: true, skills: false, mcp: true, todo: false };
+    expect(mergeSettings({ profiles: [], pluginToggles: toggles }).pluginToggles).toEqual(toggles);
+    expect(mergeSettings({ profiles: [], pluginToggles: { mcp: "yes", todo: 1 } }).pluginToggles).toBeUndefined();
+    expect(mergeSettings({ profiles: [] }).pluginToggles).toBeUndefined();
+  });
+
+  it("pluginToggles 无 profiles 分支同样归一化", () => {
+    expect(
+      mergeSettings({ pluginToggles: { subagent: false, mcp: "yes" } }).pluginToggles,
+    ).toEqual({ subagent: false });
+  });
 });
 
 describe("settings v3 迁移", () => {

@@ -134,6 +134,16 @@ export type PermissionMode = "auto" | "ask" | "plan" | "full";
 // （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
 export type AgentId = "default" | "plan" | "full";
 
+// 镜像契约：PluginToggleSource 复制自 packages/harness-core/src/plugin-set.ts
+// （shared 不 import 包），修改任何一侧时必须同步另一侧
+// （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
+export interface PluginToggleSource {
+  subagent?: boolean;
+  skills?: boolean;
+  mcp?: boolean;
+  todo?: boolean;
+}
+
 // 镜像契约：以下两个类型复制自 packages/harness-electron/src/modelPresets.ts
 // （shared 不 import 包），修改任何一侧时必须同步另一侧。
 export type ModelSource = "preset" | "fetch" | "manual";
@@ -206,6 +216,9 @@ export interface HarnessSettings {
   reasoningEffort?: "" | "off" | "low" | "medium" | "high" | "max";
   /** 当前内置 agent（default/plan/full），决定系统提示词。与 harness-electron 同步。 */
   activeAgent?: AgentId;
+  /** 用户级插件开关（四键 subagent/skills/mcp/todo）；缺失键 = 默认开。
+   *  项目 .innocence/plugins.yml 优先于此设置。与 harness-electron 同步。 */
+  pluginToggles?: PluginToggleSource;
 }
 
 /** AddProviderDialog 的预设选项（PROVIDER_PRESET_MIRROR 的条目形状）。 */

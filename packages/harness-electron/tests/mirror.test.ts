@@ -8,8 +8,12 @@ import {
   PROVIDER_PRESET_MIRROR,
   type AgentId,
   type ChatPermissionEvent,
+  type PluginToggleSource,
 } from "../../../src/shared/ipc";
-import type { PermissionResource } from "@innocencecode/harness-core";
+import type {
+  PermissionResource,
+  PluginToggleSource as CorePluginToggleSource,
+} from "@innocencecode/harness-core";
 import {
   MOCK_MODEL as PKG_MOCK_MODEL,
   MOCK_PROFILE_ID as PKG_MOCK_PROFILE_ID,
@@ -64,6 +68,34 @@ describe("shared AgentId 镜像对齐 harness-electron agents.ts", () => {
     const pkg: PkgAgentId = shared;
     const back: AgentId = pkg;
     expect(back).toBe("plan");
+  });
+});
+
+describe("shared PluginToggleSource 镜像对齐 harness-core plugin-set.ts", () => {
+  // shared 不 import 包，PluginToggleSource 手工镜像：core 增删开关键而忘了
+  // 同步 shared 时，下面的双向键映射会让 typecheck 失败（harness-electron 的
+  // typecheck 覆盖 tests/）。
+  it("类型漂移守卫：shared 镜像与 core PluginToggleSource 双向兼容", () => {
+    const sample: PluginToggleSource = { subagent: false, skills: true, mcp: false, todo: true };
+    const core: CorePluginToggleSource = sample;
+    const back: PluginToggleSource = core;
+    expect(back).toEqual(sample);
+  });
+  it("四键一一对应（subagent/skills/mcp/todo）", () => {
+    const toCore: Record<keyof PluginToggleSource, keyof CorePluginToggleSource> = {
+      subagent: "subagent",
+      skills: "skills",
+      mcp: "mcp",
+      todo: "todo",
+    };
+    const fromCore: Record<keyof CorePluginToggleSource, keyof PluginToggleSource> = {
+      subagent: "subagent",
+      skills: "skills",
+      mcp: "mcp",
+      todo: "todo",
+    };
+    expect(Object.keys(toCore).sort()).toEqual(["mcp", "skills", "subagent", "todo"]);
+    expect(Object.keys(fromCore).sort()).toEqual(["mcp", "skills", "subagent", "todo"]);
   });
 });
 

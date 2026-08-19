@@ -2,9 +2,9 @@
 // sidebar while the settings view is open (reference shots 4/5): a back-to-
 // chat row on top, then one entry per settings section. Pure content; the
 // shell column (docked / rail / drawer) supplies background and borders.
-import { ArrowLeft, Cpu, SlidersHorizontal, Palette, Info } from "lucide-react";
+import { ArrowLeft, Cpu, SlidersHorizontal, Puzzle, Palette, Info } from "lucide-react";
 
-export type SettingsSection = "models" | "general" | "appearance" | "about";
+export type SettingsSection = "models" | "general" | "plugins" | "appearance" | "about";
 
 interface Props {
   t: (key: string) => string;
@@ -21,6 +21,7 @@ export const SETTINGS_SECTIONS: {
 }[] = [
   { id: "models", icon: Cpu, key: "settings.section.models" },
   { id: "general", icon: SlidersHorizontal, key: "settings.section.general" },
+  { id: "plugins", icon: Puzzle, key: "settings.section.plugins" },
   { id: "appearance", icon: Palette, key: "settings.section.appearance" },
   { id: "about", icon: Info, key: "settings.section.about" },
 ];
