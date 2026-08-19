@@ -6,11 +6,11 @@
  * the host should activate:
  *
  * - Default: every descriptor is active.
- * - Toggles: keys are plugin ids. An explicit `false` at ANY layer disables
- *   the plugin — a narrower layer cannot re-enable what a broader layer
- *   turned off, so a project file can only narrow the user's choice.
- *   `via` records the most specific layer that effectively disabled the
- *   plugin (project > user).
+ * - Toggles: keys are plugin ids. Layers merge per key, user then project —
+ *   a project key (including an explicit `true`) overrides the user key, so
+ *   a project file can both narrow and re-enable the user's choice. The
+ *   plugin is disabled only when the winning effective value is `false`;
+ *   `via` records the layer that provided that winning value.
  * - `core` descriptors are always active; toggling them only warns.
  * - Disabling a dependency transitively skips its dependents
  *   (`dependency-disabled`, inheriting the disabling layer).
@@ -93,8 +93,9 @@ export function resolvePluginSet(
   warnUnknownKeys(user, "user", knownIds, warnings);
   warnUnknownKeys(project, "project", knownIds, warnings);
 
-  // Direct pass: core stays active (toggle attempts only warn); an explicit
-  // false disables, with the most specific disabling layer recorded.
+  // Direct pass: core stays active (toggle attempts only warn); per key the
+  // project value overrides the user value and the plugin is disabled only
+  // when that effective value is false, recording the winning layer.
   const direct = new Map<string, PluginToggleLayer>();
   for (const descriptor of byId.values()) {
     if (descriptor.core) {
@@ -110,10 +111,11 @@ export function resolvePluginSet(
       }
       continue;
     }
-    if (toggleValue(project, descriptor.id) === false) {
-      direct.set(descriptor.id, "project");
-    } else if (toggleValue(user, descriptor.id) === false) {
-      direct.set(descriptor.id, "user");
+    const projectValue = toggleValue(project, descriptor.id);
+    const userValue = toggleValue(user, descriptor.id);
+    const effective = projectValue !== undefined ? projectValue : userValue;
+    if (effective === false) {
+      direct.set(descriptor.id, projectValue !== undefined ? "project" : "user");
     }
   }
 

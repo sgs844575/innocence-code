@@ -26,12 +26,37 @@ describe("resolvePluginSet", () => {
     ]);
   });
 
-  it("project overrides user; via records the effective layer", () => {
+  it("project overrides user: explicit project true re-enables", () => {
     const r = resolvePluginSet(DESCRIPTORS, { subagent: false }, { subagent: true });
+    expect(r.active).toContain("subagent");
+    expect(r.skipped).toEqual([]);
+  });
+
+  it("user-only disable records via user", () => {
+    const r = resolvePluginSet(DESCRIPTORS, { subagent: false });
     expect(r.active).not.toContain("subagent");
-    expect(r.skipped).toContainEqual(
-      expect.objectContaining({ id: "subagent", via: "user" }),
-    );
+    expect(r.skipped).toContainEqual({
+      id: "subagent",
+      reason: "disabled-by-config",
+      via: "user",
+    });
+  });
+
+  it("project false overrides user true and records via project", () => {
+    const r = resolvePluginSet(DESCRIPTORS, { subagent: true }, { subagent: false });
+    expect(r.active).not.toContain("subagent");
+    expect(r.skipped).toContainEqual({
+      id: "subagent",
+      reason: "disabled-by-config",
+      via: "project",
+    });
+  });
+
+  it("defaults with no toggles keep everything active with no skips", () => {
+    const r = resolvePluginSet(DESCRIPTORS);
+    expect(r.active).toEqual(["fs", "shell", "subagent", "skills", "mcp", "todo"]);
+    expect(r.skipped).toEqual([]);
+    expect(r.warnings).toEqual([]);
   });
 
   it("disabling a dependency skips dependents", () => {
