@@ -9,6 +9,7 @@ import { initSessionStore } from "./sessions";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
 import { logger } from "./logger";
+import { ShutdownGate } from "./shutdown";
 
 // Custom schemes must be registered before app ready.
 registerAppScheme();
@@ -52,13 +53,17 @@ if (!gotLock) {
 
   // Async shutdown, run exactly once: the harness owns OS resources (MCP
   // child processes, in-flight builds, pending permission asks) that must be
-  // released before quit. preventDefault the first attempt, release, then
-  // quit again — the guard lets the second attempt through untouched.
-  let shuttingDown = false;
+  // released before quit. Every quit attempt BEFORE the release completes is
+  // preventDefault'ed — including re-entrant attempts arriving mid-release
+  // (e.g. window-all-closed firing app.quit() again), which would otherwise
+  // exit the process mid-disposeAllRuntime. Once the gate is released, the
+  // final app.quit() goes through untouched.
+  const shutdown = new ShutdownGate();
   app.on("before-quit", (e) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
+    const phase = shutdown.onBeforeQuit();
+    if (phase === "release") return;
     e.preventDefault();
+    if (phase === "hold") return; // release already running; just hold this quit
     void (async () => {
       try {
         rejectPendingPermissionAsks();
@@ -66,6 +71,7 @@ if (!gotLock) {
       } catch (err) {
         logger.error("shutdown dispose failed", { error: String(err) });
       } finally {
+        shutdown.markReleased();
         app.quit();
       }
     })();
