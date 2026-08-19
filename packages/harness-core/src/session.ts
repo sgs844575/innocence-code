@@ -363,7 +363,11 @@ export class AgentSession {
           });
           return { finalText: result.finalText, turns: result.turns };
         } finally {
-          await child.dispose();
+          // A dispose failure must never mask the child run's own outcome —
+          // log and swallow it (create's rollback path does the same).
+          await child.dispose().catch((disposeError) => {
+            this.logger("error", "subagent child dispose failed", disposeError);
+          });
         }
       } finally {
         this.activeSubagents -= 1;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AgentSession,
   type Delta,
@@ -477,5 +477,42 @@ describe("AgentSession", () => {
     expect(scopes[1]!.taskId).toBe("task-2");
     expect(scopes[0]!.routeId).not.toBe(scopes[1]!.routeId); // fresh route per run
     expect(scopes[0]!.invocationId).not.toBe(scopes[1]!.invocationId); // fresh id per call
+  });
+
+  it("a child dispose failure never masks the child run's original error", async () => {
+    const logs: Array<{ level: string; msg: string }> = [];
+    const session = await AgentSession.create({
+      plugins: [
+        {
+          // Inherited by the child: its run rejects with the processor error.
+          name: "boom-processor",
+          activate(ctx) {
+            ctx.registerMessageProcessor({
+              name: "boom",
+              order: 0,
+              async process() {
+                throw new Error("run-boom");
+              },
+            });
+          },
+        },
+      ],
+      provider: echoProvider(),
+      workspaceRoot: "D:/tmp",
+      permission: { mode: "auto", decider: { ask: async () => "deny" } },
+      logger: (level, msg) => logs.push({ level, msg }),
+    });
+    const disposeSpy = vi
+      .spyOn(AgentSession.prototype, "dispose")
+      .mockRejectedValue(new Error("dispose-boom"));
+    try {
+      await expect(
+        session.spawner.run({ systemPrompt: "子", tools: "all", prompt: "去查" }),
+      ).rejects.toThrow("run-boom");
+    } finally {
+      disposeSpy.mockRestore();
+    }
+    // The swallowed dispose failure is still reported through the logger.
+    expect(logs).toContainEqual({ level: "error", msg: "subagent child dispose failed" });
   });
 });
