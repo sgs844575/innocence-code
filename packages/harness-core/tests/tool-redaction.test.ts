@@ -105,7 +105,7 @@ function bashStyleTool(): Tool & { raw: Array<Record<string, unknown>> } {
     permissionResource: (args) => ({
       action: "execute",
       kind: "command",
-      scope: redactCommand(String(args.command)),
+      scope: redactCommandSummary(String(args.command)),
     }),
     persistArgs: (args) => {
       const command = String(args.command);

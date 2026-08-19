@@ -90,13 +90,14 @@ export function redactCommand(command: string): string {
 }
 
 /**
- * Persisted command SUMMARY (what Bash-like tools store in args.command so
- * project rules can match): the program word plus the FOLLOWING subcommand
- * tokens, each individually passing the same command-word shape check. The
- * walk stops at the first token that could carry a value — flags, `=`
- * assignments, quoted strings, paths, URLs, long tokens — so argument
- * values and secrets never survive. Capped at 8 tokens. Pair with sha256Hex
- * for exact change detection of the raw command.
+ * Persisted command SUMMARY for Bash-like tools (what they store in
+ * args.command for project-rule matching AND put in the resource scope, so
+ * session grants carry the same granularity): the program word plus the
+ * FOLLOWING subcommand tokens, each individually passing the same
+ * command-word shape check. The walk stops at the first token that could
+ * carry a value — flags, `=` assignments, quoted strings, paths, URLs, long
+ * tokens — so argument values and secrets never survive. Capped at 8
+ * tokens. Pair with sha256Hex for exact change detection of the raw command.
  */
 export function redactCommandSummary(command: string): string {
   const tokens = command.trim().split(/\s+/).filter(Boolean);

@@ -6,9 +6,11 @@ import { bashTool, runCommand } from "../src";
 import {
   createExecutionScope,
   parseRuleSpec,
+  PermissionEngine,
   redactCommand,
   redactCommandSummary,
   sha256Hex,
+  type PermissionRequest,
   type ToolContext,
 } from "@innocencecode/harness-core";
 
@@ -112,9 +114,41 @@ describe("bashTool persistence policy", () => {
       .not.toContain(SECRET);
   });
 
-  it("resource scope stays the program word (scope mapping is a later task's decision)", async () => {
+  it("resource scope carries the same subcommand granularity as the persisted summary", async () => {
     const resource = await bashTool.permissionResource({ command: "npm test" }, ctx());
-    expect(resource).toEqual({ action: "execute", kind: "command", scope: "npm" });
+    expect(resource).toEqual({ action: "execute", kind: "command", scope: "npm test" });
+    expect((await bashTool.permissionResource({ command: "npm publish" }, ctx())).scope).toBe(
+      "npm publish",
+    );
+    // Flags/values never enter the scope (same shape-checked walk as the summary).
+    expect((await bashTool.permissionResource({ command: `deploy --token=${SECRET}` }, ctx())).scope).toBe(
+      "deploy",
+    );
+  });
+
+  it("npm test session grant does not admit npm publish (end-to-end through the real tool)", async () => {
+    const engine = new PermissionEngine({
+      mode: "ask",
+      decider: { ask: async () => "allowSession" },
+    });
+    const request = async (raw: string): Promise<PermissionRequest> => ({
+      toolName: "Bash",
+      resource: await bashTool.permissionResource({ command: raw }, ctx()),
+      args: bashTool.persistArgs({ command: raw }),
+    });
+    const meta = { readOnly: false, sideEffect: "process" as const };
+
+    const first = await engine.resolve(await request("npm test"), meta);
+    expect(first.via).toBe("ask"); // ask once, user allows for the session
+
+    // Different subcommand under the same program: different scope -> must ask again.
+    const second = await engine.resolve(await request("npm publish"), meta);
+    expect(second.via).toBe("ask");
+    expect(second.via).not.toBe("sessionGrant");
+
+    // Same canonical summary (flags dropped) reuses the grant without asking.
+    const third = await engine.resolve(await request("npm test -- -u"), meta);
+    expect(third.via).toBe("sessionGrant");
   });
 
   it("project allow rules revive against the persisted summary", () => {

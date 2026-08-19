@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import {
-  redactCommand,
   redactCommandSummary,
   sha256Hex,
   type HarnessPlugin,
@@ -120,11 +119,12 @@ export const bashTool: Tool = {
     }
   },
   permissionResource(args) {
-    // 资源 scope 只含程序词；完整命令绝不进入资源。
+    // scope 与持久化摘要同粒度（程序词 + 合法形状 subcommand）：会话授权
+    // 因此区分 npm test 与 npm publish；完整命令绝不进入资源。
     return {
       action: "execute",
       kind: "command",
-      scope: redactCommand(String(args.command ?? "")),
+      scope: redactCommandSummary(String(args.command ?? "")),
     };
   },
   persistArgs(args) {
