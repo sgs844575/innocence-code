@@ -80,13 +80,38 @@ describe("PermissionEngine pipeline", () => {
     expect(requests).toHaveLength(0); // 不弹任何询问
   });
 
-  it("plan mode allows readOnly but denies writes", async () => {
-    const { decider } = recordingDecider("allow");
+  it("plan mode auto-allows readOnly (planReadOnly) without asking and denies writes (planMode)", async () => {
+    const { decider, requests } = recordingDecider("deny");
     const engine = new PermissionEngine({ mode: "plan", decider });
-    expect((await engine.resolve(readReq, read)).decision).toBe("allow");
-    const r = await engine.resolve(editReq, write);
+    const r = await engine.resolve(readReq, read);
+    expect(r.decision).toBe("allow");
+    expect(r.via).toBe("planReadOnly");
+    expect(requests).toHaveLength(0); // 只读探索自由：不弹 decider
+    const w = await engine.resolve(editReq, write);
+    expect(w.decision).toBe("deny");
+    expect(w.via).toBe("planMode");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("plan mode deny rules still win over the planReadOnly short-circuit", async () => {
+    const { decider, requests } = recordingDecider("allow");
+    const engine = new PermissionEngine({ mode: "plan", decider });
+    engine.addRules([
+      { name: "deny:Read(src/**)", match: (c) => (c.toolName === "Read" ? "deny" : "skip") },
+    ]);
+    const r = await engine.resolve(readReq, read);
     expect(r.decision).toBe("deny");
-    expect(r.via).toBe("planMode");
+    expect(r.via).toBe("denyRule");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("readOnly tools still ask in ask mode — planReadOnly only applies to plan mode", async () => {
+    const { decider, requests } = recordingDecider("deny");
+    const engine = new PermissionEngine({ mode: "ask", decider });
+    const r = await engine.resolve(readReq, read);
+    expect(r.decision).toBe("deny");
+    expect(r.via).toBe("ask");
+    expect(requests).toHaveLength(1);
   });
 
   it("allow rules admit calls in ask mode without asking", async () => {

@@ -15,6 +15,7 @@ export interface PermissionResolution {
     | "fullMode"
     | "denyRule"
     | "planMode"
+    | "planReadOnly"
     | "allowRule"
     | "autoMode"
     | "sessionGrant"
@@ -163,7 +164,15 @@ export class PermissionEngine {
       }
     }
 
-    if (this.mode === "plan" && !toolMeta.readOnly) {
+    if (this.mode === "plan") {
+      // 计划模式 = 只读探索自由、写操作硬拒（deny 规则仍优先于本短路）。
+      if (toolMeta.readOnly) {
+        return {
+          decision: "allow",
+          via: "planReadOnly",
+          reason: "计划模式放行只读操作",
+        };
+      }
       return {
         decision: "deny",
         via: "planMode",
