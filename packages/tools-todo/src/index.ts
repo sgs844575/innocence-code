@@ -75,7 +75,10 @@ export const todoWriteTool: Tool = {
   name: "TodoWrite",
   description:
     "维护当前任务清单：整体替换 todos 数组（content/status/priority）。计划与全量 agent 用它跟踪执行。",
-  readOnly: false,
+  // 纯会话状态：清单只写 transcript，无工作区/进程/网络副作用——按只读
+  // 分类（plan 模式放行），permissionResource 的 write/todo/session 描述的
+  // 是"写入会话清单"这一逻辑动作，而非外部副作用。
+  readOnly: true,
   sideEffect: "none",
   parameters: {
     type: "object",

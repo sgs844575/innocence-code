@@ -2,7 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createExecutionScope, PluginRegistry, type ToolContext } from "@innocencecode/harness-core";
+import {
+  createExecutionScope,
+  PermissionEngine,
+  PluginRegistry,
+  type PermissionRequest,
+  type ToolContext,
+} from "@innocencecode/harness-core";
 import { todoPlugin, todoWriteTool } from "../src/index";
 
 let root: string;
@@ -28,9 +34,9 @@ afterAll(async () => {
 });
 
 describe("TodoWrite tool metadata", () => {
-  it("declares name, write-ness, sideEffect none and a todos array schema", () => {
+  it("declares name, read-only classification (pure session state), sideEffect none and a todos array schema", () => {
     expect(todoWriteTool.name).toBe("TodoWrite");
-    expect(todoWriteTool.readOnly).toBe(false);
+    expect(todoWriteTool.readOnly).toBe(true);
     expect(todoWriteTool.sideEffect).toBe("none");
     const params = todoWriteTool.parameters as Record<string, any>;
     expect(params.type).toBe("object");
@@ -158,6 +164,37 @@ describe("input limits", () => {
     expect(r.content).toContain("长".repeat(500));
     expect(r.content).toContain("…");
     expect(r.content).not.toContain(long);
+  });
+});
+
+describe("plan-mode compatibility (final review I1)", () => {
+  const args = { todos: [item("拟定执行计划", "pending", "high")] };
+  const request = async (): Promise<PermissionRequest> => ({
+    toolName: "TodoWrite",
+    resource: await todoWriteTool.permissionResource(args, ctx()),
+    args: todoWriteTool.persistArgs(args),
+  });
+
+  it("plan mode resolves TodoWrite to allow — no planMode hard deny", async () => {
+    const engine = new PermissionEngine({
+      mode: "plan",
+      decider: { ask: async () => "allow" },
+    });
+    const resolution = await engine.resolve(await request(), {
+      readOnly: todoWriteTool.readOnly,
+      sideEffect: todoWriteTool.sideEffect,
+    });
+    expect(resolution.decision).toBe("allow");
+    expect(resolution.via).not.toBe("planMode");
+  });
+
+  it("resource classification mirrors the read-only session state", async () => {
+    // 与 readOnly 分类配套断言：纯会话 todo 写入资源（不涉及工作区 path/process）
+    expect(await todoWriteTool.permissionResource(args, ctx())).toEqual({
+      action: "write",
+      kind: "todo",
+      scope: "session",
+    });
   });
 });
 
