@@ -36,5 +36,6 @@ export type Delta =
 export interface Provider {
   /** Stable identifier, e.g. "openai", "anthropic", "mock". */
   id: string;
+  capabilities?: Readonly<Record<string, boolean | "unknown">>;
   chat(req: ChatRequest): AsyncIterable<Delta>;
 }

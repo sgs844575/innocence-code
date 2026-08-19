@@ -10,6 +10,11 @@ export type {
 } from "./types";
 export { textMessage, isPlainText, messageText, toTranscript } from "./types";
 export type { ChatRequest, Delta, Provider, ToolSpec } from "./provider";
+export {
+  processMessage,
+  type MessageProcessor,
+  type MessageProcessorContext,
+} from "./processor";
 export type { Tool, ToolContext, ToolResult } from "./tool";
 export type { Skill } from "./skill";
 export type {

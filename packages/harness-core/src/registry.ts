@@ -1,4 +1,5 @@
 import type { PolicyRule } from "./policy";
+import type { MessageProcessor } from "./processor";
 import type { Provider, ToolSpec } from "./provider";
 import type { Skill } from "./skill";
 import type { Tool } from "./tool";
@@ -12,6 +13,7 @@ export interface PluginContext {
   registerProvider(provider: Provider): void;
   registerSkill(skill: Skill): void;
   registerPolicyRule(rule: PolicyRule): void;
+  registerMessageProcessor(processor: MessageProcessor): void;
   log(level: LogLevel, msg: string, data?: unknown): void;
 }
 
@@ -25,6 +27,11 @@ export class PluginRegistry {
   readonly providers = new Map<string, Provider>();
   readonly skills = new Map<string, Skill>();
   readonly policyRules: PolicyRule[] = [];
+  private readonly registeredMessageProcessors: MessageProcessor[] = [];
+
+  get messageProcessors(): readonly MessageProcessor[] {
+    return this.registeredMessageProcessors;
+  }
 
   async load(plugins: HarnessPlugin[], log: Logger = () => {}): Promise<void> {
     for (const plugin of plugins) {
@@ -54,6 +61,9 @@ export class PluginRegistry {
       },
       registerPolicyRule: (rule) => {
         this.policyRules.push(rule);
+      },
+      registerMessageProcessor: (processor) => {
+        this.registeredMessageProcessors.push(processor);
       },
       log: (level, msg, data) => log(level, `[${pluginName}] ${msg}`, data),
     };
