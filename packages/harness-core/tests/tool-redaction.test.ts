@@ -3,6 +3,7 @@ import {
   PermissionEngine,
   PluginRegistry,
   redactCommand,
+  redactCommandSummary,
   redactUrl,
   runLoop,
   sha256Hex,
@@ -109,7 +110,7 @@ function bashStyleTool(): Tool & { raw: Array<Record<string, unknown>> } {
     persistArgs: (args) => {
       const command = String(args.command);
       return {
-        command: redactCommand(command),
+        command: redactCommandSummary(command),
         commandSha256: sha256Hex(command),
       };
     },
@@ -504,6 +505,15 @@ describe("persistence-safe helpers", () => {
     expect(redactCommand("SK-VERYLONGSECRETVALUE1234567890 run")).toBe("[redacted]");
     expect(redactCommand("")).toBe("[redacted]");
     expect(redactCommand("echo secret-token-value")).not.toContain("secret");
+  });
+
+  it("redactCommandSummary keeps program word plus shape-legal subcommands only", () => {
+    expect(redactCommandSummary("npm test -- -u")).toBe("npm test");
+    expect(redactCommandSummary("npm run build")).toBe("npm run build");
+    expect(redactCommandSummary(`deploy --token=${SECRETS.bash}`)).toBe("deploy");
+    expect(redactCommandSummary(`send ${SECRETS.bash}`)).toBe("send");
+    expect(redactCommandSummary("--flagged npm test")).toBe("[redacted]");
+    expect(redactCommandSummary("")).toBe("[redacted]");
   });
 
   it("redactUrl strips user-info, query and fragment; fails closed on garbage", () => {

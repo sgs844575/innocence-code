@@ -18,6 +18,7 @@ export {
 export type { Tool, ToolContext, ToolResult, ToolSideEffect } from "./tool";
 export {
   redactCommand,
+  redactCommandSummary,
   redactUrl,
   sha256Hex,
 } from "./tool";

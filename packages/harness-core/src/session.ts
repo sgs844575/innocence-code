@@ -1,7 +1,12 @@
 import { ContextManager } from "./context-manager";
 import type { HarnessEventListener } from "./events";
 import { runLoop, DEFAULT_MAX_TURNS, DEFAULT_TOOL_TIMEOUT_MS } from "./loop";
-import { PermissionEngine, type PermissionDecider } from "./permission";
+import {
+  PermissionEngine,
+  type PermissionAuditor,
+  type PermissionDecider,
+  type ResourceValidator,
+} from "./permission";
 import { rulesFromConfig, type ProjectPermissionConfig } from "./policy-config";
 import type { PermissionMode } from "./policy";
 import { PluginRegistry, type HarnessPlugin, type Logger } from "./registry";
@@ -24,6 +29,17 @@ export interface AgentSessionOptions {
     projectConfig?: ProjectPermissionConfig;
     /** Inject an existing engine (e.g. parent session's) to share rules+grants. */
     engine?: PermissionEngine;
+    /**
+     * Hard resource validation for the session-built engine — runs in every
+     * mode (full only skips asking). Ignored when `engine` is injected (the
+     * injected engine carries its own validator).
+     */
+    validateResource?: ResourceValidator;
+    /**
+     * Audit sink for the session-built engine; one entry per resolution with
+     * the persisted request. Ignored when `engine` is injected.
+     */
+    audit?: PermissionAuditor;
   };
   compaction?: Partial<{ maxContextTokens: number; keepRecent: number }>;
   maxTurns?: number;
@@ -77,6 +93,8 @@ export class AgentSession {
         mode: options.permission.mode,
         decider: options.permission.decider,
         workspaceRoot: options.workspaceRoot,
+        validateResource: options.permission.validateResource,
+        audit: options.permission.audit,
       });
     this.compactor = new ContextManager(options.compaction ?? {});
   }

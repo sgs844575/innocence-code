@@ -160,6 +160,17 @@ export class HarnessRuntime {
         mode: settings.permissionMode,
         decider,
         projectConfig: projectConfig.permissions,
+        // Every resolution (including full mode) is audited through the host
+        // log with the persisted request — raw args never reach this surface.
+        audit: (entry) => {
+          this.options.hooks.log("info", "permission", {
+            mode: entry.mode,
+            tool: entry.request.toolName,
+            resource: `${entry.request.resource.action}:${entry.request.resource.kind}:${entry.request.resource.scope}`,
+            decision: entry.resolution.decision,
+            via: entry.resolution.via,
+          });
+        },
       },
       logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
     });

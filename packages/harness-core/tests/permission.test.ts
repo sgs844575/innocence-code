@@ -108,28 +108,27 @@ describe("PermissionEngine pipeline", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it("ask mode consults decider; allowSession writes a resource grant", async () => {
+  it("ask mode consults decider; allowSession writes a subcommand-granular resource grant", async () => {
     const { decider, requests } = recordingDecider("allowSession");
     const engine = new PermissionEngine({ mode: "ask", decider });
-    const first = await engine.resolve(bashReq, { readOnly: false, sideEffect: "process" });
+    const bash = (summary: string) => request("Bash", "execute", summary, "command", { command: summary });
+    const first = await engine.resolve(bash("npm test"), { readOnly: false, sideEffect: "process" });
     expect(first.decision).toBe("allow");
     expect(first.via).toBe("ask");
     expect(requests).toHaveLength(1);
 
-    // A second command of the same program hits the session grant without asking.
-    const second = await engine.resolve(request("Bash", "execute", "npm", "command"), {
-      readOnly: false,
-      sideEffect: "process",
-    });
+    // The same canonical summary (flags never enter it) reuses the grant.
+    const second = await engine.resolve(bash("npm test"), { readOnly: false, sideEffect: "process" });
     expect(second.via).toBe("sessionGrant");
     expect(requests).toHaveLength(1);
 
-    // A different command still asks.
-    await engine.resolve(request("Bash", "execute", "rm", "command"), {
-      readOnly: false,
-      sideEffect: "process",
-    });
+    // A different subcommand under the same program must NOT ride the grant:
+    // allowing `npm test` never admits `npm publish`.
+    const third = await engine.resolve(bash("npm publish"), { readOnly: false, sideEffect: "process" });
+    expect(third.via).toBe("ask");
+    expect(third.decision).toBe("allow");
     expect(requests).toHaveLength(2);
+    expect(requests.map((r) => r.resource.scope)).toEqual(["npm test", "npm publish"]);
   });
 
   it("does not reuse a session grant for another resource", async () => {

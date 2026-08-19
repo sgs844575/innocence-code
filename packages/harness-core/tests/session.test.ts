@@ -61,6 +61,58 @@ describe("AgentSession", () => {
     expect(events).toEqual(["disposed-leaky"]);
   });
 
+  it("passes validateResource and audit through to the session-built engine", async () => {
+    const audited: Array<{ toolName: string; scope: string }> = [];
+    const validated: string[] = [];
+    const session = await AgentSession.create({
+      plugins: [],
+      provider: echoProvider(),
+      workspaceRoot: "D:/tmp",
+      permission: {
+        mode: "ask",
+        decider: { ask: async () => "allow" },
+        validateResource: (resource) => {
+          validated.push(resource.scope);
+        },
+        audit: (entry) => {
+          audited.push({
+            toolName: entry.request.toolName,
+            scope: entry.request.resource.scope,
+          });
+        },
+      },
+    });
+
+    const resolution = await session.permission.resolve(
+      { toolName: "Read", resource: { action: "read", kind: "path", scope: "a.ts" }, args: {} },
+      { readOnly: true, sideEffect: "none" },
+    );
+    expect(resolution.decision).toBe("allow");
+    expect(validated).toEqual(["a.ts"]); // hard validation is installed and consulted
+    expect(audited).toEqual([{ toolName: "Read", scope: "a.ts" }]); // audit entries flow
+  });
+
+  it("hard resource validation passed via options rejects calls in any mode", async () => {
+    const session = await AgentSession.create({
+      plugins: [],
+      provider: echoProvider(),
+      workspaceRoot: "D:/tmp",
+      permission: {
+        mode: "full",
+        decider: { ask: async () => "allow" },
+        validateResource: (resource) => {
+          if (resource.kind === "url") throw new Error("blocked resource");
+        },
+      },
+    });
+    await expect(
+      session.permission.resolve(
+        { toolName: "BrowserNavigate", resource: { action: "navigate", kind: "url", scope: "file:///x" }, args: {} },
+        { readOnly: false, sideEffect: "unknown" },
+      ),
+    ).rejects.toThrow("blocked resource");
+  });
+
   it("appends the skills index to the system prompt and expands /skill input", async () => {
     const systems: string[] = [];
     const provider: Provider = {

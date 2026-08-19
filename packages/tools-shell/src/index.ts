@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   redactCommand,
+  redactCommandSummary,
   sha256Hex,
   type HarnessPlugin,
   type Tool,
@@ -128,9 +129,10 @@ export const bashTool: Tool = {
   },
   persistArgs(args) {
     const command = requireCommand(args);
-    // 保存脱敏命令摘要（程序词）和命令哈希，不保存完整命令。
+    // 保存脱敏命令摘要（程序词 + 合法形状的 subcommand token）和命令哈希；
+    // 完整命令与参数值绝不持久化，项目规则按摘要前缀匹配。
     return {
-      command: redactCommand(command),
+      command: redactCommandSummary(command),
       commandSha256: sha256Hex(command),
     };
   },

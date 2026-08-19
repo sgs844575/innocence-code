@@ -5,7 +5,9 @@ import path from "node:path";
 import { bashTool, runCommand } from "../src";
 import {
   createExecutionScope,
+  parseRuleSpec,
   redactCommand,
+  redactCommandSummary,
   sha256Hex,
   type ToolContext,
 } from "@innocencecode/harness-core";
@@ -96,23 +98,42 @@ describe("bashTool", () => {
 describe("bashTool persistence policy", () => {
   const SECRET = "SHELL-SECRET-8e17c3";
 
-  it("persists a redacted command summary and hash, never the full command", () => {
-    const command = `deploy --token=${SECRET}`;
-    const persisted = bashTool.persistArgs({ command });
-    expect(persisted).toEqual({
-      command: "deploy",
+  it("persists program word plus shape-legal subcommands, never values or secrets", () => {
+    const command = "npm test -- -u";
+    expect(bashTool.persistArgs({ command })).toEqual({
+      command: "npm test",
       commandSha256: sha256Hex(command),
     });
-    expect(JSON.stringify(persisted)).not.toContain(SECRET);
+    expect(bashTool.persistArgs({ command: "npm run build" }).command).toBe("npm run build");
+    // Flags, assignments, values and secrets stop the token walk immediately.
+    expect(bashTool.persistArgs({ command: `deploy --token=${SECRET}` }).command).toBe("deploy");
+    expect(bashTool.persistArgs({ command: `send ${SECRET}` }).command).toBe("send");
+    expect(JSON.stringify(bashTool.persistArgs({ command: `curl -H "Authorization: Bearer ${SECRET}" https://x/y` })))
+      .not.toContain(SECRET);
   });
 
-  it("resources key on the program word only", async () => {
-    const resource = await bashTool.permissionResource(
-      { command: `npm test --token=${SECRET}` },
-      ctx(),
-    );
+  it("resource scope stays the program word (scope mapping is a later task's decision)", async () => {
+    const resource = await bashTool.permissionResource({ command: "npm test" }, ctx());
     expect(resource).toEqual({ action: "execute", kind: "command", scope: "npm" });
-    expect(String(resource.scope)).not.toContain(SECRET);
+  });
+
+  it("project allow rules revive against the persisted summary", () => {
+    const allow = parseRuleSpec("Bash(npm test)", "allow");
+    const match = (raw: string) =>
+      allow.match({ toolName: "Bash", args: bashTool.persistArgs({ command: raw }) });
+    expect(match("npm test")).toBe("allow");
+    expect(match("npm test -- -u")).toBe("allow"); // flags dropped from the summary
+    expect(match("npm install")).toBe("skip");
+    expect(match("npm publish")).toBe("skip");
+  });
+
+  it("project deny rules revive against the persisted summary", () => {
+    const deny = parseRuleSpec("Bash(curl evil.com)", "deny");
+    const match = (raw: string) =>
+      deny.match({ toolName: "Bash", args: bashTool.persistArgs({ command: raw }) });
+    expect(match("curl evil.com -X POST")).toBe("deny");
+    expect(match("curl docs.example.com")).toBe("skip");
+    expect(match("echo hi")).toBe("skip");
   });
 
   it("validateArgs rejects a missing command before anything else runs", async () => {
@@ -122,5 +143,12 @@ describe("bashTool persistence policy", () => {
 
   it("redactCommand masks non-command-shaped program words", () => {
     expect(redactCommand(`${SECRET} run`)).toBe("[redacted]");
+  });
+
+  it("redactCommandSummary keeps only shape-legal leading tokens", () => {
+    expect(redactCommandSummary("npm test -- -u")).toBe("npm test");
+    expect(redactCommandSummary("git")).toBe("git");
+    expect(redactCommandSummary("--flag first")).toBe("[redacted]");
+    expect(redactCommandSummary(`node ./run.js ${SECRET}`)).toBe("node");
   });
 });

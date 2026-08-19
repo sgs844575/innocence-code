@@ -86,7 +86,31 @@ export function sha256Hex(text: string): string {
  */
 export function redactCommand(command: string): string {
   const first = command.trim().split(/\s+/)[0] ?? "";
-  return /^[A-Za-z][A-Za-z0-9_.\-]{0,15}$/.test(first) ? first : "[redacted]";
+  return isCommandWord(first) ? first : "[redacted]";
+}
+
+/**
+ * Persisted command SUMMARY (what Bash-like tools store in args.command so
+ * project rules can match): the program word plus the FOLLOWING subcommand
+ * tokens, each individually passing the same command-word shape check. The
+ * walk stops at the first token that could carry a value — flags, `=`
+ * assignments, quoted strings, paths, URLs, long tokens — so argument
+ * values and secrets never survive. Capped at 8 tokens. Pair with sha256Hex
+ * for exact change detection of the raw command.
+ */
+export function redactCommandSummary(command: string): string {
+  const tokens = command.trim().split(/\s+/).filter(Boolean);
+  const kept: string[] = [];
+  for (const token of tokens) {
+    if (kept.length >= 8 || !isCommandWord(token)) break;
+    kept.push(token);
+  }
+  return kept.length > 0 ? kept.join(" ") : "[redacted]";
+}
+
+/** A command-shaped word: letter start, ≤16 chars of [A-Za-z0-9_.-], no spaces. */
+function isCommandWord(token: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9_.\-]{0,15}$/.test(token);
 }
 
 /**
