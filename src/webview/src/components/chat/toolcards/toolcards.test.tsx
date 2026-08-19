@@ -94,6 +94,13 @@ describe("tool cards registry", () => {
     expect(screen.getByText(/1 进行中/)).toBeTruthy();
     expect(screen.getByText("高优先待办")).toBeTruthy();
     expect(screen.getByText("低优先已完成")).toBeTruthy();
+    // 展开清单可滚动（对齐 FileTool/TaskTool 惯例）+ 条目两行截断 + 结果标记右对齐
+    const listClass = container.querySelector("ul")?.className ?? "";
+    expect(listClass).toContain("scrollbar-thin");
+    expect(listClass).toContain("max-h-48");
+    expect(listClass).toContain("overflow-auto");
+    expect(screen.getByText("高优先待办").className).toContain("line-clamp-2");
+    expect(container.querySelector("button > span.ml-auto")?.textContent).toBe("✓");
   });
   it("TodoWrite 卡空清单显示清空态", () => {
     const Card = getToolCard("TodoWrite")!;

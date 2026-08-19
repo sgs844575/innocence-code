@@ -80,7 +80,7 @@ describe("persistence policy (permissionResource / persistArgs)", () => {
     expect(todoWriteTool.permissionResource({ todos: [] }, ctx())).toEqual(resource);
   });
 
-  it("persistArgs returns the todos array as-is (model-authored text, safe)", () => {
+  it("persistArgs keeps model-authored text but clones and strips via the validated path", () => {
     const todos = [item("任务甲", "in_progress", "high"), item("任务乙")];
     const persisted = todoWriteTool.persistArgs({ todos });
     expect(persisted).toEqual({ todos });
@@ -89,6 +89,17 @@ describe("persistence policy (permissionResource / persistArgs)", () => {
       status: "in_progress",
       priority: "high",
     });
+  });
+
+  it("persistArgs shares no nested references with raw args and drops extra fields", () => {
+    const raw = [
+      { content: "任务", status: "pending", priority: "low", extra: "junk", nested: { deep: true } },
+    ];
+    const persisted = todoWriteTool.persistArgs({ todos: raw }) as { todos: unknown[] };
+    expect(persisted.todos).not.toBe(raw);
+    expect(persisted.todos[0]).not.toBe(raw[0]);
+    expect(persisted.todos[0]).toEqual({ content: "任务", status: "pending", priority: "low" });
+    expect(JSON.stringify(persisted)).not.toContain("junk");
   });
 });
 
@@ -124,6 +135,29 @@ describe("execute semantics", () => {
     );
     const entries = await fs.readdir(root);
     expect(entries).toEqual([]);
+  });
+});
+
+describe("input limits", () => {
+  it("schema caps the todos array at maxItems 100", () => {
+    const params = todoWriteTool.parameters as Record<string, any>;
+    expect(params.properties.todos.maxItems).toBe(100);
+  });
+
+  it("rejects more than 100 todos, naming the field not the values", async () => {
+    const todos = Array.from({ length: 101 }, (_, i) => item(`任务 ${i}`));
+    await expect(todoWriteTool.validateArgs?.({ todos })).rejects.toThrow("todos");
+    const boundary = Array.from({ length: 100 }, (_, i) => item(`任务 ${i}`));
+    await expect(todoWriteTool.validateArgs?.({ todos: boundary })).resolves.toBeUndefined();
+  });
+
+  it("echo truncates overlong content instead of rejecting", async () => {
+    const long = "长".repeat(600);
+    await expect(todoWriteTool.validateArgs?.({ todos: [item(long)] })).resolves.toBeUndefined();
+    const r = await todoWriteTool.execute({ todos: [item(long)] }, ctx());
+    expect(r.content).toContain("长".repeat(500));
+    expect(r.content).toContain("…");
+    expect(r.content).not.toContain(long);
   });
 });
 

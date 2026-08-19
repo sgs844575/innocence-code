@@ -49,12 +49,12 @@ export function TodoWriteCard({ call, result, open, onToggle }: ToolCardProps): 
         <ListChecks size={12} className="shrink-0 text-(--color-app-accent)" />
         <span className="shrink-0 text-(--color-app-text)">待办清单</span>
         <span className="truncate">{summary}</span>
-        <span className={`shrink-0 text-[10px] ${result?.isError ? "text-(--color-tool-err)" : "text-(--color-tool-ok)"}`}>
+        <span className={`ml-auto shrink-0 text-[10px] ${result?.isError ? "text-(--color-tool-err)" : "text-(--color-tool-ok)"}`}>
           {result ? (result.isError ? "✕" : "✓") : <RunningMark />}
         </span>
       </button>
       {open && (todos.length > 0 || result) && (
-        <ul className="border-t border-(--color-app-hairline) px-3 py-2 text-[11px] leading-relaxed">
+        <ul className="scrollbar-thin max-h-48 overflow-auto border-t border-(--color-app-hairline) px-3 py-2 text-[11px] leading-relaxed">
           {todos.map((t, i) => (
             <li key={i} className="flex items-start gap-1.5 py-0.5">
               <span
@@ -64,7 +64,7 @@ export function TodoWriteCard({ call, result, open, onToggle }: ToolCardProps): 
               >
                 {STATUS_ICON[t.status] ?? "○"}
               </span>
-              <span className={`text-(--color-app-text) ${t.status === "completed" ? "line-through opacity-60" : ""}`}>
+              <span className={`line-clamp-2 text-(--color-app-text) ${t.status === "completed" ? "line-through opacity-60" : ""}`}>
                 {t.content}
               </span>
             </li>

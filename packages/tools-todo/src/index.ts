@@ -3,6 +3,10 @@ import type { HarnessPlugin, Tool } from "@innocencecode/harness-core";
 const STATUS_VALUES = ["pending", "in_progress", "completed"] as const;
 const PRIORITY_VALUES = ["high", "medium", "low"] as const;
 
+/** 输入上限：清单条数（校验拒绝）与单条回显长度（回显截断）。 */
+const MAX_TODOS = 100;
+const MAX_CONTENT_ECHO_CHARS = 500;
+
 export type TodoStatus = (typeof STATUS_VALUES)[number];
 export type TodoPriority = (typeof PRIORITY_VALUES)[number];
 
@@ -26,6 +30,9 @@ function requireTodos(args: Record<string, unknown>): TodoItem[] {
   const todos = args.todos;
   if (!Array.isArray(todos)) {
     throw new Error("缺少必填参数 todos（数组）");
+  }
+  if (todos.length > MAX_TODOS) {
+    throw new Error(`todos 条数超过上限 ${MAX_TODOS}`);
   }
   return todos.map((raw, i) => {
     if (typeof raw !== "object" || raw === null) {
@@ -52,6 +59,13 @@ export function todoSummary(todos: readonly TodoItem[]): string {
   return `${todos.length} 项：${inProgress} 进行中 / ${pending} 待办`;
 }
 
+/** Echo copy of an item's content — overlong input truncates with an ellipsis marker. */
+function echoContent(content: string): string {
+  return content.length > MAX_CONTENT_ECHO_CHARS
+    ? `${content.slice(0, MAX_CONTENT_ECHO_CHARS)}…（超长截断）`
+    : content;
+}
+
 /**
  * Session-scoped todo list tool. The list lives purely in the transcript via
  * persisted tool-call args — each call whole-replaces the previous list and
@@ -68,6 +82,7 @@ export const todoWriteTool: Tool = {
     properties: {
       todos: {
         type: "array",
+        maxItems: MAX_TODOS,
         description: "完整清单（整体替换语义，非增量追加）",
         items: {
           type: "object",
@@ -90,15 +105,16 @@ export const todoWriteTool: Tool = {
     return { action: "write", kind: "todo", scope: "session" };
   },
   persistArgs(args) {
-    // 模型自拟任务文本，持久化安全：原样回传，transcript 即清单存储。
-    return { todos: args.todos };
+    // 模型自拟任务文本，持久化安全：复用已验证路径重建对象数组——
+    // 剥离多余字段，且与 raw args 不共享任何嵌套引用。
+    return { todos: requireTodos(args) };
   },
   async execute(args) {
     const todos = requireTodos(args);
     if (todos.length === 0) {
       return { content: "清单已清空（0 项）" };
     }
-    const lines = todos.map((t, i) => `${i + 1}. [${STATUS_LABEL[t.status]}] ${t.content}`);
+    const lines = todos.map((t, i) => `${i + 1}. [${STATUS_LABEL[t.status]}] ${echoContent(t.content)}`);
     return { content: [`已记录 ${todoSummary(todos)}`, ...lines].join("\n") };
   },
 };
