@@ -4,6 +4,7 @@ import { BashTool } from "./BashTool";
 import { EditTool } from "./EditTool";
 import { FileTool } from "./FileTool";
 import { TaskTool } from "./TaskTool";
+import { TodoWriteCard } from "./TodoWriteCard";
 import { UnknownTool } from "./UnknownTool";
 
 /** 工具卡统一接口：TurnCollapse 按此契约渲染每个工具行。 */
@@ -22,6 +23,7 @@ const REGISTRY: Record<string, ComponentType<ToolCardProps>> = {
   Glob: FileTool,
   Grep: FileTool,
   Task: TaskTool,
+  TodoWrite: TodoWriteCard,
 };
 
 export function getToolCard(toolName: string): ComponentType<ToolCardProps> {

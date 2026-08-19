@@ -31,6 +31,7 @@ export default defineConfig({
       "@innocencecode/provider-anthropic": pkg("provider-anthropic"),
       "@innocencecode/tools-fs": pkg("tools-fs"),
       "@innocencecode/tools-shell": pkg("tools-shell"),
+      "@innocencecode/tools-todo": pkg("tools-todo"),
       "@innocencecode/plugin-subagent": pkg("plugin-subagent"),
       "@innocencecode/plugin-skills": pkg("plugin-skills"),
       "@innocencecode/plugin-mcp": pkg("plugin-mcp"),

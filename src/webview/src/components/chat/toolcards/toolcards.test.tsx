@@ -12,7 +12,7 @@ const res = (content: string): ToolResultPart =>
   ({ type: "toolResult", toolCallId: "a", content, isError: false, durationMs: 50 });
 
 describe("tool cards registry", () => {
-  it.each(["Bash", "Edit", "Read", "Write", "Glob", "Grep", "Task"])(
+  it.each(["Bash", "Edit", "Read", "Write", "Glob", "Grep", "Task", "TodoWrite"])(
     "%s 有专属卡（非兜底）",
     (name) => {
       // 兜底卡永远存在，toBeDefined 无法区分映射与兜底——断言不等于兜底才证明 REGISTRY 命中
@@ -69,5 +69,37 @@ describe("tool cards registry", () => {
     expect(screen.getByText("调研构建链")).toBeTruthy();
     expect(screen.getByText("general")).toBeTruthy();
     expect(screen.getByText(/done/)).toBeTruthy();
+  });
+  it("TodoWrite 卡渲染三状态图标、优先级与计数摘要", () => {
+    const Card = getToolCard("TodoWrite")!;
+    const { container } = render(
+      <Card
+        call={call("TodoWrite", { todos: [
+          { content: "高优先待办", status: "pending", priority: "high" },
+          { content: "进行中任务", status: "in_progress", priority: "medium" },
+          { content: "低优先已完成", status: "completed", priority: "low" },
+        ] })}
+        result={res("3 项：1 进行中 / 1 待办")} open onToggle={() => {}} />,
+    );
+    // 三种状态图标各有其位（data-status 便于稳定断言，避免与结果 ✓ 撞文本）
+    expect(container.querySelector('[data-status="pending"]')?.textContent).toBe("○");
+    expect(container.querySelector('[data-status="in_progress"]')?.textContent).toBe("◐");
+    expect(container.querySelector('[data-status="completed"]')?.textContent).toBe("✓");
+    // 优先级三档均渲染（data-priority 驱动配色钩子）
+    expect(container.querySelector('[data-priority="high"]')).toBeTruthy();
+    expect(container.querySelector('[data-priority="medium"]')).toBeTruthy();
+    expect(container.querySelector('[data-priority="low"]')).toBeTruthy();
+    // 计数摘要与任务文本
+    expect(screen.getByText(/3 项/)).toBeTruthy();
+    expect(screen.getByText(/1 进行中/)).toBeTruthy();
+    expect(screen.getByText("高优先待办")).toBeTruthy();
+    expect(screen.getByText("低优先已完成")).toBeTruthy();
+  });
+  it("TodoWrite 卡空清单显示清空态", () => {
+    const Card = getToolCard("TodoWrite")!;
+    render(
+      <Card call={call("TodoWrite", { todos: [] })} result={res("0 项")} open onToggle={() => {}} />,
+    );
+    expect(screen.getByText(/清单已清空/)).toBeTruthy();
   });
 });
