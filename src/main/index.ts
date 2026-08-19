@@ -4,7 +4,7 @@ import { app, Menu } from "electron";
 import { handleAppScheme, registerAppScheme } from "./protocol";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
-import { initHarness } from "./harnessGlue";
+import { initHarness, disposeAllRuntime, rejectPendingPermissionAsks } from "./harnessGlue";
 import { initSessionStore } from "./sessions";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
@@ -48,6 +48,27 @@ if (!gotLock) {
   // Keep running on macOS after all windows close.
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
+  });
+
+  // Async shutdown, run exactly once: the harness owns OS resources (MCP
+  // child processes, in-flight builds, pending permission asks) that must be
+  // released before quit. preventDefault the first attempt, release, then
+  // quit again — the guard lets the second attempt through untouched.
+  let shuttingDown = false;
+  app.on("before-quit", (e) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    e.preventDefault();
+    void (async () => {
+      try {
+        rejectPendingPermissionAsks();
+        await disposeAllRuntime();
+      } catch (err) {
+        logger.error("shutdown dispose failed", { error: String(err) });
+      } finally {
+        app.quit();
+      }
+    })();
   });
 
   app.on("activate", () => {

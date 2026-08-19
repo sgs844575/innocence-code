@@ -8,6 +8,7 @@ import { shellPlugin } from "@innocencecode/tools-shell";
 import {
   DEFAULT_SETTINGS,
   HarnessRuntime,
+  IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS,
   decodeTranscript,
   type AskResponse,
   type HarnessSettings,
@@ -186,6 +187,39 @@ describe("HarnessRuntime", () => {
       recorded.tools.some((p) => p.type === "toolResult" && p.isError === true),
     ).toBe(true);
     await expect(fs.access(path.join(workspace, "x.txt"))).rejects.toThrow();
+  });
+
+  it("allow/deny/full 三种决策路径都恰好落一次 audit（log hook 记 permission）", async () => {
+    // full 不询问但照常审计；ask 的 allow/deny 各审计一次——漏审计 =
+    // 权限账本缺账，多审计 = 同一请求重复入账。
+    const cases: Array<{ mode: HarnessSettings["permissionMode"]; answer: AskResponse }> = [
+      { mode: "ask", answer: "allow" },
+      { mode: "ask", answer: "deny" },
+      { mode: "full", answer: "deny" },
+    ];
+    for (const { mode, answer } of cases) {
+      const permissionAudits: unknown[] = [];
+      const recorded: Recorded = emptyRecorded();
+      const runtime = new HarnessRuntime({
+        ...runtimeOptions(
+          [{ toolCalls: [{ toolName: "Read", args: { path: "hello.txt" } }] }, { text: "完成" }],
+          { workspaceRoot: workspace, permissionMode: mode },
+          recorded,
+          answer,
+        ),
+        hooks: {
+          ...makeHooks(recorded, answer),
+          log: (_level, msg, data) => {
+            if (msg === "permission") permissionAudits.push(data);
+          },
+        },
+      });
+
+      await runtime.send(`audit-${mode}-${answer}`, "读一下", `m-audit-${mode}-${answer}`);
+      await runtime.dispose(`audit-${mode}-${answer}`);
+
+      expect(permissionAudits, `${mode}/${answer} 应恰好一次 audit`).toHaveLength(1);
+    }
   });
 
   it("rebuilds the cached agent session when settings change, keeping history", async () => {
@@ -456,5 +490,63 @@ describe("HarnessRuntime build/dispose races", () => {
     // The failure reached the host log with the error level intact — the
     // glue's log hook must route it to logger.error, not downgrade to info.
     expect(logs).toContainEqual({ level: "error", msg: "session dispose failed" });
+  });
+
+  it("dispose() gives up on a stuck in-flight build after a bounded timeout (quit path never hangs)", async () => {
+    vi.useFakeTimers();
+    try {
+      const logs: Array<{ level: string; msg: string; data: string }> = [];
+      const events: string[] = [];
+      const recorded: Recorded = emptyRecorded();
+      // Deferred factory pins the build window open — a hung MCP spawn.
+      let releaseBuild!: () => void;
+      const buildGate = new Promise<void>((resolve) => {
+        releaseBuild = resolve;
+      });
+      const runtime = new HarnessRuntime({
+        ...runtimeOptions([{ text: "迟到的回复" }], { workspaceRoot: workspace }, recorded),
+        hooks: {
+          ...makeHooks(recorded),
+          log: (level, msg, data) => logs.push({ level, msg, data: String(data) }),
+        },
+        pluginsForSession: async () => {
+          await buildGate;
+          return [{
+            name: "stuck-plugin",
+            activate() { events.push("activate"); },
+            async dispose() { events.push("dispose"); },
+          }];
+        },
+      });
+
+      const sending = runtime.send("stuck-1", "你好", "m-stuck");
+      // Let dispose() run past its synchronous cache release so the bounded
+      // wait's timer is registered before the clock advances.
+      const disposing = runtime.dispose("stuck-1");
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS + 10);
+
+      // Quit path is free: dispose resolved despite the still-pending build.
+      await expect(disposing).resolves.toBeUndefined();
+      expect(logs).toContainEqual({
+        level: "error",
+        msg: "dispose timed out waiting for in-flight build",
+        data: "stuck-1",
+      });
+
+      // The tombstone OUTLIVES the timeout: the build landing after dispose
+      // already returned self-releases instead of repopulating the cache.
+      releaseBuild();
+      await sending;
+      expect(events).toEqual(["activate", "dispose"]);
+      expect(recorded.errors).toHaveLength(1);
+      expect(recorded.errors[0]).toContain("会话已释放");
+      // Nothing leaked into the cache: a later sweep finds no session.
+      await runtime.disposeAll();
+      expect(events).toEqual(["activate", "dispose"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

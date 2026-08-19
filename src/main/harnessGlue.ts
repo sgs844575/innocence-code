@@ -135,6 +135,13 @@ const runtime = new HarnessRuntime({
         requestId: ask.requestId,
         toolName: ask.call.toolName,
         args: ask.call.args,
+        // 脱敏持久化资源摘要（kind/action/scope）——raw 值在 core 侧已
+        // 被 persistArgs/permissionResource 挡在门外，这里只透传镜像。
+        resource: {
+          kind: ask.call.resource.kind,
+          action: ask.call.resource.action,
+          scope: ask.call.resource.scope,
+        },
       };
       return new Promise<PermissionChoice>((resolve) => {
         let settled = false;
@@ -240,4 +247,17 @@ export function stopChatTurn(sessionId: string): void {
  *  plugins). Never rejects — failures surface through the harness log. */
 export async function disposeSession(sessionId: string): Promise<void> {
   await runtime.dispose(sessionId);
+}
+
+/** Rejects every unanswered permission ask (app shutdown): pending turns
+ *  must not block on dialogs that will never be answered. */
+export function rejectPendingPermissionAsks(): void {
+  for (const finish of pendingAsks.values()) finish("deny");
+  pendingAsks.clear();
+}
+
+/** Releases every agent session's resources (app shutdown): aborts active
+ *  runs, disposes all plugins (MCP child trees included). Never rejects. */
+export async function disposeAllRuntime(): Promise<void> {
+  await runtime.disposeAll();
 }

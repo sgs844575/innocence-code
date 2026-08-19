@@ -89,6 +89,14 @@ let seq = 0;
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(seq++).toString(36)}`;
 
 /**
+ * How long dispose() waits for an in-flight session build before giving up
+ * (app quit must not hang on a stuck MCP spawn). The dispose tombstone
+ * already guarantees the late build releases its own product, so expiry
+ * only ends the wait — it never leaks on its own.
+ */
+export const IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS = 10_000;
+
+/**
  * Owns one AgentSession per chat session, rebuilt when settings change, and
  * translates harness events into the host's streaming UI hooks. Tool activity
  * is forwarded as structured parts via onTool (paired by id/toolCallId).
@@ -150,9 +158,10 @@ export class HarnessRuntime {
    * A build can be in flight (its awaits span plugin factories and
    * AgentSession.create — MCP spawns take seconds): dispose then releases
    * the cached entry immediately, marks the id so the landing build releases
-   * its own product instead of caching it, and waits for that to happen. A
-   * session built for a deleted chat id therefore never leaks and its
-   * triggering send fails fast with 会话已释放.
+   * its own product instead of caching it, and waits for that to happen —
+   * BOUNDED by IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS so a hung spawn cannot
+   * hang the quit path. A session built for a deleted chat id therefore
+   * never leaks and its triggering send fails fast with 会话已释放.
    */
   async dispose(chatSessionId: string): Promise<void> {
     const inFlight = this.building.get(chatSessionId);
@@ -163,14 +172,49 @@ export class HarnessRuntime {
     // Tombstone FIRST (synchronously): the build's landing check must see
     // it even if it races past this point while we release the old entry.
     this.disposing.add(chatSessionId);
+    await this.releaseCached(chatSessionId);
+    await this.waitBuildForDisposal(chatSessionId, inFlight);
+  }
+
+  /**
+   * Bounded wait for an in-flight build during dispose. Resolves when the
+   * build settles (tombstone lifted here) or the bound expires (error logged;
+   * the tombstone must then OUTLIVE this call — a late landing product must
+   * still see it and self-release — so its removal is handed to the build's
+   * landing). Never rejects.
+   */
+  private async waitBuildForDisposal(
+    chatSessionId: string,
+    inFlight: Promise<AgentSession>,
+  ): Promise<void> {
+    let settleTombstone = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.releaseCached(chatSessionId);
-      await inFlight;
+      await Promise.race([
+        inFlight,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            settleTombstone = false;
+            this.options.hooks.log(
+              "error",
+              "dispose timed out waiting for in-flight build",
+              chatSessionId,
+            );
+            // Lift the tombstone once the stuck build eventually lands (ok
+            // or failed) so future sends can rebuild; until then it stays
+            // visible and the landing product self-releases.
+            const lift = () => this.disposing.delete(chatSessionId);
+            inFlight.then(lift, lift);
+            resolve();
+          }, IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS);
+        }),
+      ]);
     } catch {
       // The build failed or was cancelled by this dispose — its product is
       // already released (or never existed); nothing more to clean up.
     } finally {
-      this.disposing.delete(chatSessionId);
+      if (timer !== undefined) clearTimeout(timer);
+      if (settleTombstone) this.disposing.delete(chatSessionId);
     }
   }
 

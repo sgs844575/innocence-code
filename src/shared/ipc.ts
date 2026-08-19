@@ -150,12 +150,29 @@ export interface ModelInfo {
   dirty?: boolean;
 }
 
+// 镜像契约：以下资源类型镜像 packages/harness-core/src/policy.ts 的
+// PermissionResource（shared 不 import 包），修改任何一侧时必须同步另一侧
+// （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
+/** 脱敏持久化资源：工具调用作用的对象摘要，raw 值永不进入。 */
+export interface PermissionResourceInfo {
+  /** 资源类别（file/process/url/skill…）。 */
+  kind: string;
+  /** 资源上的动作（read/write/execute…）。 */
+  action: string;
+  /** 稳定作用域（工作区相对路径、命令摘要、脱敏 URL…）。 */
+  scope: string;
+  /** 后续 schema 脱敏预留的附加元数据（P2/P3）。 */
+  metadata?: Record<string, unknown>;
+}
+
 export interface ChatPermissionEvent {
   sessionId: string;
   messageId: string;
   requestId: string;
   toolName: string;
   args: Record<string, unknown>;
+  /** 本次调用作用的脱敏资源摘要（来自持久化的 PermissionRequest）。 */
+  resource: PermissionResourceInfo;
 }
 
 /** One configured platform (preset or custom). */

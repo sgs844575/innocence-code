@@ -45,9 +45,13 @@ export function registerIpcHandlers(): void {
     broadcastSessions();
     return session;
   });
-  ipcMain.handle(IPC.sessionDelete, (_e, id: string) => {
-    // Agent teardown continues in the background; the UI list updates now.
-    void disposeSession(id);
+  ipcMain.handle(IPC.sessionDelete, async (_e, id: string) => {
+    // Stop first, then AWAIT resource release before unlinking the session
+    // index/transcript: the turn's final persist lands before the files
+    // disappear, and MCP child processes are gone when the delete resolves.
+    // dispose's bounded build-wait keeps this from ever hanging.
+    stopChatTurn(id);
+    await disposeSession(id);
     sessions.deleteSession(id);
     broadcastSessions();
   });

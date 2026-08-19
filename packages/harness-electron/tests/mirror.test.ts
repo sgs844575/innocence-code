@@ -6,7 +6,9 @@ import {
   MOCK_MODEL,
   MOCK_PROFILE_ID,
   PROVIDER_PRESET_MIRROR,
+  type ChatPermissionEvent,
 } from "../../../src/shared/ipc";
+import type { PermissionResource } from "@innocencecode/harness-core";
 import {
   MOCK_MODEL as PKG_MOCK_MODEL,
   MOCK_PROFILE_ID as PKG_MOCK_PROFILE_ID,
@@ -44,5 +46,31 @@ describe("shared 与包内 mock 常量对齐", () => {
   it("MOCK_PROFILE_ID / MOCK_MODEL 一致", () => {
     expect(MOCK_PROFILE_ID).toBe(PKG_MOCK_PROFILE_ID);
     expect(MOCK_MODEL).toBe(PKG_MOCK_MODEL);
+  });
+});
+
+describe("ChatPermissionEvent.resource 对齐 harness-core PermissionResource", () => {
+  // 脱敏持久化形状：host 桥只透传 kind/action/scope（metadata 为后续
+  // schema 脱敏预留的可选面），shared 不 import 包，靠双向赋值防漂移。
+  const event: ChatPermissionEvent = {
+    sessionId: "s1",
+    messageId: "m1",
+    requestId: "p1",
+    toolName: "Write",
+    args: { path: "src/a.ts" },
+    resource: { kind: "file", action: "write", scope: "src/a.ts" },
+  };
+
+  it("持久化形状：kind/action/scope 直达", () => {
+    expect(event.resource.kind).toBe("file");
+    expect(event.resource.action).toBe("write");
+    expect(event.resource.scope).toBe("src/a.ts");
+  });
+
+  it("类型漂移守卫：shared 镜像与 core PermissionResource 双向兼容", () => {
+    const core: PermissionResource = event.resource;
+    const mirror: ChatPermissionEvent["resource"] = core;
+    expect(core).toEqual({ action: "write", kind: "file", scope: "src/a.ts" });
+    expect(mirror.scope).toBe("src/a.ts");
   });
 });

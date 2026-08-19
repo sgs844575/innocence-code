@@ -19,6 +19,7 @@ export {
 } from "./settings";
 export {
   HarnessRuntime,
+  IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS,
   type AskResponse,
   type LiveToolPart,
   type PermissionAsk,
