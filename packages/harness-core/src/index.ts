@@ -104,3 +104,13 @@ export {
   type SubagentSpawner,
 } from "./subagent";
 export { parseSSEData } from "./sse";
+export {
+  resolvePluginSet,
+  type PluginDescriptor,
+  type PluginSkipReason,
+  type PluginToggleLayer,
+  type PluginToggleSource,
+  type ResolvedPluginSet,
+  type SkippedPlugin,
+} from "./plugin-set";
+export { loadPluginToggles, type PluginTogglesOptions } from "./plugin-toggles";
