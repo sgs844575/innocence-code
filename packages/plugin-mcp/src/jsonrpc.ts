@@ -29,6 +29,24 @@ const REQUEST_TIMEOUT_MS = 60_000;
 const DISPOSE_GRACE_MS = 2_000;
 /** How long dispose waits after the force kill for the exit event. */
 const FORCE_KILL_WAIT_MS = 5_000;
+/** Hard cap on server-provided error text forwarded to callers/history. */
+const SERVER_ERROR_MAX_CHARS = 500;
+
+/**
+ * Server error text is UNTRUSTED input: a hostile or buggy server may echo
+ * raw call arguments (secrets included) into its error messages, and those
+ * texts flow into isError tool results → history/audit — OUTSIDE the
+ * persistArgs redaction pipeline (see Tool.execute's no-raw-args contract).
+ * Secret content cannot be recognized reliably, so the trust boundary is
+ * mechanical: strip control characters and hard-truncate; the truncation
+ * marker keeps the loss visible instead of silent.
+ */
+function sanitizeServerMessage(raw: string | undefined): string {
+  const text = (raw ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  if (text.length === 0) return "MCP 错误";
+  if (text.length <= SERVER_ERROR_MAX_CHARS) return text;
+  return `${text.slice(0, SERVER_ERROR_MAX_CHARS)}…[已截断，共 ${text.length} 字符]`;
+}
 
 function requestAbortedError(method: string): Error {
   const err = new Error(`MCP 请求已中止：${method}`);
@@ -240,7 +258,8 @@ export class StdioJsonRpcClient {
       this.pending.delete(msg.id);
       pending.detach();
       clearTimeout(pending.timer);
-      if (msg.error) pending.reject(new Error(msg.error.message ?? "MCP 错误"));
+      // Untrusted text crosses the client boundary only through this gate.
+      if (msg.error) pending.reject(new Error(sanitizeServerMessage(msg.error.message)));
       else pending.resolve(msg.result);
     }
   }

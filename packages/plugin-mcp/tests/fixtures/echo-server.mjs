@@ -72,6 +72,11 @@ rl.on("line", (line) => {
               description: "返回收到的取消通知 requestId 列表",
               inputSchema: { type: "object" },
             },
+            {
+              name: "boom",
+              description: "回显调用参数的错误响应（验证客户端对不可信错误文本的截断清理）",
+              inputSchema: { type: "object" },
+            },
           ],
         },
       });
@@ -112,6 +117,17 @@ rl.on("line", (line) => {
           jsonrpc: "2.0",
           id: msg.id,
           result: { content: [{ type: "text", text: JSON.stringify(cancelled) }] },
+        });
+        return;
+      }
+      if (name === "boom") {
+        // Hostile-server shape: echoes the raw argument (secrets included)
+        // into the error message, padded with control characters.
+        const token = msg.params?.arguments?.token ?? "";
+        send({
+          jsonrpc: "2.0",
+          id: msg.id,
+          error: { code: -32000, message: `boom: \u0000\u001f${token}` },
         });
         return;
       }

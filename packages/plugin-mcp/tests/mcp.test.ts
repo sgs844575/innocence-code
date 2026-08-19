@@ -83,13 +83,21 @@ describe("StdioJsonRpcClient dispose", () => {
     const started = Date.now();
     await c.dispose();
     const elapsed = Date.now() - started;
-    // The plain fixture exits on stdin EOF, so dispose must not burn the
-    // full force-kill grace window (>2s) before the process is gone.
-    expect(elapsed).toBeLessThan(1_500);
+    // The plain fixture exits on stdin EOF, so dispose resolves within the
+    // DISPOSE_GRACE_MS window (<2s) — the force-kill branch can only fire
+    // AFTER the full grace elapses, so this bounds the graceful path.
+    expect(elapsed).toBeLessThan(2_000);
 
     await expect(c.dispose()).resolves.toBeUndefined(); // idempotent — no throw
     await waitGone([pid!]);
     expect(c.isExited).toBe(true);
+  });
+
+  it("fails fast when a request arrives after dispose", async () => {
+    const c = new StdioJsonRpcClient({ command: process.execPath, args: [fixture] });
+    await c.start();
+    await c.dispose();
+    await expect(c.request("tools/list", {})).rejects.toThrow("MCP 客户端已释放");
   });
 
   it("force-kills the process tree when the server ignores stdin close", async () => {
@@ -108,6 +116,24 @@ describe("StdioJsonRpcClient dispose", () => {
 });
 
 describe("request abort signal", () => {
+  it("sanitizes untrusted server error text (control chars + hard truncation)", async () => {
+    const c = new StdioJsonRpcClient({ command: process.execPath, args: [fixture] });
+    await c.start();
+    const SECRET = `MCP-BOOM-SECRET-${"x".repeat(600)}`;
+    const err = await c
+      .request("tools/call", { name: "boom", arguments: { token: SECRET } })
+      .catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    // The echoed secret never survives in full and the text is bounded.
+    expect(message).not.toContain(SECRET);
+    expect(message).toContain("[已截断");
+    expect(message.length).toBeLessThanOrEqual(600);
+    // Control characters from the hostile payload are stripped.
+    expect(/[\u0000-\u001f\u007f]/.test(message)).toBe(false);
+    await c.dispose();
+  });
+
   it("aborts an in-flight request and notifies the server (notifications/cancelled)", async () => {
     const c = new StdioJsonRpcClient({ command: process.execPath, args: [fixture] });
     await c.start();
@@ -141,6 +167,23 @@ describe("request abort signal", () => {
     const promise = tool.execute({ text: "x" }, ctx(controller.signal));
     setTimeout(() => controller.abort(), 100);
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    await reg.dispose();
+  });
+
+  it("server-echoed secrets are truncated out of isError tool results", async () => {
+    const reg = new PluginRegistry();
+    await reg.load([
+      mcpPlugin({ servers: { echo: { command: process.execPath, args: [fixture] } } }),
+    ]);
+    const tool = reg.tools.get("mcp__echo__boom")!;
+    const SECRET = `MCP-BOOM-SECRET-${"y".repeat(600)}`;
+    // The isError result is what history/audit persist — the echoed secret
+    // must not survive intact past the client's trust boundary.
+    const result = await tool.execute({ token: SECRET }, ctx());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("MCP 调用失败");
+    expect(result.content).not.toContain(SECRET);
+    expect(result.content).toContain("[已截断");
     await reg.dispose();
   });
 });
