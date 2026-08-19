@@ -73,6 +73,48 @@ describe("AgentSession", () => {
     });
   });
 
+  it("dispose aborts the active run and disposes plugins after it settles", async () => {
+    const events: string[] = [];
+    let chatStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      chatStarted = resolve;
+    });
+    const plugin: HarnessPlugin = {
+      name: "lifecycle",
+      activate() {},
+      async dispose() {
+        events.push("disposed");
+      },
+    };
+    const provider: Provider = {
+      id: "hang",
+      async *chat(req) {
+        events.push("chat");
+        chatStarted();
+        await new Promise<never>((_, reject) => {
+          const abort = () => reject(new DOMException("Aborted", "AbortError"));
+          if (req.signal?.aborted) abort();
+          else req.signal?.addEventListener("abort", abort, { once: true });
+        });
+        yield { type: "text", text: "never" };
+      },
+    };
+    const session = await AgentSession.create({
+      plugins: [plugin],
+      provider,
+      workspaceRoot: "D:/tmp",
+      permission: { mode: "auto", decider: { ask: async () => "deny" } },
+    });
+
+    const runPromise = session.run("hello");
+    await started;
+    await session.dispose();
+    const summary = await runPromise;
+
+    expect(summary.aborted).toBe(true);
+    expect(events).toEqual(["chat", "disposed"]);
+  });
+
   it("applies project permission config rules", async () => {
     let asked = 0;
     const session = await AgentSession.create({

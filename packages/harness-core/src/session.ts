@@ -56,6 +56,7 @@ export class AgentSession {
   private compactor: ContextManager;
   private listeners = new Set<HarnessEventListener>();
   private abort: AbortController | undefined;
+  private activeRun: Promise<unknown> | undefined;
   private logger: Logger;
   private activeSubagents = 0;
 
@@ -143,7 +144,7 @@ export class AgentSession {
       if (signal.aborted) this.abort.abort();
       else signal.addEventListener("abort", () => this.abort!.abort(), { once: true });
     }
-    const result = await runLoop(this.history, expanded, {
+    const running = runLoop(this.history, expanded, {
       provider: this.provider,
       registry: this.registry,
       permission: this.permission,
@@ -159,12 +160,26 @@ export class AgentSession {
       toolTimeoutMs: this.options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
       spawner: this.spawner,
     });
-    this.abort = undefined;
-    return result;
+    this.activeRun = running;
+    try {
+      return await running;
+    } finally {
+      this.activeRun = undefined;
+      this.abort = undefined;
+    }
   }
 
   stop(): void {
     this.abort?.abort();
+  }
+
+  /** Aborts the active run, waits for it to settle, then disposes all plugins. */
+  async dispose(): Promise<void> {
+    this.abort?.abort();
+    if (this.activeRun) {
+      await this.activeRun.catch(() => {});
+    }
+    await this.registry.dispose();
   }
 
   /**

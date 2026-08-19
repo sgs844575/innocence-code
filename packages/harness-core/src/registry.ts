@@ -20,6 +20,7 @@ export interface PluginContext {
 export interface HarnessPlugin {
   name: string;
   activate(ctx: PluginContext): void | Promise<void>;
+  dispose?(): void | Promise<void>;
 }
 
 export class PluginRegistry {
@@ -28,6 +29,8 @@ export class PluginRegistry {
   readonly skills = new Map<string, Skill>();
   readonly policyRules: PolicyRule[] = [];
   private readonly registeredMessageProcessors: MessageProcessor[] = [];
+  /** Successfully activated plugins, awaiting reverse-order disposal. */
+  private readonly activated: HarnessPlugin[] = [];
 
   get messageProcessors(): readonly MessageProcessor[] {
     return this.registeredMessageProcessors;
@@ -35,7 +38,40 @@ export class PluginRegistry {
 
   async load(plugins: HarnessPlugin[], log: Logger = () => {}): Promise<void> {
     for (const plugin of plugins) {
-      await plugin.activate(this.createContext(plugin.name, log));
+      try {
+        await plugin.activate(this.createContext(plugin.name, log));
+      } catch (error) {
+        await this.disposeActivated((failed, disposeError) => {
+          log("error", `dispose failed during activation rollback: ${failed.name}`, disposeError);
+        });
+        throw error;
+      }
+      this.activated.push(plugin);
+    }
+  }
+
+  /** Idempotent: pops the activated stack once, so repeated calls are no-ops. */
+  async dispose(): Promise<void> {
+    const errors: unknown[] = [];
+    await this.disposeActivated((_plugin, error) => errors.push(error));
+    if (errors.length > 0) {
+      const detail = errors
+        .map((e) => (e instanceof Error ? e.message : String(e)))
+        .join("; ");
+      throw new AggregateError(errors, `plugin dispose failed: ${detail}`);
+    }
+  }
+
+  private async disposeActivated(
+    onError: (plugin: HarnessPlugin, error: unknown) => void,
+  ): Promise<void> {
+    while (this.activated.length > 0) {
+      const plugin = this.activated.pop()!;
+      try {
+        await plugin.dispose?.();
+      } catch (error) {
+        onError(plugin, error);
+      }
     }
   }
 
