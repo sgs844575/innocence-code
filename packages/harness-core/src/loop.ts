@@ -1,5 +1,5 @@
 import { ContextManager } from "./context-manager";
-import { createExecutionScope } from "./execution-scope";
+import { createExecutionScope, type ExecutionScopeIdentity } from "./execution-scope";
 import type { HarnessEventListener } from "./events";
 import { PermissionEngine } from "./permission";
 import type { PermissionRequest, PermissionResource } from "./policy";
@@ -11,9 +11,9 @@ import {
   toolErrorOutcome,
   type ToolOutcome,
 } from "./tool-execution";
-import { textMessage, type Message, type MessagePart, type ToolCallPart, type ToolResultPart } from "./types";
+import type { Message, MessagePart, ToolCallPart, ToolResultPart } from "./types";
 import type { Tool, ToolContext } from "./tool";
-import type { SubagentSpawner } from "./subagent";
+import { bindSubagentSpawner, type SubagentSpawner } from "./subagent";
 
 export interface LoopOptions {
   provider: Provider;
@@ -29,6 +29,12 @@ export interface LoopOptions {
   /** Extra wait after the timeout abort before a tool is declared unstable. */
   abortGraceMs?: number;
   spawner?: SubagentSpawner;
+  /**
+   * Run-level identity inherited by every per-invocation scope minted in this
+   * loop (sessionId/routeId/taskId/parentInvocationId). Subagent children run
+   * with the parent's identity plus the spawning invocation's id.
+   */
+  scope?: ExecutionScopeIdentity;
 }
 
 export interface LoopResult {
@@ -44,11 +50,13 @@ export const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
 /**
  * The synchronous, readable agent loop: stream a model turn, gate every tool
  * call through the permission engine, feed results back, repeat until the
- * model answers without tool calls.
+ * model answers without tool calls. The input is the canonical user message
+ * (already skill-expanded and processor-run by the session); tool-result user
+ * turns pushed by the loop itself never pass through processors.
  */
 export async function runLoop(
   history: Message[],
-  userText: string,
+  input: Message,
   opts: LoopOptions,
 ): Promise<LoopResult> {
   const {
@@ -64,13 +72,14 @@ export async function runLoop(
   const maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
   const toolTimeoutMs = opts.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
 
-  history.push(textMessage("user", userText));
+  // Shallow copy: history owns its entries even when the caller reuses the
+  // canonical Message object it passed in.
+  history.push({ role: input.role, parts: [...input.parts] });
 
   const baseToolCtx = {
     workspaceRoot,
     signal: signal ?? new AbortController().signal,
     log: () => {}, // session installs a real logger over onEvent
-    subagent: opts.spawner,
   };
 
   let aborted = false;
@@ -143,10 +152,14 @@ export async function runLoop(
           prepared.set(part.id, { part, tool: undefined, persistedArgs: {} });
           continue;
         }
-        // Fresh scope per invocation — never a session-level reused one.
+        // Fresh scope per invocation — never a session-level reused one —
+        // inheriting the run identity. The spawner handed to this invocation
+        // is bound to the same scope so subagent children inherit it.
+        const scope = createExecutionScope(tool.name, undefined, opts.scope);
         const invocationCtx: ToolContext = {
           ...baseToolCtx,
-          scope: createExecutionScope(tool.name),
+          scope,
+          subagent: opts.spawner ? bindSubagentSpawner(opts.spawner, scope) : undefined,
         };
         try {
           await tool.validateArgs?.(part.args);
@@ -205,6 +218,13 @@ export async function runLoop(
           call: { toolName: part.toolName, args: item.persistedArgs },
           invocationId,
         });
+
+        // Stopped mid-turn: fail the remaining calls closed without touching
+        // the permission chain — a stopped run must never prompt again.
+        if (signal?.aborted) {
+          failClosed("运行已中止");
+          continue;
+        }
 
         if (!item.tool) {
           failClosed(`未知工具：${part.toolName}`);
@@ -271,7 +291,8 @@ export async function runLoop(
           );
         } catch (err) {
           // Tool failures feed back to the model instead of killing the loop.
-          const outcome = toolErrorOutcome(err);
+          // With the run stopped, any failure shape counts as aborted.
+          const outcome = toolErrorOutcome(err, { parentAborted: signal?.aborted === true });
           const detail = err instanceof Error ? err.message : String(err);
           finish(
             outcome === "aborted" ? `工具执行已中止：${detail}` : `工具执行出错：${detail}`,
@@ -293,6 +314,10 @@ export async function runLoop(
       });
     }
   }
+
+  // A mid-tool stop surfaces as aborted tool results that never throw: the
+  // loop flag must reflect the signal at exit, not just thrown abort errors.
+  if (signal?.aborted) aborted = true;
 
   const last = [...history].reverse().find((m) => m.role === "assistant");
   const finalText =

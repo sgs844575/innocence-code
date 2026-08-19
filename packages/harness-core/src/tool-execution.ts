@@ -1,3 +1,4 @@
+import type { ExecutionScope } from "./execution-scope";
 import type { ToolContext, ToolResult } from "./tool";
 
 /**
@@ -28,7 +29,8 @@ export const DEFAULT_ABORT_GRACE_MS = 5_000;
 /**
  * Persistence-safe view of the invocation that middleware layers receive.
  * `persistedArgs` is the tool's redacted copy — raw invocation args never
- * reach middleware.
+ * reach middleware. `scope` is the frozen per-invocation scope (own
+ * invocationId plus the run identity inherited from the session).
  */
 export interface ToolExecutionInvocation {
   readonly invocationId: string;
@@ -36,6 +38,7 @@ export interface ToolExecutionInvocation {
   readonly persistedArgs: Record<string, unknown>;
   /** Derived signal: trips on parent abort OR on the timeout. */
   readonly signal: AbortSignal;
+  readonly scope: ExecutionScope;
 }
 
 export interface ToolExecutionMiddleware {
@@ -80,12 +83,27 @@ export function isAbortError(err: unknown): boolean {
   );
 }
 
-/** Standardized outcome for an invocation that rejected. */
-export function toolErrorOutcome(err: unknown): Exclude<ToolOutcome, "success"> {
+/** Classification context: what the surrounding run looked like at failure time. */
+export interface ToolOutcomeContext {
+  /** True when the run/session signal had aborted when the failure was classified. */
+  parentAborted?: boolean;
+}
+
+/**
+ * Standardized outcome for an invocation that rejected. Classification never
+ * depends on the abort reason's shape: when the parent run is aborted, any
+ * non-timeout failure counts as "aborted" rather than "error".
+ */
+export function toolErrorOutcome(
+  err: unknown,
+  context: ToolOutcomeContext = {},
+): Exclude<ToolOutcome, "success"> {
   if (err instanceof ToolExecutionError) {
     return err.code === TOOL_TIMEOUT ? "timeout" : "unstable";
   }
-  return isAbortError(err) ? "aborted" : "error";
+  if (isAbortError(err)) return "aborted";
+  if (context.parentAborted) return "aborted";
+  return "error";
 }
 
 function timeoutMessage(timeoutMs: number): string {
@@ -93,7 +111,7 @@ function timeoutMessage(timeoutMs: number): string {
 }
 
 function unstableMessage(graceMs: number): string {
-  return `工具超时中止后 ${graceMs}ms 内未退出（TOOL_UNSTABLE）`;
+  return `工具被中止后 ${graceMs}ms 内未退出（TOOL_UNSTABLE）`;
 }
 
 /**
@@ -106,8 +124,10 @@ function unstableMessage(graceMs: number): string {
  * 3. On timeout, ABORTS the tool first (`abort(new ToolExecutionError(
  *    TOOL_TIMEOUT))`), then waits for the chain to settle before reporting the
  *    timeout — the old Promise.race never actually stopped anything.
- * 4. If the chain still has not exited after the separate `abortGraceMs`
- *    window, rejects with TOOL_UNSTABLE instead of hanging the loop.
+ * 4. WHATEVER aborted the derived signal (deadline or parent stop), arms the
+ *    separate `abortGraceMs` window: if the chain still has not exited when
+ *    it elapses, rejects with TOOL_UNSTABLE instead of hanging the loop for
+ *    the rest of the timeout.
  */
 export function executeToolInvocation(
   invocation: ToolInvocation,
@@ -127,6 +147,7 @@ export function executeToolInvocation(
     toolName: invocation.toolName,
     persistedArgs: invocation.persistedArgs,
     signal: controller.signal,
+    scope: invocation.ctx.scope,
   };
   const ctx: ToolContext = { ...invocation.ctx, signal: controller.signal };
 
@@ -152,6 +173,7 @@ export function executeToolInvocation(
       if (deadline) clearTimeout(deadline);
       if (graceTimer) clearTimeout(graceTimer);
       parent?.removeEventListener("abort", propagateParentAbort);
+      controller.signal.removeEventListener("abort", onDerivedAbort);
     };
     const settle = (ok: boolean, value: ToolResult | unknown) => {
       if (settled) return;
@@ -160,16 +182,24 @@ export function executeToolInvocation(
       if (ok) resolve(value as ToolResult);
       else reject(value);
     };
-
-    deadline = setTimeout(() => {
-      timeoutError = new ToolExecutionError(TOOL_TIMEOUT, timeoutMessage(options.timeoutMs));
-      controller.abort(timeoutError);
-      // Deadline passed: give the chain the grace window to actually exit,
-      // then declare the tool unstable instead of blocking the loop forever.
+    const armGraceWindow = () => {
+      if (settled || graceTimer !== undefined) return;
       graceTimer = setTimeout(
         () => settle(false, new ToolExecutionError(TOOL_UNSTABLE, unstableMessage(graceMs))),
         graceMs,
       );
+    };
+    // Any abort of the derived signal — deadline or parent stop — starts the
+    // grace countdown for a chain that refuses to exit.
+    const onDerivedAbort = () => armGraceWindow();
+    controller.signal.addEventListener("abort", onDerivedAbort, { once: true });
+    if (controller.signal.aborted) armGraceWindow();
+
+    deadline = setTimeout(() => {
+      timeoutError = new ToolExecutionError(TOOL_TIMEOUT, timeoutMessage(options.timeoutMs));
+      // True abort first (the listener above arms the grace window), then the
+      // standardized timeout error once the chain settles.
+      controller.abort(timeoutError);
     }, options.timeoutMs);
 
     // Plugin middleware may throw synchronously; route that through settle so

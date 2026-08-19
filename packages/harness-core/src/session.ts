@@ -1,4 +1,9 @@
 import { ContextManager } from "./context-manager";
+import {
+  nextRouteId,
+  nextSessionId,
+  type ExecutionScopeIdentity,
+} from "./execution-scope";
 import type { HarnessEventListener } from "./events";
 import { runLoop, DEFAULT_MAX_TURNS, DEFAULT_TOOL_TIMEOUT_MS } from "./loop";
 import {
@@ -9,9 +14,10 @@ import {
 } from "./permission";
 import { rulesFromConfig, type ProjectPermissionConfig } from "./policy-config";
 import type { PermissionMode } from "./policy";
+import { processMessage } from "./processor";
 import { PluginRegistry, type HarnessPlugin, type Logger } from "./registry";
 import type { Provider } from "./provider";
-import type { Message } from "./types";
+import { textMessage, type Message, type MessagePart } from "./types";
 import type { SubagentOptions, SubagentResult, SubagentSpawner } from "./subagent";
 
 const SUBAGENT_CONCURRENCY = 3;
@@ -55,6 +61,15 @@ export interface RunSummary {
 
 const noopLogger: Logger = () => {};
 
+/** Converts the run input into a canonical user message or throws. */
+function canonicalUserMessage(input: string | Message): Message {
+  const message = typeof input === "string" ? textMessage("user", input) : input;
+  if (message.role !== "user") {
+    throw new Error(`AgentSession.run() only accepts user messages (got "${message.role}")`);
+  }
+  return message;
+}
+
 /**
  * Ties the registry, provider, permission engine, compactor and event stream
  * into one conversational session. Hosts (Electron, CLI, tests) subscribe to
@@ -65,6 +80,7 @@ export class AgentSession {
   readonly permission: PermissionEngine;
   readonly provider: Provider;
   readonly workspaceRoot: string;
+  readonly sessionId: string;
   readonly history: Message[] = [];
   readonly options: AgentSessionOptions;
 
@@ -85,6 +101,7 @@ export class AgentSession {
     this.registry = registry;
     this.provider = provider;
     this.workspaceRoot = options.workspaceRoot;
+    this.sessionId = nextSessionId();
     this.baseSystemPrompt = options.systemPrompt ?? "";
     this.logger = options.logger ?? noopLogger;
     this.permission =
@@ -166,14 +183,57 @@ export class AgentSession {
     return `[已加载技能 ${skill.name}]\n${body}\n\n[用户输入]\n${match[2]}`;
   }
 
-  async run(userText: string, signal?: AbortSignal): Promise<RunSummary> {
-    const expanded = await this.expandUserText(userText);
+  /**
+   * Runs skill expansion over the canonical input. Only the targeted text
+   * parts change; every other part is kept as-is, in order.
+   */
+  private async expandUserMessage(message: Message): Promise<Message> {
+    if (this.registry.skills.size === 0) return message;
+    const parts: MessagePart[] = [];
+    for (const part of message.parts) {
+      if (part.type === "text") {
+        parts.push({ type: "text", text: await this.expandUserText(part.text) });
+      } else {
+        parts.push(part);
+      }
+    }
+    return { role: message.role, parts };
+  }
+
+  /**
+   * One user-initiated run. A string input becomes a canonical single-text
+   * user message; a Message must already be `role: "user"`. The canonical
+   * input is skill-expanded and processor-run BEFORE entering the loop; the
+   * tool-result user turns the loop pushes afterwards never pass through
+   * processors. `scopePatch` overrides the run's inherited identity
+   * (sessionId/taskId/routeId/parentInvocationId) stamped on every tool
+   * invocation scope of this run.
+   */
+  async run(
+    input: string | Message,
+    signal?: AbortSignal,
+    scopePatch: ExecutionScopeIdentity = {},
+  ): Promise<RunSummary> {
+    const canonical = canonicalUserMessage(input);
     this.abort = new AbortController();
     if (signal) {
       if (signal.aborted) this.abort.abort();
       else signal.addEventListener("abort", () => this.abort!.abort(), { once: true });
     }
-    const running = runLoop(this.history, expanded, {
+    const sessionId = scopePatch.sessionId ?? this.sessionId;
+    const runScope: ExecutionScopeIdentity = {
+      sessionId,
+      taskId: scopePatch.taskId,
+      routeId: scopePatch.routeId ?? nextRouteId(),
+      parentInvocationId: scopePatch.parentInvocationId,
+    };
+    const expanded = await this.expandUserMessage(canonical);
+    const processed = await processMessage(expanded, this.registry.messageProcessors, {
+      signal: this.abort.signal,
+      provider: this.provider,
+      scope: { sessionId },
+    });
+    const running = runLoop(this.history, processed, {
       provider: this.provider,
       registry: this.registry,
       permission: this.permission,
@@ -188,6 +248,7 @@ export class AgentSession {
       maxTurns: this.options.maxTurns ?? DEFAULT_MAX_TURNS,
       toolTimeoutMs: this.options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
       spawner: this.spawner,
+      scope: runScope,
     });
     this.activeRun = running;
     try {
@@ -214,7 +275,11 @@ export class AgentSession {
   /**
    * Spawns a nested agent session sharing this session's provider, permission
    * engine (so child tool calls hit the same approval flow) and workspace,
-   * with its own isolated message history. Concurrency-capped.
+   * with its own isolated message history. The child registers the SAME
+   * message processors and tool middlewares as this session, and runs under
+   * the parent's scope identity with the spawning invocation as
+   * parentInvocationId. Concurrency-capped; the child session is disposed in
+   * a finally once its run settles.
    */
   readonly spawner: SubagentSpawner = {
     run: async (options: SubagentOptions): Promise<SubagentResult> => {
@@ -236,8 +301,22 @@ export class AgentSession {
             for (const tool of selected) ctx.registerTool(tool);
           },
         };
+        // Same registration set as the parent: identical processor and
+        // middleware objects, in the parent's registration order.
+        const inheritPlugin: HarnessPlugin = {
+          name: "subagent-inherit",
+          activate: (ctx) => {
+            for (const processor of this.registry.messageProcessors) {
+              ctx.registerMessageProcessor(processor);
+            }
+            for (const middleware of this.registry.toolMiddlewares) {
+              ctx.registerToolMiddleware(middleware);
+            }
+          },
+        };
+        const parent = options.parentScope;
         const child = await AgentSession.create({
-          plugins: [toolsPlugin],
+          plugins: [toolsPlugin, inheritPlugin],
           provider: this.provider,
           workspaceRoot: this.workspaceRoot,
           systemPrompt: options.systemPrompt,
@@ -249,8 +328,17 @@ export class AgentSession {
           maxTurns: options.maxTurns ?? 20,
           logger: this.logger,
         });
-        const result = await child.run(options.prompt, options.signal);
-        return { finalText: result.finalText, turns: result.turns };
+        try {
+          const result = await child.run(options.prompt, options.signal, {
+            sessionId: parent?.sessionId ?? this.sessionId,
+            taskId: parent?.taskId,
+            routeId: parent?.routeId ?? nextRouteId(),
+            parentInvocationId: parent?.invocationId,
+          });
+          return { finalText: result.finalText, turns: result.turns };
+        } finally {
+          await child.dispose();
+        }
       } finally {
         this.activeSubagents -= 1;
       }

@@ -7,6 +7,7 @@ import {
   redactUrl,
   runLoop,
   sha256Hex,
+  textMessage,
   toTranscript,
   type Delta,
   type HarnessEvent,
@@ -270,7 +271,7 @@ async function runWithAllTools(): Promise<RunCapture> {
   const audit: PermissionAuditEntry[] = [];
   const requests: PermissionRequest[] = [];
   const history: Message[] = [];
-  await runLoop(history, "run everything", {
+  await runLoop(history, textMessage("user", "run everything"), {
     provider,
     registry,
     permission: new PermissionEngine({
@@ -433,7 +434,7 @@ describe("tool args redaction (persisted vs raw)", () => {
     registry.tools.set("Strict", tool);
     const events: HarnessEvent[] = [];
     const history: Message[] = [];
-    await runLoop(history, "go", {
+    await runLoop(history, textMessage("user", "go"), {
       provider,
       registry,
       permission: new PermissionEngine({ mode: "auto", decider: { ask: async () => "deny" } }),
@@ -479,7 +480,7 @@ describe("tool args redaction (persisted vs raw)", () => {
     const registry = new PluginRegistry();
     registry.tools.set("Broken", tool);
     const history: Message[] = [];
-    await runLoop(history, "go", {
+    await runLoop(history, textMessage("user", "go"), {
       provider,
       registry,
       permission: new PermissionEngine({ mode: "auto", decider: { ask: async () => "deny" } }),

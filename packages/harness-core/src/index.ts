@@ -25,7 +25,10 @@ export {
 export {
   createExecutionScope,
   nextInvocationId,
+  nextRouteId,
+  nextSessionId,
   type ExecutionScope,
+  type ExecutionScopeIdentity,
 } from "./execution-scope";
 export {
   DEFAULT_ABORT_GRACE_MS,
@@ -42,6 +45,7 @@ export {
   type ToolExecutionOptions,
   type ToolInvocation,
   type ToolOutcome,
+  type ToolOutcomeContext,
 } from "./tool-execution";
 export type { Skill } from "./skill";
 export type {
@@ -93,9 +97,10 @@ export {
 } from "./context-manager";
 export { runLoop, DEFAULT_MAX_TURNS, DEFAULT_TOOL_TIMEOUT_MS, type LoopOptions, type LoopResult } from "./loop";
 export { AgentSession, type AgentSessionOptions, type RunSummary } from "./session";
-export type {
-  SubagentOptions,
-  SubagentResult,
-  SubagentSpawner,
+export {
+  bindSubagentSpawner,
+  type SubagentOptions,
+  type SubagentResult,
+  type SubagentSpawner,
 } from "./subagent";
 export { parseSSEData } from "./sse";

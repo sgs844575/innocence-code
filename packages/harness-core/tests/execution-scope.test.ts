@@ -4,6 +4,7 @@ import {
   PermissionEngine,
   PluginRegistry,
   runLoop,
+  textMessage,
   type Delta,
   type ExecutionScope,
   type Message,
@@ -67,7 +68,7 @@ describe("executor scope lifecycle", () => {
     const registry = new PluginRegistry();
     registry.tools.set("Echo", echo);
     const history: Message[] = [];
-    await runLoop(history, "go", {
+    await runLoop(history, textMessage("user", "go"), {
       provider,
       registry,
       permission: new PermissionEngine({

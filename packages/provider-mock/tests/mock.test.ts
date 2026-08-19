@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SUMMARIZE_SYSTEM_PROMPT, runLoop, PluginRegistry, PermissionEngine } from "@innocencecode/harness-core";
+import {
+  SUMMARIZE_SYSTEM_PROMPT,
+  runLoop,
+  PluginRegistry,
+  PermissionEngine,
+  textMessage,
+} from "@innocencecode/harness-core";
 import { createMockProvider } from "../src";
 
 describe("createMockProvider", () => {
@@ -22,7 +28,7 @@ describe("createMockProvider", () => {
       execute: async () => ({ content: "file-content" }),
     });
     const events: string[] = [];
-    const result = await runLoop([], "读一下", {
+    const result = await runLoop([], textMessage("user", "读一下"), {
       provider,
       registry,
       permission: new PermissionEngine({ mode: "auto", decider: { ask: async () => "deny" } }),

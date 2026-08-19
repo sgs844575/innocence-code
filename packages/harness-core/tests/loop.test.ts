@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runLoop } from "../src/loop";
 import { PermissionEngine } from "../src/permission";
 import { PluginRegistry } from "../src/registry";
+import { textMessage } from "../src/types";
 import type { Delta, Provider, Tool, ToolResult } from "../src";
 import type { HarnessEvent } from "../src/events";
 
@@ -78,7 +79,7 @@ function setup(tools: Tool[], provider: Provider, permission = allowAll()) {
         abortGraceMs?: number;
       } = {},
     ) =>
-      runLoop(history, text, {
+      runLoop(history, textMessage("user", text), {
         provider,
         registry,
         permission,
@@ -362,5 +363,119 @@ describe("runLoop", () => {
     const resultEvent = events.find((e) => e.type === "toolResult");
     expect(resultEvent && resultEvent.type === "toolResult" && resultEvent.outcome).toBe("aborted");
     expect(result.finalText).toBe("");
+    // M1: a mid-tool stop must surface in the loop result, not just in history.
+    expect(result.aborted).toBe(true);
+  });
+
+  it("arms the grace window on parent stop so an abort-ignoring tool goes unstable without waiting out the timeout", async () => {
+    const stop = new AbortController();
+    const zombie: Tool = {
+      name: "ZombieStop",
+      description: "ZombieStop",
+      readOnly: false,
+      sideEffect: "unknown",
+      parameters: { type: "object" },
+      permissionResource: () => ({ action: "write", kind: "test", scope: "ZombieStop" }),
+      persistArgs: (args) => ({ ...args }),
+      // Stops the run shortly after start, then ignores every abort forever.
+      execute: () => {
+        setTimeout(() => stop.abort(), 5);
+        return new Promise<ToolResult>(() => {});
+      },
+    };
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "ZombieStop" }] },
+      { text: "recovered" },
+    ]);
+    const { events, history, run } = setup([zombie], provider);
+
+    // 60s timeout with a 25ms grace: without grace-on-parent-abort the loop
+    // would block on the deadline and this test itself would time out.
+    const result = await run("x", { signal: stop.signal, toolTimeoutMs: 60_000, abortGraceMs: 25 });
+    expect(result.aborted).toBe(true);
+    const tr = history[2].parts[0] as { isError?: boolean; content: string };
+    expect(tr.isError).toBe(true);
+    expect(tr.content).toContain("TOOL_UNSTABLE");
+    const resultEvent = events.find((e) => e.type === "toolResult");
+    expect(resultEvent && resultEvent.type === "toolResult" && resultEvent.outcome).toBe("unstable");
+  });
+
+  it("classifies non-abort-shaped failures during a parent stop as aborted, not error", async () => {
+    const stop = new AbortController();
+    const tool: Tool = {
+      name: "OddStop",
+      description: "OddStop",
+      readOnly: false,
+      sideEffect: "unknown",
+      parameters: { type: "object" },
+      permissionResource: () => ({ action: "write", kind: "test", scope: "OddStop" }),
+      persistArgs: (args) => ({ ...args }),
+      // Cancels with a PLAIN error when the run stops: the outcome must still
+      // be "aborted" because the parent signal is what ended the invocation.
+      execute: (_args, ctx) =>
+        new Promise<ToolResult>((_resolve, reject) => {
+          ctx.signal.addEventListener("abort", () => reject(new Error("worker cancelled")), {
+            once: true,
+          });
+          queueMicrotask(() => stop.abort());
+        }),
+    };
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "OddStop" }] },
+      { text: "after" },
+    ]);
+    const { events, history, run } = setup([tool], provider);
+
+    const result = await run("x", { signal: stop.signal });
+    expect(result.aborted).toBe(true);
+    const resultEvent = events.find((e) => e.type === "toolResult");
+    expect(resultEvent && resultEvent.type === "toolResult" && resultEvent.outcome).toBe("aborted");
+    const tr = history[2].parts[0] as { isError?: boolean; content: string };
+    expect(tr.content).toContain("工具执行已中止");
+    expect(tr.content).toContain("worker cancelled");
+  });
+
+  it("fail-closes remaining calls after a stop instead of consulting the permission chain", async () => {
+    const stop = new AbortController();
+    let asks = 0;
+    const permission = new PermissionEngine({
+      mode: "ask",
+      decider: {
+        ask: async () => {
+          asks += 1;
+          return "allow";
+        },
+      },
+    });
+    const slow: Tool = {
+      name: "SlowStop",
+      description: "SlowStop",
+      readOnly: false,
+      sideEffect: "unknown",
+      parameters: { type: "object" },
+      permissionResource: () => ({ action: "write", kind: "test", scope: "SlowStop" }),
+      persistArgs: (args) => ({ ...args }),
+      execute: (_args, ctx) =>
+        new Promise<ToolResult>((_resolve, reject) => {
+          ctx.signal.addEventListener("abort", () => reject(ctx.signal.reason), { once: true });
+          queueMicrotask(() => stop.abort());
+        }),
+    };
+    const follow = fakeTool("FollowUp", async () => ({ content: "followed" }));
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "SlowStop" }, { toolName: "FollowUp" }] },
+      { text: "after" },
+    ]);
+    const { history, run } = setup([slow, follow], provider, permission);
+
+    const result = await run("x", { signal: stop.signal });
+    // Only the in-flight call consulted permissions; the post-stop call was
+    // fail-closed without prompting the user again.
+    expect(asks).toBe(1);
+    expect(follow.calls).toHaveLength(0);
+    const results = history[2].parts as Array<{ content: string; isError?: boolean }>;
+    expect(results[1]!.isError).toBe(true);
+    expect(results[1]!.content).toContain("运行已中止");
+    expect(result.aborted).toBe(true);
   });
 });

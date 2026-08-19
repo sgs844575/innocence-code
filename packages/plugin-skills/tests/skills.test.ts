@@ -69,4 +69,38 @@ describe("skillsPlugin", () => {
       text: expect.stringContaining("审查正文：先看测试再看实现"),
     });
   });
+
+  it("expands only the targeted text part and preserves other parts and order", async () => {
+    const provider: Provider = {
+      id: "echo",
+      async *chat(): AsyncIterable<Delta> {
+        yield { type: "text", text: "ok" };
+      },
+    };
+    const session = await AgentSession.create({
+      plugins: [skillsPlugin({ dirs: [skillsDir] })],
+      provider,
+      workspaceRoot: "D:/tmp",
+      permission: { mode: "auto", decider: { ask: async () => "deny" } },
+    });
+
+    await session.run({
+      role: "user",
+      parts: [
+        { type: "text", text: "前言" },
+        { type: "toolResult", toolCallId: "prior", content: "旧结果" },
+        { type: "text", text: "/review 请检查" },
+      ],
+    });
+
+    const parts = session.history[0].parts;
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toMatchObject({ type: "text", text: "前言" });
+    expect(parts[1]).toMatchObject({ type: "toolResult", toolCallId: "prior", content: "旧结果" });
+    const expanded = parts[2] as { type: string; text: string };
+    expect(expanded.type).toBe("text");
+    expect(expanded.text).toContain("审查正文：先看测试再看实现");
+    expect(expanded.text).toContain("[用户输入]\n请检查");
+    expect(expanded.text).not.toContain("/review");
+  });
 });
