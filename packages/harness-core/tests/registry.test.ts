@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PluginRegistry, type HarnessPlugin, type Tool } from "../src";
+import {
+  PluginRegistry,
+  type HarnessPlugin,
+  type Tool,
+  type ToolExecutionMiddleware,
+} from "../src";
 
 function completeTool(name: string): Tool {
   return {
@@ -78,6 +83,34 @@ describe("tool persistence policy (fail-closed SPI gate)", () => {
     expect(calls).toEqual(["dispose-a"]);
     // The rejected tool never lands in the registry.
     expect(registry.tools.has("B")).toBe(false);
+  });
+});
+
+describe("tool execution middleware registration", () => {
+  const layer = (name: string): ToolExecutionMiddleware => ({
+    name,
+    async execute(_invocation, next) {
+      return next();
+    },
+  });
+
+  it("registers middleware through the plugin context in registration order", async () => {
+    const registry = new PluginRegistry();
+    const plugin: HarnessPlugin = {
+      name: "mw",
+      activate(ctx) {
+        ctx.registerToolMiddleware(layer("outer"));
+        ctx.registerToolMiddleware(layer("inner"));
+      },
+    };
+    await registry.load([plugin]);
+    expect(registry.toolMiddlewares.map((m) => m.name)).toEqual(["outer", "inner"]);
+  });
+
+  it("registers middleware without any plugin through createContext too", () => {
+    const registry = new PluginRegistry();
+    registry.createContext("direct", () => {}).registerToolMiddleware(layer("only"));
+    expect(registry.toolMiddlewares).toHaveLength(1);
   });
 });
 

@@ -69,7 +69,15 @@ function setup(tools: Tool[], provider: Provider, permission = allowAll()) {
     registry,
     events,
     history,
-    run: (text: string, extra: { maxTurns?: number } = {}) =>
+    run: (
+      text: string,
+      extra: {
+        maxTurns?: number;
+        signal?: AbortSignal;
+        toolTimeoutMs?: number;
+        abortGraceMs?: number;
+      } = {},
+    ) =>
       runLoop(history, text, {
         provider,
         registry,
@@ -80,6 +88,27 @@ function setup(tools: Tool[], provider: Provider, permission = allowAll()) {
         ...extra,
       }),
   };
+}
+
+/** Tool whose body rejects with the derived signal's abort reason. */
+function abortAwareTool(name: string): Tool & { calls: number } {
+  const t = {
+    name,
+    description: name,
+    readOnly: false,
+    sideEffect: "unknown" as const,
+    parameters: { type: "object" },
+    calls: 0,
+    permissionResource: () => ({ action: "write", kind: "test", scope: name }),
+    persistArgs: (args: Record<string, unknown>) => ({ ...args }),
+    execute(_args: Record<string, unknown>, ctx: { signal: AbortSignal }) {
+      t.calls += 1;
+      return new Promise<ToolResult>((_resolve, reject) => {
+        ctx.signal.addEventListener("abort", () => reject(ctx.signal.reason), { once: true });
+      });
+    },
+  } as unknown as Tool & { calls: number };
+  return t;
 }
 
 describe("runLoop", () => {
@@ -189,5 +218,149 @@ describe("runLoop", () => {
     const results = history[2].parts;
     expect(results).toHaveLength(2);
     expect(results.map((p) => (p as { content: string }).content)).toEqual(["a", "b"]);
+  });
+
+  it("permission deny never reaches tool middleware", async () => {
+    const write = fakeTool("Write", async () => ({ content: "written" }));
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "Write", args: { path: "a.ts" } }] },
+      { text: "denied" },
+    ]);
+    const permission = new PermissionEngine({
+      mode: "plan",
+      decider: { ask: async () => "allow" },
+    });
+    const { registry, run } = setup([write], provider, permission);
+    const seen: string[] = [];
+    registry.toolMiddlewares.push({
+      name: "spy",
+      async execute(invocation, next) {
+        seen.push(invocation.toolName);
+        return next();
+      },
+    });
+
+    const result = await run("write it");
+    expect(result.finalText).toBe("denied");
+    expect(write.calls).toHaveLength(0);
+    expect(seen).toEqual([]);
+  });
+
+  it("wraps allowed tools with middleware and stamps invocation/resource/outcome on events", async () => {
+    const echo: Tool = {
+      name: "Echo",
+      description: "Echo",
+      readOnly: false,
+      sideEffect: "unknown",
+      parameters: { type: "object" },
+      permissionResource: () => ({ action: "write", kind: "test", scope: "Echo" }),
+      // Persisted args differ from raw ones — middleware must only see these.
+      persistArgs: (args) => ({ msg: `persisted:${String(args.msg ?? "")}` }),
+      execute: async (args) => ({ content: `echo:${String(args.msg ?? "")}` }),
+    };
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "Echo", args: { msg: "hi" } }] },
+      { text: "done" },
+    ]);
+    const { registry, events, run } = setup([echo], provider);
+    const seen: Array<{ toolName: string; persistedArgs: Record<string, unknown> }> = [];
+    registry.toolMiddlewares.push({
+      name: "spy",
+      async execute(invocation, next) {
+        seen.push({ toolName: invocation.toolName, persistedArgs: invocation.persistedArgs });
+        return next();
+      },
+    });
+
+    await run("x");
+    expect(seen).toEqual([{ toolName: "Echo", persistedArgs: { msg: "persisted:hi" } }]);
+
+    const callEvent = events.find((e) => e.type === "toolCall");
+    if (!callEvent || callEvent.type !== "toolCall") throw new Error("missing toolCall event");
+    expect(callEvent.invocationId).toMatch(/^inv-/);
+    const resultEvent = events.find((e) => e.type === "toolResult");
+    if (!resultEvent || resultEvent.type !== "toolResult") throw new Error("missing toolResult event");
+    expect(resultEvent).toMatchObject({
+      outcome: "success",
+      resource: { action: "write", kind: "test", scope: "Echo" },
+      invocationId: callEvent.invocationId,
+      isError: undefined,
+    });
+  });
+
+  it("aborts runaway tools at the timeout and reports a timeout outcome", async () => {
+    const hang = abortAwareTool("Hang");
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "Hang" }] },
+      { text: "recovered" },
+    ]);
+    const { events, history, run } = setup([hang], provider);
+
+    const result = await run("x", { toolTimeoutMs: 20, abortGraceMs: 20 });
+    expect(result.finalText).toBe("recovered");
+    const tr = history[2].parts[0] as { isError?: boolean; content: string };
+    expect(tr.isError).toBe(true);
+    expect(tr.content).toContain("超时");
+    const resultEvent = events.find((e) => e.type === "toolResult");
+    expect(resultEvent && resultEvent.type === "toolResult" && resultEvent.outcome).toBe("timeout");
+  });
+
+  it("reports tools that ignore the abort as unstable", async () => {
+    const zombie: Tool = {
+      name: "Zombie",
+      description: "Zombie",
+      readOnly: false,
+      sideEffect: "unknown",
+      parameters: { type: "object" },
+      permissionResource: () => ({ action: "write", kind: "test", scope: "Zombie" }),
+      persistArgs: (args) => ({ ...args }),
+      // Ignores the abort signal entirely: never settles.
+      execute: () => new Promise<ToolResult>(() => {}),
+    };
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "Zombie" }] },
+      { text: "recovered" },
+    ]);
+    const { events, history, run } = setup([zombie], provider);
+
+    const result = await run("x", { toolTimeoutMs: 20, abortGraceMs: 20 });
+    expect(result.finalText).toBe("recovered");
+    const tr = history[2].parts[0] as { isError?: boolean; content: string };
+    expect(tr.isError).toBe(true);
+    expect(tr.content).toContain("TOOL_UNSTABLE");
+    const resultEvent = events.find((e) => e.type === "toolResult");
+    expect(resultEvent && resultEvent.type === "toolResult" && resultEvent.outcome).toBe("unstable");
+  });
+
+  it("reports an aborted outcome when the run is stopped mid-tool", async () => {
+    const stop = new AbortController();
+    const tool: Tool = {
+      name: "Stop",
+      description: "Stop",
+      readOnly: false,
+      sideEffect: "unknown",
+      parameters: { type: "object" },
+      permissionResource: () => ({ action: "write", kind: "test", scope: "Stop" }),
+      persistArgs: (args) => ({ ...args }),
+      execute: (_args, ctx) =>
+        new Promise<ToolResult>((_resolve, reject) => {
+          ctx.signal.addEventListener("abort", () => reject(ctx.signal.reason), { once: true });
+          queueMicrotask(() => stop.abort());
+        }),
+    };
+    const provider = scriptedProvider([
+      { toolCalls: [{ toolName: "Stop" }] },
+      { text: "never reached" },
+    ]);
+    const { events, history, run } = setup([tool], provider);
+
+    const result = await run("x", { signal: stop.signal });
+    // Loop breaks on the next turn-top check; the aborted result is in history.
+    const tr = history[2].parts[0] as { isError?: boolean; content: string };
+    expect(tr.isError).toBe(true);
+    expect(tr.content).toContain("中止");
+    const resultEvent = events.find((e) => e.type === "toolResult");
+    expect(resultEvent && resultEvent.type === "toolResult" && resultEvent.outcome).toBe("aborted");
+    expect(result.finalText).toBe("");
   });
 });

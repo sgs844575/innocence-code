@@ -191,6 +191,35 @@ describe("PermissionEngine pipeline", () => {
     expect(requests).toHaveLength(0); // never reached the ask stage
   });
 
+  it("audits validateResource rejections as a deny before rethrowing", async () => {
+    const entries: PermissionAuditEntry[] = [];
+    const engine = new PermissionEngine({
+      mode: "ask",
+      decider: { ask: async () => "allow" },
+      validateResource: () => {
+        throw new Error("blocked resource");
+      },
+      audit: (entry) => entries.push(entry),
+    });
+
+    await expect(
+      engine.resolve(request("BrowserNavigate", "navigate", "file:///secret", "url"), {
+        readOnly: false,
+        sideEffect: "unknown",
+      }),
+    ).rejects.toThrow("blocked resource");
+
+    // Exactly one ledger entry for the rejected gate — decision deny, via validateResource.
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.resolution).toEqual({
+      decision: "deny",
+      via: "validateResource",
+      reason: "blocked resource",
+    });
+    expect(entries[0]!.request.resource.scope).toBe("file:///secret");
+    expect(entries[0]!.tool).toEqual({ readOnly: false, sideEffect: "unknown" });
+  });
+
   it("audits every resolution, including full mode", async () => {
     const entries: PermissionAuditEntry[] = [];
     const engine = new PermissionEngine({

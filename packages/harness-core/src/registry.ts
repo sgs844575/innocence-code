@@ -3,6 +3,7 @@ import type { MessageProcessor } from "./processor";
 import type { Provider, ToolSpec } from "./provider";
 import type { Skill } from "./skill";
 import type { Tool } from "./tool";
+import type { ToolExecutionMiddleware } from "./tool-execution";
 
 export type LogLevel = "info" | "warn" | "error";
 export type Logger = (level: LogLevel, msg: string, data?: unknown) => void;
@@ -33,6 +34,12 @@ export interface PluginContext {
   registerSkill(skill: Skill): void;
   registerPolicyRule(rule: PolicyRule): void;
   registerMessageProcessor(processor: MessageProcessor): void;
+  /**
+   * Registers execution-time middleware around every tool invocation.
+   * Registration order is preserved; later registrations wrap closer to the
+   * tool (inner layers), earlier ones run first.
+   */
+  registerToolMiddleware(middleware: ToolExecutionMiddleware): void;
   log(level: LogLevel, msg: string, data?: unknown): void;
 }
 
@@ -47,6 +54,8 @@ export class PluginRegistry {
   readonly providers = new Map<string, Provider>();
   readonly skills = new Map<string, Skill>();
   readonly policyRules: PolicyRule[] = [];
+  /** Execution middleware in registration order (later = inner layer). */
+  readonly toolMiddlewares: ToolExecutionMiddleware[] = [];
   private readonly registeredMessageProcessors: MessageProcessor[] = [];
   /** Successfully activated plugins, awaiting reverse-order disposal. */
   private readonly activated: HarnessPlugin[] = [];
@@ -126,6 +135,9 @@ export class PluginRegistry {
       },
       registerMessageProcessor: (processor) => {
         this.registeredMessageProcessors.push(processor);
+      },
+      registerToolMiddleware: (middleware) => {
+        this.toolMiddlewares.push(middleware);
       },
       log: (level, msg, data) => log(level, `[${pluginName}] ${msg}`, data),
     };

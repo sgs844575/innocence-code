@@ -5,6 +5,12 @@ import { PermissionEngine } from "./permission";
 import type { PermissionRequest, PermissionResource } from "./policy";
 import type { PluginRegistry } from "./registry";
 import type { Provider } from "./provider";
+import {
+  executeToolInvocation,
+  isAbortError,
+  toolErrorOutcome,
+  type ToolOutcome,
+} from "./tool-execution";
 import { textMessage, type Message, type MessagePart, type ToolCallPart, type ToolResultPart } from "./types";
 import type { Tool, ToolContext } from "./tool";
 import type { SubagentSpawner } from "./subagent";
@@ -20,6 +26,8 @@ export interface LoopOptions {
   signal?: AbortSignal;
   maxTurns?: number;
   toolTimeoutMs?: number;
+  /** Extra wait after the timeout abort before a tool is declared unstable. */
+  abortGraceMs?: number;
   spawner?: SubagentSpawner;
 }
 
@@ -32,13 +40,6 @@ export interface LoopResult {
 
 export const DEFAULT_MAX_TURNS = 40;
 export const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
-
-function isAbortError(err: unknown): boolean {
-  return (
-    (err instanceof Error && err.name === "AbortError") ||
-    (typeof err === "object" && err !== null && (err as { name?: string }).name === "AbortError")
-  );
-}
 
 /**
  * The synchronous, readable agent loop: stream a model turn, gate every tool
@@ -176,28 +177,34 @@ export async function runLoop(
       const resultParts: ToolResultPart[] = [];
       for (const part of calls) {
         const item = prepared.get(part.id)!;
-        onEvent({
-          type: "toolCall",
-          id: part.id,
-          call: { toolName: part.toolName, args: item.persistedArgs },
-        });
-
         const started = Date.now();
-        const failClosed = (content: string) => {
+        const invocationId = item.ctx?.scope.invocationId;
+        const finish = (content: string, isError: boolean, outcome: ToolOutcome) => {
           resultParts.push({
             type: "toolResult",
             toolCallId: part.id,
             content,
-            isError: true,
+            isError: isError || undefined,
           });
           onEvent({
             type: "toolResult",
             toolCallId: part.id,
             content,
-            isError: true,
+            isError: isError || undefined,
             durationMs: Date.now() - started,
+            invocationId,
+            resource: item.resource,
+            outcome,
           });
         };
+        const failClosed = (content: string) => finish(content, true, "error");
+
+        onEvent({
+          type: "toolCall",
+          id: part.id,
+          call: { toolName: part.toolName, args: item.persistedArgs },
+          invocationId,
+        });
 
         if (!item.tool) {
           failClosed(`未知工具：${part.toolName}`);
@@ -220,7 +227,7 @@ export async function runLoop(
             sideEffect: item.tool.sideEffect,
           });
         } catch (err) {
-          // validateResource rejected the resource: fail closed.
+          // validateResource rejected the resource (audited inside resolve): fail closed.
           failClosed(
             `资源校验未通过：${err instanceof Error ? err.message : String(err)}`,
           );
@@ -238,41 +245,39 @@ export async function runLoop(
           continue;
         }
 
+        // Permission granted: hand the invocation to the executor, which owns
+        // the derived AbortController, middleware chain, real abort-on-timeout
+        // and outcome standardization. Raw args stay in this closure and die
+        // with it.
         try {
-          const result = await withTimeout(
-            item.tool.execute(part.args, item.ctx!),
-            toolTimeoutMs,
-            item.ctx!.signal,
+          const result = await executeToolInvocation(
+            {
+              toolName: item.tool.name,
+              persistedArgs: item.persistedArgs,
+              ctx: item.ctx!,
+              parentSignal: signal,
+            },
+            registry.toolMiddlewares,
+            {
+              timeoutMs: toolTimeoutMs,
+              abortGraceMs: opts.abortGraceMs,
+              execute: (_signal, ctx) => item.tool!.execute(part.args, ctx),
+            },
           );
-          resultParts.push({
-            type: "toolResult",
-            toolCallId: part.id,
-            content: result.content,
-            isError: result.isError,
-          });
-          onEvent({
-            type: "toolResult",
-            toolCallId: part.id,
-            content: result.content,
-            isError: result.isError,
-            durationMs: Date.now() - started,
-          });
+          finish(
+            result.content,
+            result.isError === true,
+            result.isError === true ? "error" : "success",
+          );
         } catch (err) {
           // Tool failures feed back to the model instead of killing the loop.
-          const content = `工具执行出错：${err instanceof Error ? err.message : String(err)}`;
-          resultParts.push({
-            type: "toolResult",
-            toolCallId: part.id,
-            content,
-            isError: true,
-          });
-          onEvent({
-            type: "toolResult",
-            toolCallId: part.id,
-            content,
-            isError: true,
-            durationMs: Date.now() - started,
-          });
+          const outcome = toolErrorOutcome(err);
+          const detail = err instanceof Error ? err.message : String(err);
+          finish(
+            outcome === "aborted" ? `工具执行已中止：${detail}` : `工具执行出错：${detail}`,
+            true,
+            outcome,
+          );
         }
       }
       history.push({ role: "user", parts: resultParts });
@@ -310,33 +315,4 @@ function mergeTextParts(parts: MessagePart[]): MessagePart[] {
     }
   }
   return merged;
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`工具执行超时（>${Math.round(timeoutMs / 1000)}s）`)),
-          timeoutMs,
-        );
-      }),
-      ...(signal
-        ? [
-            new Promise<never>((_, reject) => {
-              if (signal.aborted) reject(new DOMException("Aborted", "AbortError"));
-              else signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
-            }),
-          ]
-        : []),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }

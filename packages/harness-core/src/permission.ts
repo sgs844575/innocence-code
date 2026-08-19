@@ -11,7 +11,15 @@ import type {
 export interface PermissionResolution {
   decision: "allow" | "deny";
   /** Which pipeline stage produced the decision (for events/debugging). */
-  via: "fullMode" | "denyRule" | "planMode" | "allowRule" | "autoMode" | "sessionGrant" | "ask";
+  via:
+    | "fullMode"
+    | "denyRule"
+    | "planMode"
+    | "allowRule"
+    | "autoMode"
+    | "sessionGrant"
+    | "ask"
+    | "validateResource";
   reason: string;
 }
 
@@ -105,7 +113,24 @@ export class PermissionEngine {
     toolMeta: { readOnly: boolean; sideEffect?: ToolSideEffect },
   ): Promise<PermissionResolution> {
     // Hard validation first, in EVERY mode — full mode only skips asking.
-    await this.validateResource?.(request.resource);
+    // A rejection is ALSO audited (decision deny, via validateResource) before
+    // rethrowing, so the ledger records every gate decision, not just pipeline
+    // stages that ran to completion.
+    try {
+      await this.validateResource?.(request.resource);
+    } catch (err) {
+      this.audit?.({
+        mode: this.mode,
+        request,
+        resolution: {
+          decision: "deny",
+          via: "validateResource",
+          reason: err instanceof Error ? err.message : String(err),
+        },
+        tool: { readOnly: toolMeta.readOnly, sideEffect: toolMeta.sideEffect ?? "unknown" },
+      });
+      throw err;
+    }
 
     const resolution = await this.decide(request, toolMeta);
     this.audit?.({

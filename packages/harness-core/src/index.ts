@@ -27,6 +27,22 @@ export {
   nextInvocationId,
   type ExecutionScope,
 } from "./execution-scope";
+export {
+  DEFAULT_ABORT_GRACE_MS,
+  TOOL_TIMEOUT,
+  TOOL_UNSTABLE,
+  ToolExecutionError,
+  executeToolInvocation,
+  isAbortError,
+  toolErrorOutcome,
+  type ToolBody,
+  type ToolExecutionErrorCode,
+  type ToolExecutionInvocation,
+  type ToolExecutionMiddleware,
+  type ToolExecutionOptions,
+  type ToolInvocation,
+  type ToolOutcome,
+} from "./tool-execution";
 export type { Skill } from "./skill";
 export type {
   AskResponse,
