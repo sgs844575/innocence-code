@@ -1,7 +1,10 @@
 // Harness glue — owns settings persistence, the HarnessRuntime instance and
 // the permission-ask bridge between the runtime and the renderer. This module
-// is the host composition root: it assembles the concrete plugin set (fs/shell
-// tools, subagents, project skills, MCP) per agent session.
+// is the host composition root: it declaratively assembles each agent
+// session's plugin set from PLUGIN_DESCRIPTORS (fs/shell core tools,
+// subagents, project skills, MCP servers, session todo tool) — the active set
+// comes from resolvePluginSet over project .innocence/plugins.yml + user
+// settings toggles.
 import { app, dialog, type BrowserWindow } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -97,7 +100,10 @@ export async function composePlugins(
 ): Promise<HarnessPlugin[]> {
   const [config, project] = await Promise.all([
     loadInnocenceConfig(workspaceRoot),
-    loadPluginToggles(workspaceRoot),
+    loadPluginToggles(workspaceRoot, {
+      // yml 损坏/未知键告警必须进 userData/logs，而非 core 的 console 兜底。
+      logger: (level, msg, data) => logger[level === "error" ? "error" : "warn"](msg, data),
+    }),
   ]);
   const resolved = resolvePluginSet(PLUGIN_DESCRIPTORS, userToggles, project);
   for (const { id, reason, via } of resolved.skipped) {
