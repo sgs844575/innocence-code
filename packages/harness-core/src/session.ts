@@ -220,10 +220,11 @@ export class AgentSession {
       throw new Error(`会话已释放（${this.sessionId}），不能再运行`);
     }
     const canonical = canonicalUserMessage(input);
-    this.abort = new AbortController();
+    const abort = new AbortController();
+    this.abort = abort;
     if (signal) {
-      if (signal.aborted) this.abort.abort();
-      else signal.addEventListener("abort", () => this.abort!.abort(), { once: true });
+      if (signal.aborted) abort.abort();
+      else signal.addEventListener("abort", () => abort.abort(), { once: true });
     }
     const sessionId = scopePatch.sessionId ?? this.sessionId;
     const runScope: ExecutionScopeIdentity = {
@@ -232,13 +233,34 @@ export class AgentSession {
       routeId: scopePatch.routeId ?? nextRouteId(),
       parentInvocationId: scopePatch.parentInvocationId,
     };
+    // The run promise is created and published to activeRun synchronously,
+    // BEFORE the first await: a dispose() racing the entry phase (skill
+    // expansion / message processing) must wait for this run to settle
+    // instead of releasing the registry underneath it.
+    const running = this.executeRun(canonical, runScope, abort, sessionId);
+    this.activeRun = running;
+    try {
+      return await running;
+    } finally {
+      this.activeRun = undefined;
+      this.abort = undefined;
+    }
+  }
+
+  /** Expansion + processing + loop — the promise activeRun tracks. */
+  private async executeRun(
+    canonical: Message,
+    runScope: ExecutionScopeIdentity,
+    abort: AbortController,
+    sessionId: string,
+  ): Promise<RunSummary> {
     const expanded = await this.expandUserMessage(canonical);
     const processed = await processMessage(expanded, this.registry.messageProcessors, {
-      signal: this.abort.signal,
+      signal: abort.signal,
       provider: this.provider,
       scope: { sessionId },
     });
-    const running = runLoop(this.history, processed, {
+    return runLoop(this.history, processed, {
       provider: this.provider,
       registry: this.registry,
       permission: this.permission,
@@ -249,19 +271,12 @@ export class AgentSession {
         if (e.type === "error") this.logger("error", e.message);
       },
       compactor: this.compactor,
-      signal: this.abort.signal,
+      signal: abort.signal,
       maxTurns: this.options.maxTurns ?? DEFAULT_MAX_TURNS,
       toolTimeoutMs: this.options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
       spawner: this.spawner,
       scope: runScope,
     });
-    this.activeRun = running;
-    try {
-      return await running;
-    } finally {
-      this.activeRun = undefined;
-      this.abort = undefined;
-    }
   }
 
   stop(): void {

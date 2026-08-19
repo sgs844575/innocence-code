@@ -254,6 +254,60 @@ describe("AgentSession", () => {
     expect(events).toEqual(["chat", "disposed"]);
   });
 
+  it("dispose during message processing waits for the run instead of releasing the registry early", async () => {
+    const events: string[] = [];
+    let processorStarted!: () => void;
+    let releaseProcessor!: () => void;
+    const started = new Promise<void>((resolve) => {
+      processorStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseProcessor = resolve;
+    });
+    const session = await AgentSession.create({
+      plugins: [
+        {
+          name: "slow-processor",
+          activate(ctx) {
+            ctx.registerMessageProcessor({
+              name: "slow",
+              order: 0,
+              async process(message) {
+                processorStarted();
+                await gate;
+                events.push("processor-done");
+                return message;
+              },
+            });
+          },
+        },
+        {
+          name: "lifecycle",
+          activate() {},
+          async dispose() {
+            events.push("registry-disposed");
+          },
+        },
+      ],
+      provider: echoProvider(),
+      workspaceRoot: "D:/tmp",
+      permission: { mode: "auto", decider: { ask: async () => "deny" } },
+    });
+
+    const runPromise = session.run("hello");
+    await started; // the run is parked inside its entry-phase processor await
+    const disposePromise = session.dispose();
+    // The registry must still be alive: dispose parks on the in-flight run
+    // (which was published synchronously) instead of disposing underneath it.
+    expect(events).toEqual([]);
+    releaseProcessor();
+
+    const summary = await runPromise;
+    await disposePromise;
+    expect(summary.aborted).toBe(true); // settles aborted, never drives a released registry
+    expect(events).toEqual(["processor-done", "registry-disposed"]);
+  });
+
   it("run() after dispose rejects with 会话已释放", async () => {
     const session = await AgentSession.create({ plugins: [], ...baseOptions() });
     await session.run("第一次");
