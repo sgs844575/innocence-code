@@ -151,7 +151,14 @@ const runtime = new HarnessRuntime({
         send(IPC.chatPermission, event);
       });
     },
-    log: (level, msg, data) => logger.info("harness", { level, msg, data: String(data) }),
+    log: (level, msg, data) => {
+      // Route by severity — a runtime dispose failure arrives as "error"
+      // and must reach logger.error, not sink into the info stream.
+      const entry = { msg, data: String(data) };
+      if (level === "error") logger.error("harness", entry);
+      else if (level === "warn") logger.warn("harness", entry);
+      else logger.info("harness", entry);
+    },
   },
 });
 

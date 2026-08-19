@@ -96,6 +96,10 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(seq+
 export class HarnessRuntime {
   private readonly options: RuntimeOptions;
   private readonly sessions = new Map<string, { key: string; session: AgentSession }>();
+  /** In-flight session builds, keyed by chat session id (build dedup). */
+  private readonly building = new Map<string, Promise<AgentSession>>();
+  /** Chat session ids whose dispose() arrived while a build was in flight. */
+  private readonly disposing = new Set<string>();
   private readonly running = new Map<string, AbortController>();
 
   constructor(options: RuntimeOptions) {
@@ -142,21 +146,52 @@ export class HarnessRuntime {
    * waits for it to settle and disposes the session's plugins. Deleting a
    * cache entry alone is not resource cleanup. Never rejects — disposal
    * failures are reported through the log hook.
+   *
+   * A build can be in flight (its awaits span plugin factories and
+   * AgentSession.create — MCP spawns take seconds): dispose then releases
+   * the cached entry immediately, marks the id so the landing build releases
+   * its own product instead of caching it, and waits for that to happen. A
+   * session built for a deleted chat id therefore never leaks and its
+   * triggering send fails fast with 会话已释放.
    */
   async dispose(chatSessionId: string): Promise<void> {
-    const cached = this.sessions.get(chatSessionId);
-    if (!cached) return;
-    this.sessions.delete(chatSessionId);
-    await this.settleDispose(chatSessionId, cached.session);
+    const inFlight = this.building.get(chatSessionId);
+    if (!inFlight) {
+      await this.releaseCached(chatSessionId);
+      return;
+    }
+    // Tombstone FIRST (synchronously): the build's landing check must see
+    // it even if it races past this point while we release the old entry.
+    this.disposing.add(chatSessionId);
+    try {
+      await this.releaseCached(chatSessionId);
+      await inFlight;
+    } catch {
+      // The build failed or was cancelled by this dispose — its product is
+      // already released (or never existed); nothing more to clean up.
+    } finally {
+      this.disposing.delete(chatSessionId);
+    }
   }
 
-  /** Releases every cached agent session (e.g. app shutdown). */
+  /** Releases every cached agent session and every in-flight build (e.g. app shutdown). */
   async disposeAll(): Promise<void> {
+    // In-flight builds first: dispose() makes each landing product release
+    // itself instead of re-populating the cache after the sweep below.
+    const building = [...this.building.keys()];
+    await Promise.all(building.map((id) => this.dispose(id)));
     const entries = [...this.sessions];
     this.sessions.clear();
     await Promise.all(
       entries.map(([chatSessionId, entry]) => this.settleDispose(chatSessionId, entry.session)),
     );
+  }
+
+  private async releaseCached(chatSessionId: string): Promise<void> {
+    const cached = this.sessions.get(chatSessionId);
+    if (!cached) return;
+    this.sessions.delete(chatSessionId);
+    await this.settleDispose(chatSessionId, cached.session);
   }
 
   private async settleDispose(chatSessionId: string, session: AgentSession): Promise<void> {
@@ -167,7 +202,27 @@ export class HarnessRuntime {
     }
   }
 
-  private async agentFor(
+  /**
+   * Resolves the agent session for one chat session. Concurrent sends share
+   * a single in-flight build: a dropped losing build would leak its plugins
+   * (e.g. an MCP child-process tree nobody disposes).
+   */
+  private agentFor(chatSessionId: string, messageId: string): Promise<AgentSession> {
+    const inFlight = this.building.get(chatSessionId);
+    if (inFlight) return inFlight;
+
+    const settled = this.buildSession(chatSessionId, messageId).finally(() => {
+      // Cleared on settle so failures never pin a rejected promise: a later
+      // send retries the build instead of replaying the old outcome.
+      if (this.building.get(chatSessionId) === settled) {
+        this.building.delete(chatSessionId);
+      }
+    });
+    this.building.set(chatSessionId, settled);
+    return settled;
+  }
+
+  private async buildSession(
     chatSessionId: string,
     messageId: string,
   ): Promise<AgentSession> {
@@ -245,8 +300,18 @@ export class HarnessRuntime {
         }
       }
     }
+    if (this.disposing.has(chatSessionId)) {
+      // dispose() arrived while this build was in flight: release the
+      // product in place — it must never enter the cache or run a turn.
+      // (The previously cached session, if any, was already released by
+      // dispose() itself.)
+      await this.settleDispose(chatSessionId, session);
+      throw new Error(`会话已释放（${chatSessionId}），本轮已取消`);
+    }
     this.sessions.set(chatSessionId, { key, session });
     if (cached) {
+      // dispose() may have released this old entry mid-build; the second
+      // call is an idempotent no-op (session dispose deduplicates).
       await this.settleDispose(chatSessionId, cached.session);
     }
     return session;

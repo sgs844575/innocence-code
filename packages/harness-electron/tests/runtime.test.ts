@@ -370,3 +370,91 @@ describe("HarnessRuntime plugin composition", () => {
     expect([...disposed].sort()).toEqual(["all-1", "all-2"]);
   });
 });
+
+describe("HarnessRuntime build/dispose races", () => {
+  it("dispose during an in-flight build releases the landing session instead of leaking it", async () => {
+    const events: string[] = [];
+    let releaseFactory!: () => void;
+    const factoryGate = new Promise<void>((resolve) => {
+      releaseFactory = resolve;
+    });
+    const recorded: Recorded = emptyRecorded();
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "迟到的回复" }], { workspaceRoot: workspace }, recorded),
+      // Slow composition root pins the build window open (MCP spawns can
+      // span seconds in production).
+      pluginsForSession: async () => {
+        await factoryGate;
+        return [{
+          name: "slow-plugin",
+          activate() { events.push("activate"); },
+          async dispose() { events.push("dispose"); },
+        }];
+      },
+    });
+
+    const sending = runtime.send("race-1", "你好", "m-race");
+    // The send is now parked inside the in-flight build (factory gated).
+    const disposing = runtime.dispose("race-1");
+    releaseFactory();
+    await Promise.all([sending, disposing]);
+
+    // The turn failed fast instead of running to completion on a session
+    // the user already deleted.
+    expect(recorded.completed).toBe(0);
+    expect(recorded.errors).toHaveLength(1);
+    expect(recorded.errors[0]).toContain("会话已释放");
+    // The landing session's plugins were released — no AgentSession leak.
+    expect(events).toEqual(["activate", "dispose"]);
+    // Nothing is left cached or building: further dispose calls are no-ops.
+    await runtime.dispose("race-1");
+    await runtime.disposeAll();
+    expect(events).toEqual(["activate", "dispose"]);
+  });
+
+  it("overlapping sends share one in-flight build (single AgentSession per chat session)", async () => {
+    let factoryCalls = 0;
+    const recorded: Recorded = emptyRecorded();
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "答A" }, { text: "答B" }], { workspaceRoot: workspace }, recorded),
+      pluginsForSession: () => {
+        factoryCalls += 1;
+        return [];
+      },
+    });
+
+    const first = runtime.send("dup-1", "一", "m-d1");
+    const second = runtime.send("dup-1", "二", "m-d2");
+    await Promise.all([first, second]);
+
+    // One build for both sends — a dropped loser would leak its plugins
+    // (e.g. an MCP child-process tree nobody disposes).
+    expect(factoryCalls).toBe(1);
+    expect(recorded.errors).toEqual([]);
+    expect(recorded.completed).toBe(2);
+  });
+
+  it("dispose failures surface through the error-level log hook and never reject", async () => {
+    const logs: Array<{ level: string; msg: string }> = [];
+    const recorded: Recorded = emptyRecorded();
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }, recorded),
+      hooks: {
+        ...makeHooks(recorded),
+        log: (level, msg) => logs.push({ level, msg }),
+      },
+      pluginsForSession: () => [{
+        name: "boom",
+        activate() {},
+        async dispose() { throw new Error("plugin teardown exploded"); },
+      }],
+    });
+
+    await runtime.send("boom-1", "hi", "m-b1");
+    await expect(runtime.dispose("boom-1")).resolves.toBeUndefined();
+
+    // The failure reached the host log with the error level intact — the
+    // glue's log hook must route it to logger.error, not downgrade to info.
+    expect(logs).toContainEqual({ level: "error", msg: "session dispose failed" });
+  });
+});
