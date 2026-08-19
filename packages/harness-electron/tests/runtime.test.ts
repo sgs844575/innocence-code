@@ -549,4 +549,39 @@ describe("HarnessRuntime build/dispose races", () => {
       vi.useRealTimers();
     }
   });
+
+  it("a send after a dispose timeout fails fast instead of joining the doomed build", async () => {
+    vi.useFakeTimers();
+    try {
+      const recorded: Recorded = emptyRecorded();
+      // The stuck build NEVER lands in this scenario — joining it would park
+      // the new turn forever.
+      const buildGate = new Promise<void>(() => {});
+      const runtime = new HarnessRuntime({
+        ...runtimeOptions([{ text: "迟到的回复" }], { workspaceRoot: workspace }, recorded),
+        pluginsForSession: async () => {
+          await buildGate;
+          return [];
+        },
+      });
+
+      void runtime.send("doomed-1", "一", "m-d1"); // parks on the stuck build
+      const disposing = runtime.dispose("doomed-1");
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS + 10);
+      await expect(disposing).resolves.toBeUndefined();
+
+      // New send on the same id: it must error IMMEDIATELY (no clock advance
+      // needed, no waiting on the never-settling build) via onError.
+      const second = runtime.send("doomed-1", "二", "m-d2");
+      await expect(second).resolves.toBeUndefined();
+      expect(recorded.completed).toBe(0);
+      expect(recorded.errors).toHaveLength(1);
+      expect(recorded.errors[0]).toContain("会话已释放");
+      expect(recorded.errors[0]).toContain("请重建会话");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

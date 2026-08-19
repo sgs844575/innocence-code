@@ -97,6 +97,14 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(seq+
 export const IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS = 10_000;
 
 /**
+ * Fail-fast error for a turn targeting a chat session that dispose() owns
+ * (in progress or timed out): its build is doomed, so the turn errors via
+ * onError immediately instead of parking on a promise that never settles.
+ */
+const sessionDisposedError = (chatSessionId: string): Error =>
+  new Error(`会话已释放（${chatSessionId}），本轮已取消，请重建会话`);
+
+/**
  * Owns one AgentSession per chat session, rebuilt when settings change, and
  * translates harness events into the host's streaming UI hooks. Tool activity
  * is forwarded as structured parts via onTool (paired by id/toolCallId).
@@ -249,9 +257,15 @@ export class HarnessRuntime {
   /**
    * Resolves the agent session for one chat session. Concurrent sends share
    * a single in-flight build: a dropped losing build would leak its plugins
-   * (e.g. an MCP child-process tree nobody disposes).
+   * (e.g. an MCP child-process tree nobody disposes). EXCEPTION: while
+   * dispose() owns the id (including the post-timeout window, where the
+   * stuck build never settles), joining that build would park the new turn
+   * forever on a session that is already doomed — fail fast instead.
    */
   private agentFor(chatSessionId: string, messageId: string): Promise<AgentSession> {
+    if (this.disposing.has(chatSessionId)) {
+      throw sessionDisposedError(chatSessionId);
+    }
     const inFlight = this.building.get(chatSessionId);
     if (inFlight) return inFlight;
 
@@ -350,7 +364,7 @@ export class HarnessRuntime {
       // (The previously cached session, if any, was already released by
       // dispose() itself.)
       await this.settleDispose(chatSessionId, session);
-      throw new Error(`会话已释放（${chatSessionId}），本轮已取消`);
+      throw sessionDisposedError(chatSessionId);
     }
     this.sessions.set(chatSessionId, { key, session });
     if (cached) {
