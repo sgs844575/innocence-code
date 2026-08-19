@@ -224,7 +224,24 @@
   .md-body ul, .md-body ol { margin: 0.5em 0; padding-left: 1.4em; }
   .md-body h1, .md-body h2, .md-body h3 { font-weight: 600; margin: 0.8em 0 0.4em; }
   .md-body blockquote { border-left: 2px solid var(--color-app-border); padding-left: 0.75em; color: var(--color-app-muted); margin: 0.5em 0; }
-  .code-block .code-html pre { margin: 0; background: transparent; }
+  .code-block .code-html pre { margin: 0; background: transparent; color: var(--shiki-light); }
+  .code-block .code-html span {
+    --shiki-light-bg: transparent;
+    --shiki-dark-bg: transparent;
+    color: var(--shiki-light);
+    background-color: var(--shiki-light-bg);
+    font-style: var(--shiki-light-font-style);
+    font-weight: var(--shiki-light-font-weight);
+    text-decoration: var(--shiki-light-text-decoration);
+  }
+  .electron-dark .code-block .code-html pre { color: var(--shiki-dark); }
+  .electron-dark .code-block .code-html span {
+    color: var(--shiki-dark);
+    background-color: var(--shiki-dark-bg);
+    font-style: var(--shiki-dark-font-style);
+    font-weight: var(--shiki-dark-font-weight);
+    text-decoration: var(--shiki-dark-text-decoration);
+  }
   .code-fade { max-height: 264px; position: relative; overflow: hidden; }
   .code-fade::after { content: ""; position: absolute; inset-inline: 0; bottom: 0; height: 36px; background: linear-gradient(transparent, var(--color-code-bg)); }
 

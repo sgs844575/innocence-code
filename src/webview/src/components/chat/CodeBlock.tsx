@@ -11,25 +11,28 @@ export function CodeBlock({ lang, code, t = tZh }: { lang: string; code: string;
   const [html, setHtml] = useState("");
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const dark = typeof document !== "undefined" && document.documentElement.classList.contains("electron-dark");
   const lines = useMemo(() => code.split("\n"), [code]);
   const over = lines.length > MAX_COLLAPSED_LINES;
 
   useEffect(() => {
     let alive = true;
-    codeToHtml(code, { lang: lang as BundledLanguage, theme: dark ? "material-theme-darker" : "one-light" })
+    codeToHtml(code, {
+      lang: lang as BundledLanguage,
+      themes: { light: "one-light", dark: "material-theme-darker" },
+      defaultColor: false,
+    })
       .then((h) => { if (alive) setHtml(h); })
       .catch(() => { if (alive) setHtml(""); }); // 未知语言：纯 pre 回退
     return () => { alive = false; };
-  }, [code, lang, dark]);
+  }, [code, lang]);
 
   return (
     <div className="code-block overflow-hidden rounded-xl border border-(--color-app-hairline) bg-(--color-code-bg) text-(--color-code-fg) shadow-(--shadow-card)">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
-        <span className="font-mono text-[11px] text-white/50">{lang}</span>
+      <div className="flex items-center justify-between border-b border-(--color-app-hairline) px-3 py-1.5">
+        <span className="font-mono text-[11px] text-(--color-app-muted)">{lang}</span>
         <div className="flex items-center gap-2 text-[11px]">
           {over && (
-            <button type="button" onClick={() => setExpanded((v) => !v)} className="text-white/50 hover:text-white/80">
+            <button type="button" onClick={() => setExpanded((v) => !v)} className="text-(--color-app-muted) hover:text-(--color-app-text)">
               {expanded ? t("code.collapse") : t("code.expand").replace("{n}", String(lines.length))}
             </button>
           )}
@@ -41,7 +44,7 @@ export function CodeBlock({ lang, code, t = tZh }: { lang: string; code: string;
                 setTimeout(() => setCopied(false), 1500);
               });
             }}
-            className="rounded-full bg-white/10 px-2 py-0.5 text-white/70 hover:bg-white/20 hover:text-white"
+            className="rounded-full bg-(--color-code-control-bg) px-2 py-0.5 text-(--color-code-control-fg) hover:bg-(--color-code-control-bg-hover) hover:text-(--color-code-control-fg-hover)"
           >
             {copied ? t("code.copied") : t("code.copy")}
           </button>

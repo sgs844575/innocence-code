@@ -8,7 +8,19 @@
     --color-tool-ok: var(--palette-green-500);
     --color-tool-err: var(--palette-red-500);
     --color-tool-warn: var(--palette-amber-500);
+    --color-code-bg: #f3f3f6;
+    --color-code-fg: #383a42;
+    --color-code-control-bg: rgb(0 0 0 / 0.06);
+    --color-code-control-bg-hover: rgb(0 0 0 / 0.1);
+    --color-code-control-fg: var(--color-app-muted);
+    --color-code-control-fg-hover: var(--color-app-text);
+  }
+  :root.electron-dark {
     --color-code-bg: #232326;
     --color-code-fg: #ececf0;
+    --color-code-control-bg: rgb(255 255 255 / 0.1);
+    --color-code-control-bg-hover: rgb(255 255 255 / 0.2);
+    --color-code-control-fg: rgb(255 255 255 / 0.7);
+    --color-code-control-fg-hover: #ffffff;
   }
 }
