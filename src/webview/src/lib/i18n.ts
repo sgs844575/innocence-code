@@ -1,7 +1,8 @@
 // Tiny i18n dictionary.
 export type Dict = Record<string, string>;
 
-// zhCN 需被组件直接引用（CodeBlock/MarkdownView 的 t prop 未注入时查表兜底）。
+// zhCN 需被组件直接引用（CodeBlock/MarkdownView 的 t prop 未注入时查表兜底）；
+// enUS 一并导出供字典键集一致性测试（i18n.test.ts）消费。
 export const zhCN: Dict = {
   "app.name": "InnocenceCode",
   "sidebar.search": "搜索",
@@ -64,7 +65,7 @@ export const zhCN: Dict = {
   "permission.mode.plan": "计划",
   "permission.mode.auto.desc": "自动不间断地运行工具",
   "permission.mode.ask.desc": "敏感操作前询问",
-  "permission.mode.plan.desc": "先出计划，批准后执行",
+  "permission.mode.plan.desc": "先出计划；批准前硬性拦截写入操作",
   "reasoning.effort": "思考强度",
   "reasoning.effort.default": "默认",
   "reasoning.effort.off": "关闭",
@@ -75,6 +76,7 @@ export const zhCN: Dict = {
   "agent.select": "智能体",
   "agent.default": "默认",
   "agent.plan": "计划",
+  "agent.plan.desc": "提示词级执行模式；硬性写保护请配计划权限模式",
   "agent.full": "全量",
   "chat.working.thinking": "思考中…",
   "chat.working.tool": "正在执行 {tool}…",
@@ -123,7 +125,7 @@ export const zhCN: Dict = {
   "error.sendMessage": "发送失败，请重试",
 };
 
-const enUS: Dict = {
+export const enUS: Dict = {
   "app.name": "InnocenceCode",
   "sidebar.search": "Search",
   "sidebar.noNotifications": "No notifications",
@@ -185,7 +187,7 @@ const enUS: Dict = {
   "permission.mode.plan": "Plan",
   "permission.mode.auto.desc": "Runs tools automatically without interruption",
   "permission.mode.ask.desc": "Asks before sensitive actions",
-  "permission.mode.plan.desc": "Plans first, executes on approval",
+  "permission.mode.plan.desc": "Plans first; blocks writes until approved",
   "reasoning.effort": "Thinking effort",
   "reasoning.effort.default": "Default",
   "reasoning.effort.off": "Off",
@@ -196,6 +198,7 @@ const enUS: Dict = {
   "agent.select": "Agent",
   "agent.default": "Default",
   "agent.plan": "Plan",
+  "agent.plan.desc": "Prompt-level execution mode; pair with the Plan permission mode for hard write protection",
   "agent.full": "Full",
   "chat.working.thinking": "Thinking…",
   "chat.working.tool": "Running {tool}…",

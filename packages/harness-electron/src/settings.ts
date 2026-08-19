@@ -275,6 +275,7 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
     locale: normalizeLocale((v1 as { locale?: unknown }).locale),
     reasoningEffort: normalizeReasoningEffort((v1 as { reasoningEffort?: unknown }).reasoningEffort),
     activeAgent: normalizeActiveAgent((v1 as { activeAgent?: unknown }).activeAgent),
+    // pluginToggles：v1 不可能含该键，有意不透传（缺省 = 默认全开）。
   };
 }
 

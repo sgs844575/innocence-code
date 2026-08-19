@@ -24,6 +24,8 @@ describe("AgentPicker", () => {
     for (const label of ["默认", "计划", "全量"]) {
       expect(screen.getByRole("button", { name: label })).toBeTruthy();
     }
+    // plan 选项挂 desc（title）区分同名权限模式（提示词级 vs 硬性写保护）。
+    expect(screen.getByRole("button", { name: "计划" }).getAttribute("title")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "计划" }));
     expect(onChange).toHaveBeenCalledWith("plan");
   });

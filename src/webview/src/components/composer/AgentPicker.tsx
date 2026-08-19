@@ -40,6 +40,8 @@ export function AgentPicker({
           key={v}
           type="button"
           onClick={() => onChange(v)}
+          // plan agent 与同名权限模式易混：挂 desc 提示其为提示词级执行模式。
+          title={v === "plan" ? t("agent.plan.desc") : undefined}
           className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11.5px] hover:bg-(--color-app-bubble)/60 ${v === value ? "text-(--color-app-accent)" : "text-(--color-app-muted)"}`}
         >
           <span>{t(key)}</span>
