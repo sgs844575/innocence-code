@@ -185,7 +185,7 @@ describe("Task tool via session spawner", () => {
         return next();
       },
     };
-    session.registry.toolMiddlewares.push(recorder);
+    session.registry.createContext("scope-recorder", () => {}).registerToolMiddleware(recorder);
 
     const result = await session.run("帮我查", undefined, { taskId: "task-42" });
 

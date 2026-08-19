@@ -66,7 +66,7 @@ describe("executor scope lifecycle", () => {
     };
 
     const registry = new PluginRegistry();
-    registry.tools.set("Echo", echo);
+    registry.createContext("test", () => {}).registerTool(echo);
     const history: Message[] = [];
     await runLoop(history, textMessage("user", "go"), {
       provider,

@@ -18,7 +18,7 @@ describe("createMockProvider", () => {
       chunkSize: 2,
     });
     const registry = new PluginRegistry();
-    registry.tools.set("Read", {
+    registry.createContext("test", () => {}).registerTool({
       name: "Read",
       description: "r",
       readOnly: true,

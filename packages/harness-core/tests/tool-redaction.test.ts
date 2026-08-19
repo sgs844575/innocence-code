@@ -431,7 +431,7 @@ describe("tool args redaction (persisted vs raw)", () => {
       },
     };
     const registry = new PluginRegistry();
-    registry.tools.set("Strict", tool);
+    registry.createContext("test", () => {}).registerTool(tool);
     const events: HarnessEvent[] = [];
     const history: Message[] = [];
     await runLoop(history, textMessage("user", "go"), {
@@ -478,7 +478,7 @@ describe("tool args redaction (persisted vs raw)", () => {
       },
     };
     const registry = new PluginRegistry();
-    registry.tools.set("Broken", tool);
+    registry.createContext("test", () => {}).registerTool(tool);
     const history: Message[] = [];
     await runLoop(history, textMessage("user", "go"), {
       provider,

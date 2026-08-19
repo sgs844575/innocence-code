@@ -63,7 +63,8 @@ const allowAll = () =>
 
 function setup(tools: Tool[], provider: Provider, permission = allowAll()) {
   const registry = new PluginRegistry();
-  for (const tool of tools) registry.tools.set(tool.name, tool);
+  const ctx = registry.createContext("test-tools", () => {});
+  for (const tool of tools) ctx.registerTool(tool);
   const events: HarnessEvent[] = [];
   const history: Parameters<typeof runLoop>[0] = [];
   return {
@@ -233,7 +234,7 @@ describe("runLoop", () => {
     });
     const { registry, run } = setup([write], provider, permission);
     const seen: string[] = [];
-    registry.toolMiddlewares.push({
+    registry.createContext("mw", () => {}).registerToolMiddleware({
       name: "spy",
       async execute(invocation, next) {
         seen.push(invocation.toolName);
@@ -265,7 +266,7 @@ describe("runLoop", () => {
     ]);
     const { registry, events, run } = setup([echo], provider);
     const seen: Array<{ toolName: string; persistedArgs: Record<string, unknown> }> = [];
-    registry.toolMiddlewares.push({
+    registry.createContext("mw", () => {}).registerToolMiddleware({
       name: "spy",
       async execute(invocation, next) {
         seen.push({ toolName: invocation.toolName, persistedArgs: invocation.persistedArgs });

@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   PluginRegistry,
   type HarnessPlugin,
+  type PolicyRule,
+  type Provider,
+  type Skill,
   type Tool,
   type ToolExecutionMiddleware,
 } from "../src";
@@ -111,6 +114,37 @@ describe("tool execution middleware registration", () => {
     const registry = new PluginRegistry();
     registry.createContext("direct", () => {}).registerToolMiddleware(layer("only"));
     expect(registry.toolMiddlewares).toHaveLength(1);
+  });
+});
+
+describe("registry tables are read-only outside the plugin context", () => {
+  it("the public tables are readonly views (type-level gate)", () => {
+    const registry = new PluginRegistry();
+    expectTypeOf(registry.tools).toEqualTypeOf<ReadonlyMap<string, Tool>>();
+    expectTypeOf(registry.providers).toEqualTypeOf<ReadonlyMap<string, Provider>>();
+    expectTypeOf(registry.skills).toEqualTypeOf<ReadonlyMap<string, Skill>>();
+    expectTypeOf(registry.policyRules).toEqualTypeOf<readonly PolicyRule[]>();
+    expectTypeOf(registry.toolMiddlewares).toEqualTypeOf<readonly ToolExecutionMiddleware[]>();
+  });
+
+  it("the views expose exactly what was registered through the gate", () => {
+    const registry = new PluginRegistry();
+    const ctx = registry.createContext("p", () => {});
+    ctx.registerTool(completeTool("Good"));
+    ctx.registerProvider({ id: "prov", async *chat() {} });
+    ctx.registerSkill({ name: "sk", description: "d", loadBody: async () => "" });
+    ctx.registerPolicyRule({ name: "rule", match: () => "skip" });
+    ctx.registerToolMiddleware({
+      name: "mw",
+      async execute(_invocation, next) {
+        return next();
+      },
+    });
+    expect(registry.tools.get("Good")?.name).toBe("Good");
+    expect(registry.providers.get("prov")?.id).toBe("prov");
+    expect(registry.skills.get("sk")?.name).toBe("sk");
+    expect(registry.policyRules).toHaveLength(1);
+    expect(registry.toolMiddlewares.map((m) => m.name)).toEqual(["mw"]);
   });
 });
 

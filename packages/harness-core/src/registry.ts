@@ -50,17 +50,44 @@ export interface HarnessPlugin {
 }
 
 export class PluginRegistry {
-  readonly tools = new Map<string, Tool>();
-  readonly providers = new Map<string, Provider>();
-  readonly skills = new Map<string, Skill>();
-  readonly policyRules: PolicyRule[] = [];
+  /**
+   * Registration tables are private: every mutation flows through the
+   * PluginContext gates (duplicate checks, persistence SPI enforcement).
+   * The public properties below expose live READ-ONLY views so consumers
+   * can iterate/lookup but never bypass the gate.
+   */
+  private readonly registeredTools = new Map<string, Tool>();
+  private readonly registeredProviders = new Map<string, Provider>();
+  private readonly registeredSkills = new Map<string, Skill>();
+  private readonly registeredPolicyRules: PolicyRule[] = [];
   /** Execution middleware in registration order (later = inner layer). */
-  readonly toolMiddlewares: ToolExecutionMiddleware[] = [];
+  private readonly registeredMiddlewares: ToolExecutionMiddleware[] = [];
   private readonly registeredMessageProcessors: MessageProcessor[] = [];
   /** Successfully activated plugins, awaiting reverse-order disposal. */
   private readonly activated: HarnessPlugin[] = [];
   /** Shared in-flight disposal: concurrent dispose() calls join one pass. */
   private disposeInFlight: Promise<void> | undefined;
+
+  get tools(): ReadonlyMap<string, Tool> {
+    return this.registeredTools;
+  }
+
+  get providers(): ReadonlyMap<string, Provider> {
+    return this.registeredProviders;
+  }
+
+  get skills(): ReadonlyMap<string, Skill> {
+    return this.registeredSkills;
+  }
+
+  get policyRules(): readonly PolicyRule[] {
+    return this.registeredPolicyRules;
+  }
+
+  /** Execution middleware in registration order (later = inner layer). */
+  get toolMiddlewares(): readonly ToolExecutionMiddleware[] {
+    return this.registeredMiddlewares;
+  }
 
   get messageProcessors(): readonly MessageProcessor[] {
     return this.registeredMessageProcessors;
@@ -124,7 +151,7 @@ export class PluginRegistry {
   createContext(pluginName: string, log: Logger): PluginContext {
     return {
       registerTool: (tool) => {
-        if (this.tools.has(tool.name)) {
+        if (this.registeredTools.has(tool.name)) {
           throw new Error(`duplicate tool registration: ${tool.name}`);
         }
         // Fail-closed persistence SPI: raw args must never be persistable by
@@ -136,35 +163,35 @@ export class PluginRegistry {
         if (typeof tool.persistArgs !== "function") {
           throw new ToolPersistenceError(tool.name, "persistArgs");
         }
-        this.tools.set(tool.name, tool);
+        this.registeredTools.set(tool.name, tool);
       },
       registerProvider: (provider) => {
-        if (this.providers.has(provider.id)) {
+        if (this.registeredProviders.has(provider.id)) {
           throw new Error(`duplicate provider registration: ${provider.id}`);
         }
-        this.providers.set(provider.id, provider);
+        this.registeredProviders.set(provider.id, provider);
       },
       registerSkill: (skill) => {
-        if (this.skills.has(skill.name)) {
+        if (this.registeredSkills.has(skill.name)) {
           throw new Error(`duplicate skill registration: ${skill.name}`);
         }
-        this.skills.set(skill.name, skill);
+        this.registeredSkills.set(skill.name, skill);
       },
       registerPolicyRule: (rule) => {
-        this.policyRules.push(rule);
+        this.registeredPolicyRules.push(rule);
       },
       registerMessageProcessor: (processor) => {
         this.registeredMessageProcessors.push(processor);
       },
       registerToolMiddleware: (middleware) => {
-        this.toolMiddlewares.push(middleware);
+        this.registeredMiddlewares.push(middleware);
       },
       log: (level, msg, data) => log(level, `[${pluginName}] ${msg}`, data),
     };
   }
 
   toolSpecs(): ToolSpec[] {
-    return [...this.tools.values()].map((t) => ({
+    return [...this.registeredTools.values()].map((t) => ({
       name: t.name,
       description: t.description,
       readOnly: t.readOnly,

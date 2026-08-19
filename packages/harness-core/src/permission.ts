@@ -96,7 +96,7 @@ export class PermissionEngine {
     this.mode = mode;
   }
 
-  addRules(rules: PolicyRule[]): void {
+  addRules(rules: readonly PolicyRule[]): void {
     this.rules.push(...rules);
   }
 

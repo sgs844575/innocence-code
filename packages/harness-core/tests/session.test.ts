@@ -455,7 +455,7 @@ describe("AgentSession", () => {
       plugins: [toolsPlugin([probe])],
     });
     const scopes: ExecutionScope[] = [];
-    session.registry.toolMiddlewares.push({
+    session.registry.createContext("scope-spy", () => {}).registerToolMiddleware({
       name: "scope-spy",
       async execute(invocation, next) {
         scopes.push(invocation.scope);
