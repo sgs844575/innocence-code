@@ -1,4 +1,5 @@
 import {
+  isAbortError,
   sha256Hex,
   type HarnessPlugin,
   type JsonSchema,
@@ -26,14 +27,22 @@ export interface McpPluginOptions {
 
 interface ServerConnection {
   exited(): boolean;
-  call(toolName: string, args: Record<string, unknown>): Promise<ToolResult>;
+  call(
+    toolName: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<ToolResult>;
 }
 
 async function connect(
   serverName: string,
   options: StdioServerOptions,
   log: (level: "info" | "warn" | "error", msg: string) => void,
-): Promise<{ tools: McpToolDef[]; connection: ServerConnection }> {
+): Promise<{
+  client: StdioJsonRpcClient;
+  tools: McpToolDef[];
+  connection: ServerConnection;
+}> {
   const client = new StdioJsonRpcClient(options);
   await client.start();
   try {
@@ -47,14 +56,16 @@ async function connect(
     const tools = (list.tools ?? []).filter((t) => typeof t.name === "string");
     log("info", `MCP ${serverName}: ${tools.length} 个工具`);
     return {
+      client,
       tools,
       connection: {
         exited: () => client.isExited,
-        call: async (toolName, args) => {
-          const result = await client.request<McpCallResult>("tools/call", {
-            name: toolName,
-            arguments: args,
-          });
+        call: async (toolName, args, signal) => {
+          const result = await client.request<McpCallResult>(
+            "tools/call",
+            { name: toolName, arguments: args },
+            { signal },
+          );
           const text = (result.content ?? [])
             .map((c) => c.text ?? "")
             .filter(Boolean)
@@ -75,73 +86,86 @@ async function connect(
 /**
  * MCP stdio client plugin. Failed servers log a warning and are skipped —
  * one bad server never blocks activation; crashed servers surface per-call
- * as error tool results.
+ * as error tool results. `dispose` releases every stdio client it started.
  */
-export const mcpPlugin = (options: McpPluginOptions): HarnessPlugin => ({
-  name: "plugin-mcp",
-  async activate(ctx) {
-    for (const [serverName, serverOptions] of Object.entries(options.servers)) {
-      let connected: Awaited<ReturnType<typeof connect>>;
-      try {
-        connected = await connect(serverName, serverOptions, (level, msg) =>
-          ctx.log(level, msg),
-        );
-      } catch (err) {
-        ctx.log(
-          "warn",
-          `MCP 服务器 ${serverName} 连接失败：${err instanceof Error ? err.message : err}`,
-        );
-        continue;
-      }
-      for (const def of connected.tools) {
-        const toolName = `mcp__${serverName}__${def.name}`;
+export const mcpPlugin = (options: McpPluginOptions): HarnessPlugin => {
+  const clients: StdioJsonRpcClient[] = [];
+  return {
+    name: "plugin-mcp",
+    async activate(ctx) {
+      for (const [serverName, serverOptions] of Object.entries(options.servers)) {
+        let connected: Awaited<ReturnType<typeof connect>>;
         try {
-          ctx.registerTool({
-            name: toolName,
-            description: def.description ?? `MCP 工具 ${serverName}/${def.name}`,
-            readOnly: false,
-            sideEffect: "unknown", // 外部服务器能力未知，按最保守处理
-            parameters: def.inputSchema ?? { type: "object" },
-            // 资源只标识 server/tool；调用参数绝不进入资源。
-            permissionResource: () => ({
-              action: "call",
-              kind: "mcp",
-              scope: `${serverName}/${def.name}`,
-            }),
-            // 保存 server/tool、参数名和参数哈希，不保存参数值。
-            persistArgs: (args) => {
-              const keys = Object.keys(args).sort();
-              return {
-                server: serverName,
-                tool: def.name,
-                params: keys,
-                argsSha256: sha256Hex(JSON.stringify(args, keys)),
-              };
-            },
-            execute: async (args) => {
-              if (connected.connection.exited()) {
+          connected = await connect(serverName, serverOptions, (level, msg) =>
+            ctx.log(level, msg),
+          );
+        } catch (err) {
+          ctx.log(
+            "warn",
+            `MCP 服务器 ${serverName} 连接失败：${err instanceof Error ? err.message : err}`,
+          );
+          continue;
+        }
+        clients.push(connected.client);
+        for (const def of connected.tools) {
+          const toolName = `mcp__${serverName}__${def.name}`;
+          try {
+            ctx.registerTool({
+              name: toolName,
+              description: def.description ?? `MCP 工具 ${serverName}/${def.name}`,
+              readOnly: false,
+              sideEffect: "unknown", // 外部服务器能力未知，按最保守处理
+              parameters: def.inputSchema ?? { type: "object" },
+              // 资源只标识 server/tool；调用参数绝不进入资源。
+              permissionResource: () => ({
+                action: "call",
+                kind: "mcp",
+                scope: `${serverName}/${def.name}`,
+              }),
+              // 保存 server/tool、参数名和参数哈希，不保存参数值。
+              persistArgs: (args) => {
+                const keys = Object.keys(args).sort();
                 return {
-                  content: `MCP 服务器 ${serverName} 已退出，工具 ${def.name} 不可用`,
-                  isError: true,
+                  server: serverName,
+                  tool: def.name,
+                  params: keys,
+                  argsSha256: sha256Hex(JSON.stringify(args, keys)),
                 };
-              }
-              try {
-                return await connected.connection.call(def.name, args);
-              } catch (err) {
-                return {
-                  content: `MCP 调用失败：${err instanceof Error ? err.message : err}`,
-                  isError: true,
-                };
-              }
-            },
-          });
-        } catch {
-          // duplicate tool name — first registration wins
+              },
+              execute: async (args, ctx) => {
+                if (connected.connection.exited()) {
+                  return {
+                    content: `MCP 服务器 ${serverName} 已退出，工具 ${def.name} 不可用`,
+                    isError: true,
+                  };
+                }
+                try {
+                  // The executor's derived signal (timeout / user stop) rides
+                  // into tools/call and cancels the server-side work.
+                  return await connected.connection.call(def.name, args, ctx.signal);
+                } catch (err) {
+                  if (isAbortError(err)) throw err; // let the executor stamp "aborted"
+                  return {
+                    content: `MCP 调用失败：${err instanceof Error ? err.message : err}`,
+                    isError: true,
+                  };
+                }
+              },
+            });
+          } catch {
+            // duplicate tool name — first registration wins
+          }
         }
       }
-    }
-  },
-});
+    },
+    async dispose() {
+      // Release every stdio client in parallel; one stuck server must not
+      // block the others (each dispose is itself time-bounded).
+      await Promise.allSettled(clients.map((client) => client.dispose()));
+      clients.length = 0;
+    },
+  };
+};
 
 export { StdioJsonRpcClient } from "./jsonrpc";
 export type { StdioServerOptions } from "./jsonrpc";

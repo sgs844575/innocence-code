@@ -34,8 +34,18 @@ export interface PermissionRequest {
   args: Record<string, unknown>;
 }
 
-/** Coarse side-effect class of a tool, for audit records and UI hints. */
-export type ToolSideEffect = "none" | "paths" | "process" | "network" | "unknown";
+/**
+ * Coarse side-effect class of a tool, for audit records and UI hints.
+ * "delegated": the effects happen inside a child agent session that audits
+ * them itself — the parent must not double-count them (P1 plugin-task).
+ */
+export type ToolSideEffect =
+  | "none"
+  | "paths"
+  | "process"
+  | "network"
+  | "delegated"
+  | "unknown";
 
 /** What the permission engine is asked about (rules match persisted args). */
 export interface ToolCallInfo {

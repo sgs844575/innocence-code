@@ -24,7 +24,8 @@ export const taskTool: Tool = {
     "派生一个隔离子代理去完成一项独立任务，适合并行研究和探索（子代理的中间过程不占用当前上下文）。" +
     "agentType: explore=只读研究, general=全能。prompt 里给足自包含的上下文和目标。",
   readOnly: false,
-  sideEffect: "unknown",
+  // 副作用发生在子会话内、由子会话自行审计——父级不得重复记账（P1 依赖此值）。
+  sideEffect: "delegated",
   parameters: {
     type: "object",
     properties: {

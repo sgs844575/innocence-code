@@ -109,7 +109,9 @@ export class PluginRegistry {
         if (this.tools.has(tool.name)) {
           throw new Error(`duplicate tool registration: ${tool.name}`);
         }
-        // Fail-closed persistence SPI: raw args must never be persistable by default.
+        // Fail-closed persistence SPI: raw args must never be persistable by
+        // default. Tool error messages must not contain raw args either — they
+        // enter history/audit unredacted (see Tool.execute).
         if (typeof tool.permissionResource !== "function") {
           throw new ToolPersistenceError(tool.name, "permissionResource");
         }

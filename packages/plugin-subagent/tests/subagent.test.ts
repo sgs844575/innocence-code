@@ -340,5 +340,8 @@ describe("subagentPlugin", () => {
     await reg.load([subagentPlugin]);
     expect(reg.tools.has("Task")).toBe(true);
     expect(reg.tools.get("Task")!.readOnly).toBe(false);
+    // The child session audits its own tool effects — the parent must not
+    // double-count them (P1 plugin-task keys on this value).
+    expect(reg.tools.get("Task")).toMatchObject({ sideEffect: "delegated" });
   });
 });

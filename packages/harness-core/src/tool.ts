@@ -63,6 +63,11 @@ export interface Tool {
    */
   persistArgs(args: Record<string, unknown>): Record<string, unknown>;
 
+  /**
+   * Runs the tool. Thrown/reported error messages flow into history and
+   * audit UNREDACTED, so they must never embed raw argument values — report
+   * the failing argument's NAME, not its content.
+   */
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
 }
 
@@ -71,12 +76,6 @@ export function sha256Hex(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-/**
- * Command summary safe to persist: the program word only, and only when it
- * looks like a plain command name. Anything else (tokens carrying paths,
- * flags-with-values, secrets) collapses to a placeholder. The full command
- * NEVER survives redaction — pair with sha256Hex for change detection.
- */
 /**
  * Command summary safe to persist: the program word only, and only when it
  * looks like a plain command name (≤16 chars of [A-Za-z0-9_.-], starting

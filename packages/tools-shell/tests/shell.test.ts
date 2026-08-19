@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { bashTool, runCommand } from "../src";
+import { bashTool, runCommand, shellPlugin } from "../src";
 import {
   createExecutionScope,
   parseRuleSpec,
   PermissionEngine,
+  PluginRegistry,
   redactCommand,
   redactCommandSummary,
   sha256Hex,
@@ -94,6 +95,14 @@ describe("bashTool", () => {
 
   it("rejects missing command arg", async () => {
     await expect(bashTool.execute({}, ctx())).rejects.toThrow("command");
+  });
+});
+
+describe("shellPlugin", () => {
+  it("registers Bash with the coarse process side-effect class", async () => {
+    const reg = new PluginRegistry();
+    await reg.load([shellPlugin]);
+    expect(reg.tools.get("Bash")).toMatchObject({ sideEffect: "process" });
   });
 });
 

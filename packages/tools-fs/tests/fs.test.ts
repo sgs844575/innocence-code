@@ -124,6 +124,18 @@ describe("tools as plugin", () => {
       expect(tool.parameters.type).toBe("object");
     }
   });
+
+  it("declares the coarse side-effect class of every tool", async () => {
+    const { fsPlugin } = await import("../src/index");
+    const { PluginRegistry } = await import("@innocencecode/harness-core");
+    const reg = new PluginRegistry();
+    await reg.load([fsPlugin]);
+    expect(reg.tools.get("Read")).toMatchObject({ sideEffect: "none" });
+    expect(reg.tools.get("Glob")).toMatchObject({ sideEffect: "none" });
+    expect(reg.tools.get("Grep")).toMatchObject({ sideEffect: "none" });
+    expect(reg.tools.get("Write")).toMatchObject({ sideEffect: "paths" });
+    expect(reg.tools.get("Edit")).toMatchObject({ sideEffect: "paths" });
+  });
 });
 
 describe("persistence policy (permissionResource / persistArgs)", () => {
