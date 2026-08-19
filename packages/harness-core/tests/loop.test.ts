@@ -466,7 +466,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "SlowStop" }, { toolName: "FollowUp" }] },
       { text: "after" },
     ]);
-    const { history, run } = setup([slow, follow], provider, permission);
+    const { events, history, run } = setup([slow, follow], provider, permission);
 
     const result = await run("x", { signal: stop.signal });
     // Only the in-flight call consulted permissions; the post-stop call was
@@ -476,6 +476,12 @@ describe("runLoop", () => {
     const results = history[2].parts as Array<{ content: string; isError?: boolean }>;
     expect(results[1]!.isError).toBe(true);
     expect(results[1]!.content).toContain("运行已中止");
+    // R1: a user-stop termination is "aborted" on the machine-readable channel,
+    // so outcome-aggregating hosts never count Stop presses as tool errors.
+    const resultEvents = events.filter((e) => e.type === "toolResult");
+    expect(
+      resultEvents[1] && resultEvents[1].type === "toolResult" && resultEvents[1].outcome,
+    ).toBe("aborted");
     expect(result.aborted).toBe(true);
   });
 });

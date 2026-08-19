@@ -220,9 +220,11 @@ export async function runLoop(
         });
 
         // Stopped mid-turn: fail the remaining calls closed without touching
-        // the permission chain — a stopped run must never prompt again.
+        // the permission chain — a stopped run must never prompt again. The
+        // outcome is "aborted" (same rule as M3): user-stop terminations must
+        // not inflate tool error rates in outcome-aggregating hosts.
         if (signal?.aborted) {
-          failClosed("运行已中止");
+          finish("运行已中止", true, "aborted");
           continue;
         }
 
