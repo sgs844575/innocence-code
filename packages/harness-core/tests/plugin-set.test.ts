@@ -155,4 +155,42 @@ describe("resolvePluginSet", () => {
       via: "user",
     });
   });
+
+  it("warns on non-boolean toggle values and ignores them", () => {
+    const r = resolvePluginSet(DESCRIPTORS, { mcp: "nope" } as never);
+    expect(r.active).toContain("mcp");
+    expect(r.warnings.join()).toContain("mcp");
+    expect(r.warnings.join()).toContain("boolean");
+  });
+
+  it("cycle with a disabled external dependency is declaration-order independent", () => {
+    const aFirst: PluginDescriptor[] = [
+      { id: "mcp", dependencies: [] },
+      { id: "a", dependencies: ["b", "mcp"] },
+      { id: "b", dependencies: ["a"] },
+    ];
+    const bFirst: PluginDescriptor[] = [
+      { id: "mcp", dependencies: [] },
+      { id: "b", dependencies: ["a"] },
+      { id: "a", dependencies: ["b", "mcp"] },
+    ];
+    const first = resolvePluginSet(aFirst, undefined, { mcp: false });
+    const second = resolvePluginSet(bFirst, undefined, { mcp: false });
+    const byId = (x: { id: string }, y: { id: string }) => x.id.localeCompare(y.id);
+    expect([...second.active].sort()).toEqual([...first.active].sort());
+    expect([...second.skipped].sort(byId)).toEqual([...first.skipped].sort(byId));
+    expect(first.active).toEqual([]);
+    expect(first.skipped).toContainEqual({
+      id: "a",
+      reason: "dependency-disabled",
+      via: "project",
+    });
+    expect(first.skipped).toContainEqual({
+      id: "b",
+      reason: "dependency-disabled",
+      via: "project",
+    });
+    expect(first.warnings.join()).toContain("cycle");
+    expect(second.warnings.join()).toContain("cycle");
+  });
 });

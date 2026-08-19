@@ -63,8 +63,8 @@ export async function loadPluginToggles(
   }
 
   const plugins = (doc as Record<string, unknown>).plugins;
-  if (plugins === undefined || plugins === null) return undefined;
-  if (typeof plugins !== "object" || Array.isArray(plugins)) {
+  if (plugins === undefined) return undefined;
+  if (plugins === null || typeof plugins !== "object" || Array.isArray(plugins)) {
     log("warn", `"plugins" in ${file} must be a mapping; ignoring project plugin toggles`);
     return undefined;
   }

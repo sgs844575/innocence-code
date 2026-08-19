@@ -91,6 +91,14 @@ describe("loadPluginToggles", () => {
     expect(logs).toEqual([]);
   });
 
+  it("warns and returns undefined when plugins is explicit null", async () => {
+    await writePluginsYml("plugins:\n");
+    const { logs, logger } = captureLogger();
+    await expect(loadPluginToggles(root, { logger })).resolves.toBeUndefined();
+    expect(logs.length).toBe(1);
+    expect(logs[0].level).toBe("warn");
+  });
+
   it("falls back to console.warn when no logger is injected", async () => {
     await writePluginsYml("plugins: [broken");
     const original = console.warn;

@@ -15,9 +15,9 @@
  * - Disabling a dependency transitively skips its dependents
  *   (`dependency-disabled`, inheriting the disabling layer).
  * - Unknown toggle keys and unknown dependencies warn and are ignored.
- * - Dependency cycles warn and the involved plugins activate conservatively
- *   (Kahn topological closure: anything the sort cannot order is treated as
- *   cycle-entangled and activated).
+ * - Dependency cycles warn; skip propagation over the cycle-entangled set
+ *   runs to a fixed point (declaration-order independent) and only the
+ *   surviving members activate conservatively.
  *
  * Host-agnostic by design: no Electron/React/DOM imports live here.
  */
@@ -58,16 +58,20 @@ function toggleValue(source: Toggles, id: string): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
-function warnUnknownKeys(
+function warnToggleKeys(
   source: Toggles,
   layer: "user" | "project",
   knownIds: ReadonlySet<string>,
   warnings: string[],
 ): void {
   if (source === undefined) return;
-  for (const key of Object.keys(source)) {
+  for (const [key, value] of Object.entries(source)) {
     if (!knownIds.has(key)) {
       warnings.push(`unknown plugin toggle "${key}" in ${layer} toggles; ignored`);
+    } else if (typeof value !== "boolean") {
+      warnings.push(
+        `plugin toggle "${key}" in ${layer} toggles must be a boolean; ignored`,
+      );
     }
   }
 }
@@ -90,8 +94,8 @@ export function resolvePluginSet(
   }
 
   const knownIds = new Set(byId.keys());
-  warnUnknownKeys(user, "user", knownIds, warnings);
-  warnUnknownKeys(project, "project", knownIds, warnings);
+  warnToggleKeys(user, "user", knownIds, warnings);
+  warnToggleKeys(project, "project", knownIds, warnings);
 
   // Direct pass: core stays active (toggle attempts only warn); per key the
   // project value overrides the user value and the plugin is disabled only
@@ -190,17 +194,35 @@ export function resolvePluginSet(
     }
   }
 
-  // Whatever Kahn could not order is cycle-entangled: warn and activate
-  // conservatively, unless a dependency outside the tangle was disabled.
-  const remaining = [...byId.values()].filter((d) => !finalized.has(d.id));
-  if (remaining.length > 0) {
+  // Whatever Kahn cannot order is cycle-entangled. Skip propagation runs to
+  // a fixed point over that set so the outcome cannot depend on descriptor
+  // declaration order; only the survivors activate conservatively.
+  const leftover = [...byId.values()].filter((d) => !finalized.has(d.id));
+  if (leftover.length > 0) {
     warnings.push(
-      `plugin dependency cycle detected involving: ${remaining
+      `plugin dependency cycle detected involving: ${leftover
         .map((d) => d.id)
-        .join(", ")}; activating conservatively`,
+        .join(", ")}; toggle and dependency rules still apply`,
     );
-    for (const descriptor of remaining) {
-      finalize(descriptor.id);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const descriptor of leftover) {
+        if (finalized.has(descriptor.id) || descriptor.core) continue;
+        const badDep = descriptor.dependencies.find((dep) => skipped.has(dep));
+        if (badDep !== undefined) {
+          skipped.set(descriptor.id, {
+            id: descriptor.id,
+            reason: "dependency-disabled",
+            via: skipped.get(badDep)!.via,
+          });
+          finalized.add(descriptor.id);
+          grew = true;
+        }
+      }
+    }
+    for (const descriptor of leftover) {
+      if (!finalized.has(descriptor.id)) finalize(descriptor.id);
     }
   }
 
