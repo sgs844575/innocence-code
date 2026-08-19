@@ -1,8 +1,11 @@
 import type {
   AskResponse,
   PermissionMode,
+  PermissionRequest,
+  PermissionResource,
   PolicyRule,
   ToolCallInfo,
+  ToolSideEffect,
 } from "./policy";
 
 export interface PermissionResolution {
@@ -13,35 +16,52 @@ export interface PermissionResolution {
 }
 
 export interface PermissionDecider {
-  ask(call: ToolCallInfo): Promise<AskResponse>;
+  ask(request: PermissionRequest): Promise<AskResponse>;
 }
+
+/** Hard, host-injected resource validation (e.g. blocked URLs/dirs). Throwing rejects the call. */
+export type ResourceValidator = (resource: PermissionResource) => void | Promise<void>;
+
+/** One audit record per resolution — carries the persisted request only. */
+export interface PermissionAuditEntry {
+  mode: PermissionMode;
+  request: PermissionRequest;
+  resolution: PermissionResolution;
+  tool: { readOnly: boolean; sideEffect: ToolSideEffect };
+}
+
+export type PermissionAuditor = (entry: PermissionAuditEntry) => void;
 
 export interface PermissionEngineOptions {
   mode: PermissionMode;
   decider: PermissionDecider;
   /** Used to normalize absolute paths in args to workspace-relative form. */
   workspaceRoot?: string;
+  /** Hard resource validation; runs in EVERY mode (full only skips asking). */
+  validateResource?: ResourceValidator;
+  /** Audit sink; invoked once per resolution with the persisted request. */
+  audit?: PermissionAuditor;
 }
 
-/** Grant key: command tools key on the first word, others on the tool name. */
-export function defaultGrantKey(call: ToolCallInfo): string {
-  const command = call.args.command;
-  if (typeof command === "string") {
-    const first = command.trim().split(/\s+/)[0] ?? "";
-    if (first) return `${call.toolName}(${first})`;
-  }
-  return call.toolName;
+/**
+ * Grant key: tool name + canonical resource joined with NUL separators.
+ * Session grants therefore never bleed across actions, kinds or scopes.
+ */
+export function resourceGrantKey(toolName: string, resource: PermissionResource): string {
+  return `${toolName}\u0000${resource.action}\u0000${resource.kind}\u0000${resource.scope}`;
 }
 
 /**
  * Pipeline (short-circuit, deny-first for safety):
- *   0. full mode               -> ALLOW（含 deny 规则，完全访问）
- *   1. any deny rule           -> DENY
- *   2. plan mode               -> readOnly ? ALLOW : DENY
- *   3. any allow rule          -> ALLOW
- *   4. auto mode               -> ALLOW
- *   5. session grant           -> ALLOW
- *   6. ask (via injected decider; "allowSession" also writes a grant)
+ *   0. validateResource      -> throw = reject（全模式硬校验，fail-closed）
+ *   1. full mode             -> ALLOW（含 deny 规则，完全访问；仅跳过询问）
+ *   2. any deny rule         -> DENY
+ *   3. plan mode             -> readOnly ? ALLOW : DENY
+ *   4. any allow rule        -> ALLOW
+ *   5. auto mode             -> ALLOW
+ *   6. session grant (resource key) -> ALLOW
+ *   7. ask (via injected decider; "allowSession" also writes a grant)
+ * Every resolution (including full mode) is audited with the persisted request.
  */
 export class PermissionEngine {
   private rules: PolicyRule[] = [];
@@ -49,11 +69,15 @@ export class PermissionEngine {
   private mode: PermissionMode;
   private readonly decider: PermissionDecider;
   private readonly workspaceRoot?: string;
+  private readonly validateResource?: ResourceValidator;
+  private readonly audit?: PermissionAuditor;
 
   constructor(opts: PermissionEngineOptions) {
     this.mode = opts.mode;
     this.decider = opts.decider;
     this.workspaceRoot = opts.workspaceRoot;
+    this.validateResource = opts.validateResource;
+    this.audit = opts.audit;
   }
 
   getMode(): PermissionMode {
@@ -77,10 +101,30 @@ export class PermissionEngine {
   }
 
   async resolve(
-    call: ToolCallInfo,
+    request: PermissionRequest,
+    toolMeta: { readOnly: boolean; sideEffect?: ToolSideEffect },
+  ): Promise<PermissionResolution> {
+    // Hard validation first, in EVERY mode — full mode only skips asking.
+    await this.validateResource?.(request.resource);
+
+    const resolution = await this.decide(request, toolMeta);
+    this.audit?.({
+      mode: this.mode,
+      request,
+      resolution,
+      tool: { readOnly: toolMeta.readOnly, sideEffect: toolMeta.sideEffect ?? "unknown" },
+    });
+    return resolution;
+  }
+
+  private async decide(
+    request: PermissionRequest,
     toolMeta: { readOnly: boolean },
   ): Promise<PermissionResolution> {
-    const normalized = this.normalize(call);
+    const normalized = this.normalize({
+      toolName: request.toolName,
+      args: request.args,
+    });
 
     // 完全访问：最顶层短路，连项目 deny 规则也放行（UI 明示慎用）。
     if (this.mode === "full") {
@@ -111,18 +155,22 @@ export class PermissionEngine {
       return { decision: "allow", via: "autoMode", reason: "自动模式" };
     }
 
-    const key = defaultGrantKey(normalized);
+    const key = resourceGrantKey(request.toolName, request.resource);
     if (this.sessionGrants.has(key)) {
-      return { decision: "allow", via: "sessionGrant", reason: `会话内已允许 ${key}` };
+      return { decision: "allow", via: "sessionGrant", reason: `会话内已允许 ${key.split("\u0000")[3]}` };
     }
 
-    const answer = await this.decider.ask(normalized);
+    const answer = await this.decider.ask(request);
     if (answer === "allow") {
       return { decision: "allow", via: "ask", reason: "用户本次允许" };
     }
     if (answer === "allowSession") {
       this.sessionGrants.add(key);
-      return { decision: "allow", via: "ask", reason: `用户允许（会话内 ${key}）` };
+      return {
+        decision: "allow",
+        via: "ask",
+        reason: `用户允许（会话内 ${key.split("\u0000")[3]}）`,
+      };
     }
     return { decision: "deny", via: "ask", reason: "用户拒绝" };
   }

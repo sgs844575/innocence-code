@@ -40,6 +40,27 @@ describe("AgentSession", () => {
     ).rejects.toThrow("provider not found: nope");
   });
 
+  it("create failures after plugin load dispose the already-activated plugins", async () => {
+    const events: string[] = [];
+    await expect(
+      AgentSession.create({
+        plugins: [
+          {
+            name: "leaky",
+            activate() {},
+            async dispose() {
+              events.push("disposed-leaky");
+            },
+          },
+        ],
+        providerId: "missing-provider",
+        workspaceRoot: "D:/tmp",
+        permission: { mode: "auto", decider: { ask: async () => "deny" } },
+      }),
+    ).rejects.toThrow("provider not found: missing-provider");
+    expect(events).toEqual(["disposed-leaky"]);
+  });
+
   it("appends the skills index to the system prompt and expands /skill input", async () => {
     const systems: string[] = [];
     const provider: Provider = {
@@ -133,8 +154,8 @@ describe("AgentSession", () => {
       },
     });
     const readAllow = await session.permission.resolve(
-      { toolName: "Read", args: {} },
-      { readOnly: true },
+      { toolName: "Read", resource: { action: "read", kind: "path", scope: "." }, args: {} },
+      { readOnly: true, sideEffect: "none" },
     );
     expect(readAllow.via).toBe("allowRule");
     expect(asked).toBe(0);

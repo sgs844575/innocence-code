@@ -1,5 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import type { HarnessPlugin, Tool, ToolContext } from "@innocencecode/harness-core";
+import {
+  redactCommand,
+  sha256Hex,
+  type HarnessPlugin,
+  type Tool,
+  type ToolContext,
+} from "@innocencecode/harness-core";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 30_000;
@@ -97,6 +103,7 @@ export const bashTool: Tool = {
     "在工作区目录执行 shell 命令（Windows 用 cmd，其他平台用 sh）。适合跑测试、构建、装依赖。" +
     "输出超长会截断；命令有超时上限。失败时读取 stderr 自行修正。",
   readOnly: false,
+  sideEffect: "process",
   parameters: {
     type: "object",
     properties: {
@@ -105,11 +112,30 @@ export const bashTool: Tool = {
     },
     required: ["command"],
   },
-  async execute(args, ctx: ToolContext) {
+  async validateArgs(args) {
     const command = args.command;
     if (typeof command !== "string" || command.trim().length === 0) {
       throw new Error("缺少必填参数 command（字符串）");
     }
+  },
+  permissionResource(args) {
+    // 资源 scope 只含程序词；完整命令绝不进入资源。
+    return {
+      action: "execute",
+      kind: "command",
+      scope: redactCommand(String(args.command ?? "")),
+    };
+  },
+  persistArgs(args) {
+    const command = requireCommand(args);
+    // 保存脱敏命令摘要（程序词）和命令哈希，不保存完整命令。
+    return {
+      command: redactCommand(command),
+      commandSha256: sha256Hex(command),
+    };
+  },
+  async execute(args, ctx: ToolContext) {
+    const command = requireCommand(args);
     const result = await runCommand({
       command,
       cwd: ctx.workspaceRoot,
@@ -127,6 +153,14 @@ export const bashTool: Tool = {
     };
   },
 };
+
+function requireCommand(args: Record<string, unknown>): string {
+  const command = args.command;
+  if (typeof command !== "string" || command.trim().length === 0) {
+    throw new Error("缺少必填参数 command（字符串）");
+  }
+  return command;
+}
 
 export const shellPlugin: HarnessPlugin = {
   name: "tools-shell",

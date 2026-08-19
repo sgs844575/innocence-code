@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   AgentSession,
   PluginRegistry,
+  createExecutionScope,
+  sha256Hex,
   type Delta,
   type HarnessEvent,
   type Provider,
@@ -47,7 +49,10 @@ describe("Task tool via session spawner", () => {
       name: "Peek",
       description: "peek",
       readOnly: true,
+      sideEffect: "none",
       parameters: { type: "object" },
+      permissionResource: () => ({ action: "read", kind: "test", scope: "peek" }),
+      persistArgs: (args) => ({ ...args }),
       execute: async () => {
         childPeeked += 1;
         return { content: "peek-result" };
@@ -91,11 +96,48 @@ describe("Task tool via session spawner", () => {
         workspaceRoot: "D:/tmp",
         signal: new AbortController().signal,
         log: () => {},
+        scope: createExecutionScope("Task"),
         // no subagent
       },
     );
     expect(r.isError).toBe(true);
     expect(r.content).toContain("不支持子代理");
+  });
+});
+
+describe("taskTool persistence policy", () => {
+  const SECRET = "TASK-PLUGIN-SECRET-3f9c";
+
+  it("persists the agent type and a prompt hash, never the prompt", () => {
+    const persisted = taskTool.persistArgs({
+      agentType: "general",
+      description: `任务：处理 ${SECRET}`,
+      prompt: `use ${SECRET}`,
+    });
+    expect(persisted).toEqual({
+      agentType: "general",
+      promptSha256: sha256Hex(`use ${SECRET}`),
+    });
+    expect(JSON.stringify(persisted)).not.toContain(SECRET);
+  });
+
+  it("resources key on the agent type", () => {
+    const resource = taskTool.permissionResource(
+      { agentType: "explore", prompt: SECRET },
+      {
+        workspaceRoot: "D:/tmp",
+        signal: new AbortController().signal,
+        log: () => {},
+        scope: createExecutionScope("Task"),
+      },
+    );
+    expect(resource).toEqual({ action: "spawn", kind: "agent", scope: "explore" });
+  });
+
+  it("validateArgs requires a non-empty prompt", async () => {
+    await expect(taskTool.validateArgs?.({ agentType: "explore", prompt: " " })).rejects.toThrow(
+      "prompt",
+    );
   });
 });
 

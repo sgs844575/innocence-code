@@ -40,8 +40,15 @@ function fakeTool(
     name,
     description: name,
     readOnly,
+    sideEffect: readOnly ? ("none" as const) : ("unknown" as const),
     parameters: { type: "object" },
     calls: [] as Array<Record<string, unknown>>,
+    permissionResource: () => ({
+      action: readOnly ? "read" : "write",
+      kind: "test",
+      scope: name,
+    }),
+    persistArgs: (args: Record<string, unknown>) => ({ ...args }),
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       t.calls.push(args);
       return behavior(args);

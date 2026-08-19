@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ToolContext } from "@innocencecode/harness-core";
+import { createExecutionScope, sha256Hex, type ToolContext } from "@innocencecode/harness-core";
 import { editTool } from "../src/edit";
 import { readTool } from "../src/read";
 import { globTool, grepTool } from "../src/search";
@@ -10,10 +10,11 @@ import { writeTool } from "../src/write";
 import { resolveWithin } from "../src/paths";
 
 let root: string;
-const ctx = (): ToolContext => ({
+const ctx = (toolName = "Read"): ToolContext => ({
   workspaceRoot: root,
   signal: new AbortController().signal,
   log: () => {},
+  scope: createExecutionScope(toolName),
 });
 
 beforeAll(async () => {
@@ -122,5 +123,58 @@ describe("tools as plugin", () => {
       expect(tool.readOnly).toBeDefined();
       expect(tool.parameters.type).toBe("object");
     }
+  });
+});
+
+describe("persistence policy (permissionResource / persistArgs)", () => {
+  const SECRET = "FS-SECRET-4b6d92aa";
+
+  it("Write persists only path, content length and SHA-256", () => {
+    const persisted = writeTool.persistArgs({ path: "src/a.ts", content: `body ${SECRET}` });
+    expect(persisted).toMatchObject({
+      path: "src/a.ts",
+      contentLength: `body ${SECRET}`.length,
+      contentSha256: sha256Hex(`body ${SECRET}`),
+    });
+    expect(JSON.stringify(persisted)).not.toContain(SECRET);
+  });
+
+  it("Edit persists only path and the new content's length/digest", () => {
+    const persisted = editTool.persistArgs({
+      path: "src/a.ts",
+      old_string: `old ${SECRET}`,
+      new_string: `new ${SECRET}`,
+    });
+    expect(persisted).toMatchObject({
+      path: "src/a.ts",
+      contentLength: `new ${SECRET}`.length,
+      contentSha256: sha256Hex(`new ${SECRET}`),
+    });
+    expect(JSON.stringify(persisted)).not.toContain(SECRET);
+  });
+
+  it("path resources are canonical and workspace-relative", () => {
+    const resource = writeTool.permissionResource(
+      { path: path.join(root, "src", "a.ts"), content: "x" },
+      ctx("Write"),
+    );
+    expect(resource).toEqual({ action: "write", kind: "path", scope: "src/a.ts" });
+
+    const readResource = readTool.permissionResource({ path: "./src/../src/a.ts" }, ctx());
+    expect(readResource).toEqual({ action: "read", kind: "path", scope: "src/a.ts" });
+
+    const searchResource = grepTool.permissionResource({ pattern: "x", path: "src" }, ctx("Grep"));
+    expect(searchResource).toEqual({ action: "read", kind: "search", scope: "src" });
+  });
+
+  it("validateArgs rejects malformed args before resources are derived", async () => {
+    await expect(writeTool.validateArgs?.({ path: "a" })).rejects.toThrow("content");
+    await expect(readTool.validateArgs?.({})).rejects.toThrow("path");
+  });
+
+  it("escaping paths are refused at the resource stage (fail-closed)", () => {
+    expect(() =>
+      writeTool.permissionResource({ path: "../outside.txt", content: "x" }, ctx("Write")),
+    ).toThrow("越出工作区");
   });
 });

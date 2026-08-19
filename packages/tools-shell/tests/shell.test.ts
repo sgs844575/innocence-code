@@ -3,7 +3,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { bashTool, runCommand } from "../src";
-import type { ToolContext } from "@innocencecode/harness-core";
+import {
+  createExecutionScope,
+  redactCommand,
+  sha256Hex,
+  type ToolContext,
+} from "@innocencecode/harness-core";
 
 let root: string;
 beforeAll(async () => {
@@ -17,6 +22,7 @@ const ctx = (): ToolContext => ({
   workspaceRoot: root,
   signal: new AbortController().signal,
   log: () => {},
+  scope: createExecutionScope("Bash"),
 });
 
 describe("runCommand", () => {
@@ -84,5 +90,37 @@ describe("bashTool", () => {
 
   it("rejects missing command arg", async () => {
     await expect(bashTool.execute({}, ctx())).rejects.toThrow("command");
+  });
+});
+
+describe("bashTool persistence policy", () => {
+  const SECRET = "SHELL-SECRET-8e17c3";
+
+  it("persists a redacted command summary and hash, never the full command", () => {
+    const command = `deploy --token=${SECRET}`;
+    const persisted = bashTool.persistArgs({ command });
+    expect(persisted).toEqual({
+      command: "deploy",
+      commandSha256: sha256Hex(command),
+    });
+    expect(JSON.stringify(persisted)).not.toContain(SECRET);
+  });
+
+  it("resources key on the program word only", async () => {
+    const resource = await bashTool.permissionResource(
+      { command: `npm test --token=${SECRET}` },
+      ctx(),
+    );
+    expect(resource).toEqual({ action: "execute", kind: "command", scope: "npm" });
+    expect(String(resource.scope)).not.toContain(SECRET);
+  });
+
+  it("validateArgs rejects a missing command before anything else runs", async () => {
+    await expect(bashTool.validateArgs?.({})).rejects.toThrow("command");
+    await expect(bashTool.validateArgs?.({ command: "   " })).rejects.toThrow("command");
+  });
+
+  it("redactCommand masks non-command-shaped program words", () => {
+    expect(redactCommand(`${SECRET} run`)).toBe("[redacted]");
   });
 });

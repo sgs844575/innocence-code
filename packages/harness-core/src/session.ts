@@ -85,23 +85,34 @@ export class AgentSession {
     const registry = new PluginRegistry();
     const logger = options.logger ?? noopLogger;
     await registry.load(options.plugins, logger);
-    const provider =
-      options.provider ?? registry.providers.get(options.providerId ?? "");
-    if (!provider) {
-      throw new Error(
-        options.providerId
-          ? `provider not found: ${options.providerId}`
-          : "no provider configured",
-      );
-    }
-    const session = new AgentSession(options, registry, provider);
-    if (!options.permission.engine) {
-      session.permission.addRules(registry.policyRules);
-      if (options.permission.projectConfig) {
-        session.permission.addRules(rulesFromConfig(options.permission.projectConfig));
+    try {
+      const provider =
+        options.provider ?? registry.providers.get(options.providerId ?? "");
+      if (!provider) {
+        throw new Error(
+          options.providerId
+            ? `provider not found: ${options.providerId}`
+            : "no provider configured",
+        );
       }
+      const session = new AgentSession(options, registry, provider);
+      if (!options.permission.engine) {
+        session.permission.addRules(registry.policyRules);
+        if (options.permission.projectConfig) {
+          session.permission.addRules(rulesFromConfig(options.permission.projectConfig));
+        }
+      }
+      return session;
+    } catch (error) {
+      // Construction failed after plugins activated: release their resources
+      // before surfacing the error, so the failure path never leaks them.
+      try {
+        await registry.dispose();
+      } catch (disposeError) {
+        logger("error", "registry dispose failed during session create rollback", disposeError);
+      }
+      throw error;
     }
-    return session;
   }
 
   on(listener: HarnessEventListener): () => void {

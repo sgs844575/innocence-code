@@ -7,6 +7,25 @@ import type { Tool } from "./tool";
 export type LogLevel = "info" | "warn" | "error";
 export type Logger = (level: LogLevel, msg: string, data?: unknown) => void;
 
+/** Error code for the fail-closed tool persistence SPI gate. */
+export const TOOL_PERSISTENCY_POLICY_REQUIRED = "tool-persistence-policy-required";
+
+/**
+ * Thrown when a Tool lacks persistArgs/permissionResource. There is no
+ * legacy fallback: raw-argument persistence is never silently restored.
+ */
+export class ToolPersistenceError extends Error {
+  readonly code = TOOL_PERSISTENCY_POLICY_REQUIRED;
+
+  constructor(toolName: string, member: "permissionResource" | "persistArgs") {
+    super(
+      `tool ${toolName} must implement ${member} (${TOOL_PERSISTENCY_POLICY_REQUIRED}): ` +
+        "every Tool has to declare a persistence-safe permission resource and persisted args copy",
+    );
+    this.name = "ToolPersistenceError";
+  }
+}
+
 /** The only surface a plugin gets — registration plus logging. */
 export interface PluginContext {
   registerTool(tool: Tool): void;
@@ -80,6 +99,13 @@ export class PluginRegistry {
       registerTool: (tool) => {
         if (this.tools.has(tool.name)) {
           throw new Error(`duplicate tool registration: ${tool.name}`);
+        }
+        // Fail-closed persistence SPI: raw args must never be persistable by default.
+        if (typeof tool.permissionResource !== "function") {
+          throw new ToolPersistenceError(tool.name, "permissionResource");
+        }
+        if (typeof tool.persistArgs !== "function") {
+          throw new ToolPersistenceError(tool.name, "persistArgs");
         }
         this.tools.set(tool.name, tool);
       },

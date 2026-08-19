@@ -1,10 +1,12 @@
 import { ContextManager } from "./context-manager";
+import { createExecutionScope } from "./execution-scope";
 import type { HarnessEventListener } from "./events";
 import { PermissionEngine } from "./permission";
+import type { PermissionRequest, PermissionResource } from "./policy";
 import type { PluginRegistry } from "./registry";
 import type { Provider } from "./provider";
-import { textMessage, type Message, type MessagePart, type ToolResultPart } from "./types";
-import type { ToolContext } from "./tool";
+import { textMessage, type Message, type MessagePart, type ToolCallPart, type ToolResultPart } from "./types";
+import type { Tool, ToolContext } from "./tool";
 import type { SubagentSpawner } from "./subagent";
 
 export interface LoopOptions {
@@ -63,7 +65,7 @@ export async function runLoop(
 
   history.push(textMessage("user", userText));
 
-  const toolCtx: ToolContext = {
+  const baseToolCtx = {
     workspaceRoot,
     signal: signal ?? new AbortController().signal,
     log: () => {}, // session installs a real logger over onEvent
@@ -113,85 +115,144 @@ export async function runLoop(
       }
 
       if (parts.length === 0) break;
-      history.push({ role: "assistant", parts: mergeTextParts(parts) });
-      onEvent({ type: "assistantMessage", parts });
 
       const calls = parts.filter(
-        (p): p is Extract<MessagePart, { type: "toolCall" }> => p.type === "toolCall",
+        (p): p is ToolCallPart => p.type === "toolCall",
       );
+
+      /**
+       * Per-call preparation, in the fixed executor-chain order:
+       *   raw → validateArgs(raw) → permissionResource(raw) → persistArgs(raw)
+       * persistArgs runs exactly ONCE per invocation; its output is the only
+       * args shape allowed into history/events/permission/audit. Raw values
+       * live only for this invocation and die with it.
+       */
+      interface PreparedCall {
+        part: ToolCallPart;
+        tool?: Tool;
+        ctx?: ToolContext;
+        resource?: PermissionResource;
+        persistedArgs: Record<string, unknown>;
+        failure?: string;
+      }
+      const prepared = new Map<string, PreparedCall>();
+      for (const part of calls) {
+        const tool = registry.tools.get(part.toolName);
+        if (!tool) {
+          prepared.set(part.id, { part, tool: undefined, persistedArgs: {} });
+          continue;
+        }
+        // Fresh scope per invocation — never a session-level reused one.
+        const invocationCtx: ToolContext = {
+          ...baseToolCtx,
+          scope: createExecutionScope(tool.name),
+        };
+        try {
+          await tool.validateArgs?.(part.args);
+          const resource = await tool.permissionResource(part.args, invocationCtx);
+          const persistedArgs = tool.persistArgs(part.args);
+          prepared.set(part.id, { part, tool, ctx: invocationCtx, resource, persistedArgs });
+        } catch (err) {
+          prepared.set(part.id, {
+            part,
+            tool,
+            ctx: invocationCtx,
+            persistedArgs: {},
+            failure: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      // Persisted assistant message: secrets from raw args never enter history.
+      const toPersisted = (p: MessagePart): MessagePart =>
+        p.type === "toolCall"
+          ? { ...p, args: prepared.get(p.id)?.persistedArgs ?? {} }
+          : p;
+      history.push({ role: "assistant", parts: mergeTextParts(parts).map(toPersisted) });
+      onEvent({ type: "assistantMessage", parts: parts.map(toPersisted) });
+
       if (calls.length === 0) break;
 
       const resultParts: ToolResultPart[] = [];
-      for (const call of calls) {
+      for (const part of calls) {
+        const item = prepared.get(part.id)!;
         onEvent({
           type: "toolCall",
-          id: call.id,
-          call: { toolName: call.toolName, args: call.args },
-        });
-
-        const tool = registry.tools.get(call.toolName);
-        if (!tool) {
-          resultParts.push({
-            type: "toolResult",
-            toolCallId: call.id,
-            content: `未知工具：${call.toolName}`,
-            isError: true,
-          });
-          onEvent({
-            type: "toolResult",
-            toolCallId: call.id,
-            content: `未知工具：${call.toolName}`,
-            isError: true,
-            durationMs: 0,
-          });
-          continue;
-        }
-
-        const resolution = await permission.resolve(
-          { toolName: call.toolName, args: call.args },
-          { readOnly: tool.readOnly },
-        );
-        onEvent({
-          type: "permission",
-          id: call.id,
-          toolName: call.toolName,
-          resolution,
+          id: part.id,
+          call: { toolName: part.toolName, args: item.persistedArgs },
         });
 
         const started = Date.now();
-        if (resolution.decision === "deny") {
-          const content = `权限被拒绝：${resolution.reason}`;
+        const failClosed = (content: string) => {
           resultParts.push({
             type: "toolResult",
-            toolCallId: call.id,
+            toolCallId: part.id,
             content,
             isError: true,
           });
           onEvent({
             type: "toolResult",
-            toolCallId: call.id,
+            toolCallId: part.id,
             content,
             isError: true,
-            durationMs: 0,
+            durationMs: Date.now() - started,
           });
+        };
+
+        if (!item.tool) {
+          failClosed(`未知工具：${part.toolName}`);
+          continue;
+        }
+        if (item.failure !== undefined) {
+          failClosed(`工具调用准备失败：${item.failure}`);
+          continue;
+        }
+
+        const request: PermissionRequest = {
+          toolName: item.tool.name,
+          resource: item.resource!,
+          args: item.persistedArgs,
+        };
+        let resolution;
+        try {
+          resolution = await permission.resolve(request, {
+            readOnly: item.tool.readOnly,
+            sideEffect: item.tool.sideEffect,
+          });
+        } catch (err) {
+          // validateResource rejected the resource: fail closed.
+          failClosed(
+            `资源校验未通过：${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+        onEvent({
+          type: "permission",
+          id: part.id,
+          toolName: part.toolName,
+          resolution,
+        });
+
+        if (resolution.decision === "deny") {
+          failClosed(`权限被拒绝：${resolution.reason}`);
           continue;
         }
 
         try {
           const result = await withTimeout(
-            tool.execute(call.args, toolCtx),
+            item.tool.execute(part.args, item.ctx!),
             toolTimeoutMs,
-            toolCtx.signal,
+            item.ctx!.signal,
           );
           resultParts.push({
             type: "toolResult",
-            toolCallId: call.id,
+            toolCallId: part.id,
             content: result.content,
             isError: result.isError,
           });
           onEvent({
             type: "toolResult",
-            toolCallId: call.id,
+            toolCallId: part.id,
             content: result.content,
             isError: result.isError,
             durationMs: Date.now() - started,
@@ -201,13 +262,13 @@ export async function runLoop(
           const content = `工具执行出错：${err instanceof Error ? err.message : String(err)}`;
           resultParts.push({
             type: "toolResult",
-            toolCallId: call.id,
+            toolCallId: part.id,
             content,
             isError: true,
           });
           onEvent({
             type: "toolResult",
-            toolCallId: call.id,
+            toolCallId: part.id,
             content,
             isError: true,
             durationMs: Date.now() - started,

@@ -24,6 +24,16 @@ export function requireString(args: Record<string, unknown>, key: string): strin
   return v;
 }
 
+/**
+ * Canonical workspace-relative POSIX path for permission resources and
+ * persisted args. Rejects escapes the same way resolveWithin does.
+ */
+export function workspaceScope(root: string, target: string): string {
+  const abs = resolveWithin(root, target);
+  const rel = path.relative(path.resolve(root), abs);
+  return (rel === "" ? "." : rel).split(path.sep).join("/");
+}
+
 /** Directories skipped while walking the workspace. */
 export const IGNORED_DIRS = new Set([
   "node_modules",

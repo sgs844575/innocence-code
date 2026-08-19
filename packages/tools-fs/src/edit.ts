@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
-import { resolveWithin, requireString } from "./paths";
+import { sha256Hex } from "@innocencecode/harness-core";
+import { resolveWithin, requireString, workspaceScope } from "./paths";
 import type { Tool, ToolContext } from "@innocencecode/harness-core";
 
 /** Exact-string replacement with uniqueness enforcement (like ZCode's Edit). */
@@ -9,6 +10,7 @@ export const editTool: Tool = {
     "对文件做精确字符串替换。old_string 必须在文件中唯一，否则报错；" +
     "多处替换需传 replace_all。修改前建议先 Read 确认原文。",
   readOnly: false,
+  sideEffect: "paths",
   parameters: {
     type: "object",
     properties: {
@@ -18,6 +20,27 @@ export const editTool: Tool = {
       replace_all: { type: "boolean", description: "替换所有出现处，默认 false" },
     },
     required: ["path", "old_string", "new_string"],
+  },
+  async validateArgs(args) {
+    requireString(args, "path");
+    requireString(args, "old_string");
+    requireString(args, "new_string");
+  },
+  permissionResource(args, ctx: ToolContext) {
+    return {
+      action: "write",
+      kind: "path",
+      scope: workspaceScope(ctx.workspaceRoot, requireString(args, "path")),
+    };
+  },
+  persistArgs(args) {
+    const next = requireString(args, "new_string");
+    // 只保存路径、内容长度和 SHA-256 —— old/new 原文绝不持久化。
+    return {
+      path: args.path,
+      contentLength: next.length,
+      contentSha256: sha256Hex(next),
+    };
   },
   async execute(args, ctx: ToolContext) {
     const target = resolveWithin(ctx.workspaceRoot, requireString(args, "path"));

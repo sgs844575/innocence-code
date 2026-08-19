@@ -5,8 +5,8 @@ import {
   type HarnessEvent,
   type Message,
   type PermissionDecider,
+  type PermissionRequest,
   type Provider,
-  type ToolCallInfo,
   type ToolCallPart,
   type ToolResultPart,
 } from "@innocencecode/harness-core";
@@ -31,7 +31,8 @@ export type AskResponse = "allow" | "allowSession" | "deny";
 
 export interface PermissionAsk {
   requestId: string;
-  call: ToolCallInfo;
+  /** The persisted (redacted) permission request — raw args never reach the host. */
+  call: PermissionRequest;
 }
 
 /** Structured tool event forwarded to the host (call and result arrive
@@ -129,8 +130,8 @@ export class HarnessRuntime {
     if (cached && cached.key === key) return cached.session;
 
     const decider: PermissionDecider = {
-      ask: async (call) => {
-        const ask: PermissionAsk = { requestId: nextId("perm"), call };
+      ask: async (request) => {
+        const ask: PermissionAsk = { requestId: nextId("perm"), call: request };
         const answer = await this.options.hooks.askPermission(chatSessionId, messageId, ask);
         return answer;
       },

@@ -1,4 +1,9 @@
-import type { HarnessPlugin, JsonSchema, ToolResult } from "@innocencecode/harness-core";
+import {
+  sha256Hex,
+  type HarnessPlugin,
+  type JsonSchema,
+  type ToolResult,
+} from "@innocencecode/harness-core";
 import { StdioJsonRpcClient, type StdioServerOptions } from "./jsonrpc";
 
 const PROTOCOL_VERSION = "2024-11-05";
@@ -95,7 +100,24 @@ export const mcpPlugin = (options: McpPluginOptions): HarnessPlugin => ({
             name: toolName,
             description: def.description ?? `MCP 工具 ${serverName}/${def.name}`,
             readOnly: false,
+            sideEffect: "unknown", // 外部服务器能力未知，按最保守处理
             parameters: def.inputSchema ?? { type: "object" },
+            // 资源只标识 server/tool；调用参数绝不进入资源。
+            permissionResource: () => ({
+              action: "call",
+              kind: "mcp",
+              scope: `${serverName}/${def.name}`,
+            }),
+            // 保存 server/tool、参数名和参数哈希，不保存参数值。
+            persistArgs: (args) => {
+              const keys = Object.keys(args).sort();
+              return {
+                server: serverName,
+                tool: def.name,
+                params: keys,
+                argsSha256: sha256Hex(JSON.stringify(args, keys)),
+              };
+            },
             execute: async (args) => {
               if (connected.connection.exited()) {
                 return {

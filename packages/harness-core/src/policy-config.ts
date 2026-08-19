@@ -9,6 +9,11 @@ import type { PermissionDecision, PolicyRule, ToolCallInfo } from "./policy";
  *   "Bash(npm test)"       — command tools: pattern tokens prefix-match the
  *                            command tokens; "*" matches any single token
  *   "Edit(src/**)"         — path tools: workspace-relative glob on args.path
+ *
+ * Rules are matched against the tool's PERSISTED args (Tool.persistArgs), so
+ * command specs match whatever the tool keeps in its redacted command summary
+ * (Bash keeps only the program word); path specs keep working because paths
+ * stay in the persisted copy verbatim.
  */
 export interface ProjectPermissionConfig {
   allow?: string[];

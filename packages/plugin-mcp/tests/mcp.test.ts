@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PluginRegistry, type ToolContext } from "@innocencecode/harness-core";
+import {
+  createExecutionScope,
+  sha256Hex,
+  PluginRegistry,
+  type ToolContext,
+} from "@innocencecode/harness-core";
 import { StdioJsonRpcClient, mcpPlugin } from "../src";
 
 const fixture = path.join(
@@ -23,6 +28,7 @@ const ctx = (): ToolContext => ({
   workspaceRoot: "D:/tmp",
   signal: new AbortController().signal,
   log: () => {},
+  scope: createExecutionScope("mcp__echo__echo"),
 });
 
 describe("StdioJsonRpcClient", () => {
@@ -61,6 +67,26 @@ describe("mcpPlugin", () => {
     const result = await tool!.execute({ text: "hello" }, ctx());
     expect(result.content).toBe("echo: hello");
     expect(result.isError).toBeFalsy();
+  });
+
+  it("persists server/tool, parameter names and an args hash — never arg values", async () => {
+    const reg = new PluginRegistry();
+    await reg.load([
+      mcpPlugin({ servers: { echo: { command: process.execPath, args: [fixture] } } }),
+    ]);
+    const tool = reg.tools.get("mcp__echo__echo")!;
+    const SECRET = "MCP-PLUGIN-SECRET-77aa1";
+    const resource = tool.permissionResource({ text: SECRET }, ctx());
+    expect(resource).toEqual({ action: "call", kind: "mcp", scope: "echo/echo" });
+
+    const persisted = tool.persistArgs({ text: SECRET, extra: 1 });
+    expect(persisted).toEqual({
+      server: "echo",
+      tool: "echo",
+      params: ["extra", "text"],
+      argsSha256: sha256Hex(JSON.stringify({ text: SECRET, extra: 1 }, ["extra", "text"])),
+    });
+    expect(JSON.stringify(persisted)).not.toContain(SECRET);
   });
 
   it("skips unreachable servers without failing activation", async () => {

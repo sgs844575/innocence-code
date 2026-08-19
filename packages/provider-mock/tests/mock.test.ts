@@ -17,6 +17,8 @@ describe("createMockProvider", () => {
       description: "r",
       readOnly: true,
       parameters: { type: "object" },
+      permissionResource: () => ({ action: "read", kind: "path", scope: "a.ts" }),
+      persistArgs: (args) => ({ ...args }),
       execute: async () => ({ content: "file-content" }),
     });
     const events: string[] = [];

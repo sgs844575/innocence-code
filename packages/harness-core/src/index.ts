@@ -15,12 +15,24 @@ export {
   type MessageProcessor,
   type MessageProcessorContext,
 } from "./processor";
-export type { Tool, ToolContext, ToolResult } from "./tool";
+export type { Tool, ToolContext, ToolResult, ToolSideEffect } from "./tool";
+export {
+  redactCommand,
+  redactUrl,
+  sha256Hex,
+} from "./tool";
+export {
+  createExecutionScope,
+  nextInvocationId,
+  type ExecutionScope,
+} from "./execution-scope";
 export type { Skill } from "./skill";
 export type {
   AskResponse,
   PermissionDecision,
   PermissionMode,
+  PermissionRequest,
+  PermissionResource,
   PolicyRule,
   RuleVote,
   ToolCallInfo,
@@ -28,10 +40,13 @@ export type {
 export { globToRegExp, matchGlob } from "./glob";
 export {
   PermissionEngine,
-  defaultGrantKey,
+  resourceGrantKey,
+  type PermissionAuditEntry,
+  type PermissionAuditor,
   type PermissionDecider,
   type PermissionEngineOptions,
   type PermissionResolution,
+  type ResourceValidator,
 } from "./permission";
 export {
   parseRuleSpec,
@@ -44,6 +59,8 @@ export {
 export type { HarnessEvent, HarnessEventListener } from "./events";
 export {
   PluginRegistry,
+  TOOL_PERSISTENCY_POLICY_REQUIRED,
+  ToolPersistenceError,
   type HarnessPlugin,
   type LogLevel,
   type Logger,

@@ -1,4 +1,9 @@
-import type { HarnessPlugin, Tool, ToolContext } from "@innocencecode/harness-core";
+import {
+  sha256Hex,
+  type HarnessPlugin,
+  type Tool,
+  type ToolContext,
+} from "@innocencecode/harness-core";
 
 export type AgentType = "explore" | "general";
 
@@ -19,6 +24,7 @@ export const taskTool: Tool = {
     "派生一个隔离子代理去完成一项独立任务，适合并行研究和探索（子代理的中间过程不占用当前上下文）。" +
     "agentType: explore=只读研究, general=全能。prompt 里给足自包含的上下文和目标。",
   readOnly: false,
+  sideEffect: "unknown",
   parameters: {
     type: "object",
     properties: {
@@ -27,6 +33,28 @@ export const taskTool: Tool = {
       prompt: { type: "string", description: "自包含的任务描述（目标、范围、期望产出）" },
     },
     required: ["agentType", "prompt"],
+  },
+  async validateArgs(args) {
+    const prompt = args.prompt;
+    if (typeof prompt !== "string" || prompt.trim().length === 0) {
+      throw new Error("缺少必填参数 prompt（自包含的任务描述）");
+    }
+  },
+  permissionResource(args) {
+    // 资源只标识代理类型；prompt 内容绝不进入资源。
+    return {
+      action: "spawn",
+      kind: "agent",
+      scope: args.agentType === "general" ? "general" : "explore",
+    };
+  },
+  persistArgs(args) {
+    const prompt = typeof args.prompt === "string" ? args.prompt : "";
+    // 保存代理类型和 prompt 哈希；prompt/description 原文不持久化。
+    return {
+      agentType: args.agentType === "general" ? "general" : "explore",
+      promptSha256: sha256Hex(prompt),
+    };
   },
   async execute(args, ctx: ToolContext) {
     const agentType = args.agentType === "general" ? "general" : "explore";

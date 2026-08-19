@@ -1,28 +1,59 @@
 import { describe, expect, it } from "vitest";
 import {
   PermissionEngine,
-  defaultGrantKey,
+  resourceGrantKey,
   type AskResponse,
+  type PermissionAuditEntry,
+  type PermissionRequest,
   type PolicyRule,
-  type ToolCallInfo,
 } from "../src";
 
+function request(
+  toolName: string,
+  action: string,
+  scope: string,
+  kind = "path",
+  args: Record<string, unknown> = {},
+): PermissionRequest {
+  return { toolName, resource: { action, kind, scope }, args };
+}
+
 function recordingDecider(answer: AskResponse) {
-  const calls: ToolCallInfo[] = [];
+  const requests: PermissionRequest[] = [];
   return {
-    calls,
+    requests,
     decider: {
-      ask: async (call: ToolCallInfo) => {
-        calls.push(call);
+      ask: async (req: PermissionRequest) => {
+        requests.push(req);
         return answer;
       },
     },
   };
 }
 
-const readCall: ToolCallInfo = { toolName: "Read", args: { path: "src/a.ts" } };
-const editCall: ToolCallInfo = { toolName: "Edit", args: { path: "src/a.ts" } };
-const bashCall: ToolCallInfo = { toolName: "Bash", args: { command: "npm test" } };
+const readReq = request("Read", "read", "src/a.ts");
+const editReq = request("Edit", "write", "src/a.ts", "path", { path: "src/a.ts" });
+const bashReq = request("Bash", "execute", "npm", "command", { command: "npm" });
+const write = { readOnly: false, sideEffect: "paths" as const };
+const read = { readOnly: true, sideEffect: "none" as const };
+
+describe("resourceGrantKey", () => {
+  it("joins tool name and canonical resource fields with \\u0000", () => {
+    expect(resourceGrantKey("Write", { action: "write", kind: "path", scope: "src/a.ts" })).toBe(
+      "Write\u0000write\u0000path\u0000src/a.ts",
+    );
+    expect(resourceGrantKey("Bash", { action: "execute", kind: "command", scope: "npm" })).toBe(
+      "Bash\u0000execute\u0000command\u0000npm",
+    );
+  });
+
+  it("distinguishes actions and kinds on the same scope", () => {
+    const a = resourceGrantKey("T", { action: "read", kind: "path", scope: "x" });
+    const b = resourceGrantKey("T", { action: "write", kind: "path", scope: "x" });
+    const c = resourceGrantKey("T", { action: "read", kind: "url", scope: "x" });
+    expect(new Set([a, b, c]).size).toBe(3);
+  });
+});
 
 describe("PermissionEngine pipeline", () => {
   it("deny rules win over everything, including auto mode", async () => {
@@ -32,81 +63,162 @@ describe("PermissionEngine pipeline", () => {
       { name: "deny:Edit(src/**)", match: (c) => (c.toolName === "Edit" ? "deny" : "skip") },
       { name: "allow:Edit", match: (c) => (c.toolName === "Edit" ? "allow" : "skip") },
     ]);
-    const r = await engine.resolve(editCall, { readOnly: false });
+    const r = await engine.resolve(editReq, write);
     expect(r.decision).toBe("deny");
     expect(r.via).toBe("denyRule");
   });
 
   it("full mode (完全访问) bypasses even deny rules without asking", async () => {
-    const { decider, calls } = recordingDecider("deny");
+    const { decider, requests } = recordingDecider("deny");
     const engine = new PermissionEngine({ mode: "full", decider });
     engine.addRules([
       { name: "deny:Edit(src/**)", match: (c) => (c.toolName === "Edit" ? "deny" : "skip") },
     ]);
-    const r = await engine.resolve(editCall, { readOnly: false });
+    const r = await engine.resolve(editReq, write);
     expect(r.decision).toBe("allow");
     expect(r.via).toBe("fullMode");
-    expect(calls).toHaveLength(0); // 不弹任何询问
+    expect(requests).toHaveLength(0); // 不弹任何询问
   });
 
   it("plan mode allows readOnly but denies writes", async () => {
     const { decider } = recordingDecider("allow");
     const engine = new PermissionEngine({ mode: "plan", decider });
-    expect((await engine.resolve(readCall, { readOnly: true })).decision).toBe("allow");
-    const r = await engine.resolve(editCall, { readOnly: false });
+    expect((await engine.resolve(readReq, read)).decision).toBe("allow");
+    const r = await engine.resolve(editReq, write);
     expect(r.decision).toBe("deny");
     expect(r.via).toBe("planMode");
   });
 
   it("allow rules admit calls in ask mode without asking", async () => {
-    const { decider, calls } = recordingDecider("deny");
+    const { decider, requests } = recordingDecider("deny");
     const engine = new PermissionEngine({ mode: "ask", decider });
     engine.addRules([
-      { name: "allow:Bash(npm test)", match: () => "allow" } as PolicyRule,
+      { name: "allow:Bash(npm)", match: () => "allow" } as PolicyRule,
     ]);
-    const r = await engine.resolve(bashCall, { readOnly: false });
+    const r = await engine.resolve(bashReq, { readOnly: false, sideEffect: "process" });
     expect(r.decision).toBe("allow");
     expect(r.via).toBe("allowRule");
-    expect(calls).toHaveLength(0);
+    expect(requests).toHaveLength(0);
   });
 
   it("auto mode allows without asking", async () => {
-    const { decider, calls } = recordingDecider("deny");
+    const { decider, requests } = recordingDecider("deny");
     const engine = new PermissionEngine({ mode: "auto", decider });
-    expect((await engine.resolve(editCall, { readOnly: false })).via).toBe("autoMode");
-    expect(calls).toHaveLength(0);
+    expect((await engine.resolve(editReq, write)).via).toBe("autoMode");
+    expect(requests).toHaveLength(0);
   });
 
-  it("ask mode consults decider; allowSession writes a session grant", async () => {
-    const { decider, calls } = recordingDecider("allowSession");
+  it("ask mode consults decider; allowSession writes a resource grant", async () => {
+    const { decider, requests } = recordingDecider("allowSession");
     const engine = new PermissionEngine({ mode: "ask", decider });
-    const first = await engine.resolve(bashCall, { readOnly: false });
+    const first = await engine.resolve(bashReq, { readOnly: false, sideEffect: "process" });
     expect(first.decision).toBe("allow");
     expect(first.via).toBe("ask");
-    expect(calls).toHaveLength(1);
+    expect(requests).toHaveLength(1);
 
-    // Second identical command hits the session grant without asking again.
-    const second = await engine.resolve(
-      { toolName: "Bash", args: { command: "npm test -- -u" } },
-      { readOnly: false },
-    );
+    // A second command of the same program hits the session grant without asking.
+    const second = await engine.resolve(request("Bash", "execute", "npm", "command"), {
+      readOnly: false,
+      sideEffect: "process",
+    });
     expect(second.via).toBe("sessionGrant");
-    expect(calls).toHaveLength(1);
+    expect(requests).toHaveLength(1);
 
     // A different command still asks.
-    await engine.resolve({ toolName: "Bash", args: { command: "rm -rf /" } }, { readOnly: false });
-    expect(calls).toHaveLength(2);
+    await engine.resolve(request("Bash", "execute", "rm", "command"), {
+      readOnly: false,
+      sideEffect: "process",
+    });
+    expect(requests).toHaveLength(2);
+  });
+
+  it("does not reuse a session grant for another resource", async () => {
+    const asked: string[] = [];
+    const engine = new PermissionEngine({
+      mode: "ask",
+      decider: {
+        ask: async (req) => {
+          asked.push(req.resource.scope);
+          return "allowSession";
+        },
+      },
+    });
+
+    await engine.resolve(request("Write", "write", "src/a.ts"), { readOnly: false, sideEffect: "paths" });
+    await engine.resolve(request("Write", "write", "src/b.ts"), { readOnly: false, sideEffect: "paths" });
+
+    expect(asked).toEqual(["src/a.ts", "src/b.ts"]);
   });
 
   it("decider deny denies", async () => {
     const { decider } = recordingDecider("deny");
     const engine = new PermissionEngine({ mode: "ask", decider });
-    expect((await engine.resolve(bashCall, { readOnly: false })).decision).toBe("deny");
+    expect((await engine.resolve(bashReq, { readOnly: false, sideEffect: "process" })).decision).toBe("deny");
   });
 
-  it("defaultGrantKey keys command tools on first word", () => {
-    expect(defaultGrantKey(bashCall)).toBe("Bash(npm)");
-    expect(defaultGrantKey(editCall)).toBe("Edit");
+  it("runs hard resource validation in full mode", async () => {
+    const engine = new PermissionEngine({
+      mode: "full",
+      decider: { ask: async () => "allow" },
+      validateResource: async () => {
+        throw new Error("blocked resource");
+      },
+    });
+
+    await expect(
+      engine.resolve(request("BrowserNavigate", "navigate", "file:///secret", "url"), {
+        readOnly: false,
+        sideEffect: "unknown",
+      }),
+    ).rejects.toThrow("blocked resource");
+  });
+
+  it("runs hard resource validation in ask mode too (fail-closed)", async () => {
+    const { decider, requests } = recordingDecider("allow");
+    const engine = new PermissionEngine({
+      mode: "ask",
+      decider,
+      validateResource: (resource) => {
+        if (resource.kind === "url") throw new Error("blocked resource");
+      },
+    });
+
+    await expect(
+      engine.resolve(request("BrowserNavigate", "navigate", "file:///secret", "url"), {
+        readOnly: false,
+        sideEffect: "unknown",
+      }),
+    ).rejects.toThrow("blocked resource");
+    expect(requests).toHaveLength(0); // never reached the ask stage
+  });
+
+  it("audits every resolution, including full mode", async () => {
+    const entries: PermissionAuditEntry[] = [];
+    const engine = new PermissionEngine({
+      mode: "full",
+      decider: { ask: async () => "deny" },
+      audit: (entry) => entries.push(entry),
+    });
+    const resolution = await engine.resolve(editReq, write);
+    expect(resolution.via).toBe("fullMode");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].mode).toBe("full");
+    expect(entries[0].resolution).toEqual(resolution);
+    expect(entries[0].request.resource.scope).toBe("src/a.ts");
+    expect(entries[0].tool).toEqual({ readOnly: false, sideEffect: "paths" });
+  });
+
+  it("audits ask-mode decisions with the persisted request", async () => {
+    const entries: PermissionAuditEntry[] = [];
+    const engine = new PermissionEngine({
+      mode: "ask",
+      decider: { ask: async () => "deny" },
+      audit: (entry) => entries.push(entry),
+    });
+    await engine.resolve(editReq, write);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].request.args).toEqual({ path: "src/a.ts" });
+    expect(entries[0].resolution.decision).toBe("deny");
   });
 });
 
@@ -130,8 +242,8 @@ describe("PermissionEngine path normalization", () => {
       },
     ]);
     const r = await engine.resolve(
-      { toolName: "Edit", args: { path: "D:\\work\\proj\\src\\a.ts" } },
-      { readOnly: false },
+      request("Edit", "write", "src/a.ts", "path", { path: "D:\\work\\proj\\src\\a.ts" }),
+      write,
     );
     expect(r.decision).toBe("allow");
     expect(r.via).toBe("allowRule");

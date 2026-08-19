@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { resolveWithin, requireString } from "./paths";
+import { resolveWithin, requireString, workspaceScope } from "./paths";
 import type { Tool, ToolContext } from "@innocencecode/harness-core";
 
 const MAX_LINES = 2000;
@@ -11,6 +11,7 @@ export const readTool: Tool = {
     "读取工作区内的文本文件，返回带行号的内容。用 offset/limit 分页，默认最多 " +
     `${MAX_LINES} 行。引用代码时请使用 文件路径:行号 格式。`,
   readOnly: true,
+  sideEffect: "none",
   parameters: {
     type: "object",
     properties: {
@@ -19,6 +20,20 @@ export const readTool: Tool = {
       limit: { type: "integer", description: "读取行数，可选" },
     },
     required: ["path"],
+  },
+  async validateArgs(args) {
+    requireString(args, "path");
+  },
+  permissionResource(args, ctx: ToolContext) {
+    return {
+      action: "read",
+      kind: "path",
+      scope: workspaceScope(ctx.workspaceRoot, requireString(args, "path")),
+    };
+  },
+  // 读取参数不含机密值；路径/分页原样持久化以供规则匹配与后续对话理解。
+  persistArgs(args) {
+    return { path: args.path, offset: args.offset, limit: args.limit };
   },
   async execute(args, ctx: ToolContext) {
     const target = resolveWithin(ctx.workspaceRoot, requireString(args, "path"));

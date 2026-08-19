@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { matchGlob } from "@innocencecode/harness-core";
-import { resolveWithin, requireString, walkFiles } from "./paths";
+import { resolveWithin, requireString, walkFiles, workspaceScope } from "./paths";
 import type { Tool, ToolContext } from "@innocencecode/harness-core";
 
 const FILE_LIMIT = 500;
@@ -14,11 +14,21 @@ function listWorkspaceFiles(ctx: ToolContext, subDir?: string): string[] {
   return files;
 }
 
+/** Search resources key on the searched directory ("." for the whole workspace). */
+function searchResource(args: Record<string, unknown>, ctx: ToolContext) {
+  const scope =
+    typeof args.path === "string" && args.path.length > 0
+      ? workspaceScope(ctx.workspaceRoot, args.path)
+      : ".";
+  return { action: "read", kind: "search", scope } as const;
+}
+
 /** Find files by glob pattern, e.g. `src` + double-star + `.ts`. */
 export const globTool: Tool = {
   name: "Glob",
   description: "按 glob 模式查找工作区文件，如 `src/**/*.ts`。返回相对路径列表。",
   readOnly: true,
+  sideEffect: "none",
   parameters: {
     type: "object",
     properties: {
@@ -26,6 +36,14 @@ export const globTool: Tool = {
       path: { type: "string", description: "限定搜索的子目录，可选" },
     },
     required: ["pattern"],
+  },
+  async validateArgs(args) {
+    requireString(args, "pattern");
+  },
+  permissionResource: searchResource,
+  // 只读搜索：模式与目录原样持久化（模型自拟的搜索词，供规则与回看使用）。
+  persistArgs(args) {
+    return { pattern: args.pattern, path: args.path };
   },
   async execute(args, ctx: ToolContext) {
     const pattern = requireString(args, "pattern");
@@ -46,6 +64,7 @@ export const grepTool: Tool = {
   description:
     "在工作区文件中做正则搜索，返回 `文件:行号: 内容`。可用 glob 参数过滤文件名。",
   readOnly: true,
+  sideEffect: "none",
   parameters: {
     type: "object",
     properties: {
@@ -54,6 +73,14 @@ export const grepTool: Tool = {
       path: { type: "string", description: "限定搜索的子目录，可选" },
     },
     required: ["pattern"],
+  },
+  async validateArgs(args) {
+    requireString(args, "pattern");
+  },
+  permissionResource: searchResource,
+  // 只读搜索：模式与目录原样持久化（模型自拟的搜索词，供规则与回看使用）。
+  persistArgs(args) {
+    return { pattern: args.pattern, glob: args.glob, path: args.path };
   },
   async execute(args, ctx: ToolContext) {
     let regex: RegExp;
