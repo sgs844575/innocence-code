@@ -84,6 +84,7 @@ describe("mergeSettings", () => {
       themeMode: "dark" as const,
       locale: "zh-CN" as const,
       reasoningEffort: "high" as const,
+      activeAgent: "full" as const,
     };
     expect(mergeSettings(input)).toEqual(input);
   });
@@ -111,6 +112,13 @@ describe("mergeSettings", () => {
   it("permissionMode 含 full（完全访问）往返", () => {
     expect(mergeSettings({ profiles: [], permissionMode: "full" }).permissionMode).toBe("full");
     expect(mergeSettings({ profiles: [], permissionMode: "yolo" }).permissionMode).toBe("ask");
+  });
+
+  it("activeAgent 往返：合法值保留，非法/缺失回落 default", () => {
+    expect(mergeSettings({ profiles: [], activeAgent: "full" }).activeAgent).toBe("full");
+    expect(mergeSettings({ profiles: [], activeAgent: "plan" }).activeAgent).toBe("plan");
+    expect(mergeSettings({ profiles: [], activeAgent: "nope" }).activeAgent).toBe("default");
+    expect(mergeSettings({ profiles: [] }).activeAgent).toBe("default");
   });
 });
 

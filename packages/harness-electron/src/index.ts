@@ -1,6 +1,5 @@
 export {
   DEFAULT_SETTINGS,
-  DEFAULT_SYSTEM_PROMPT,
   MOCK_GREETING,
   MOCK_MODEL,
   MOCK_PROFILE_ID,
@@ -17,6 +16,16 @@ export {
   type ProviderPreset,
   type ProviderProfile,
 } from "./settings";
+export {
+  AGENT_IDS,
+  BUILTIN_AGENTS,
+  DEFAULT_SYSTEM_PROMPT,
+  FULL_SYSTEM_PROMPT,
+  PLAN_SYSTEM_PROMPT,
+  systemPromptFor,
+  type AgentId,
+  type AgentProfile,
+} from "./agents";
 export {
   HarnessRuntime,
   IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS,

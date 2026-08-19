@@ -8,6 +8,7 @@ import {
 } from "../../../shared/ipc";
 import { ModelPicker } from "./composer/ModelPicker";
 import { PermissionModePicker } from "./composer/PermissionModePicker";
+import { AgentPicker } from "./composer/AgentPicker";
 import { ThinkingEffortPicker } from "./composer/ThinkingEffortPicker";
 import { useCommandK } from "./composer/useCommandK";
 
@@ -133,6 +134,12 @@ export function Composer({
                 <span className="truncate">{t("provider.mock")}</span>
               </button>
             )}
+
+            <AgentPicker
+              t={t}
+              value={settings?.activeAgent ?? "default"}
+              onChange={(agent) => onSettingsChange({ activeAgent: agent })}
+            />
 
             <ThinkingEffortPicker
               t={t}

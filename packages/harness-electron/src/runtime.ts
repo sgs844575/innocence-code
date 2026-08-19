@@ -17,11 +17,11 @@ import { createMockProvider } from "@innocencecode/provider-mock";
 import { createOpenAIProvider } from "@innocencecode/provider-openai";
 import { createAnthropicProvider } from "@innocencecode/provider-anthropic";
 import {
-  DEFAULT_SYSTEM_PROMPT,
   MOCK_GREETING,
   resolveActive,
   type HarnessSettings,
 } from "./settings";
+import { systemPromptFor } from "./agents";
 import { decodeTranscript, encodeTurnV2 } from "./transcript";
 
 export type AskResponse = "allow" | "allowSession" | "deny";
@@ -314,7 +314,7 @@ export class HarnessRuntime {
       provider:
         this.options.providerFactory?.(settings) ?? this.buildProvider(settings),
       workspaceRoot,
-      systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      systemPrompt: systemPromptFor(settings.activeAgent ?? "default"),
       permission: {
         mode: settings.permissionMode,
         decider,

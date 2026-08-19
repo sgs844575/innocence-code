@@ -6,6 +6,7 @@ import {
   MOCK_MODEL,
   MOCK_PROFILE_ID,
   PROVIDER_PRESET_MIRROR,
+  type AgentId,
   type ChatPermissionEvent,
 } from "../../../src/shared/ipc";
 import type { PermissionResource } from "@innocencecode/harness-core";
@@ -14,6 +15,7 @@ import {
   MOCK_PROFILE_ID as PKG_MOCK_PROFILE_ID,
   PROVIDER_PRESETS,
 } from "../src/settings";
+import { AGENT_IDS, BUILTIN_AGENTS, type AgentId as PkgAgentId } from "../src/agents";
 import { PRESET_MODELS } from "../src/modelPresets";
 
 describe("PROVIDER_PRESET_MIRROR 对齐 PROVIDER_PRESETS", () => {
@@ -46,6 +48,22 @@ describe("shared 与包内 mock 常量对齐", () => {
   it("MOCK_PROFILE_ID / MOCK_MODEL 一致", () => {
     expect(MOCK_PROFILE_ID).toBe(PKG_MOCK_PROFILE_ID);
     expect(MOCK_MODEL).toBe(PKG_MOCK_MODEL);
+  });
+});
+
+describe("shared AgentId 镜像对齐 harness-electron agents.ts", () => {
+  // shared 不 import 包，AgentId 手工镜像：包内新增 agent 而忘了同步 shared
+  // 时，这里的类型赋值与集合断言都会把漂移拦下来。
+  it("BUILTIN_AGENTS 的 id 集合与 shared AgentId 一一对应", () => {
+    const sharedIds: AgentId[] = BUILTIN_AGENTS.map((a) => a.id);
+    expect([...sharedIds].sort()).toEqual(["default", "full", "plan"]);
+    expect(AGENT_IDS).toEqual(sharedIds);
+  });
+  it("类型漂移守卫：shared 镜像与包内 AgentId 双向兼容", () => {
+    const shared: AgentId = "plan";
+    const pkg: PkgAgentId = shared;
+    const back: AgentId = pkg;
+    expect(back).toBe("plan");
   });
 });
 

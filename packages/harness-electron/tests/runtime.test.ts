@@ -10,6 +10,7 @@ import {
   HarnessRuntime,
   IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS,
   decodeTranscript,
+  systemPromptFor,
   type AskResponse,
   type HarnessSettings,
   type LiveToolPart,
@@ -274,6 +275,24 @@ describe("HarnessRuntime", () => {
     expect(kinds).toContain("toolCall");
     expect(kinds).toContain("toolResult");
     expect(onDelta.mock.calls.some((c) => String(c[2]).includes("🔧"))).toBe(false);
+  });
+
+  it("activeAgent 决定注入的系统提示词（fake provider 断言 system）", async () => {
+    const seenSystems: string[] = [];
+    const recorded: Recorded = emptyRecorded();
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "答" }], { workspaceRoot: workspace, activeAgent: "plan" }, recorded),
+      providerFactory: () =>
+        createMockProvider({
+          turns: [{ text: "答" }],
+          onChat: (req) => seenSystems.push(req.system),
+        }),
+    });
+
+    await runtime.send("agent-1", "规划一下", "m-agent-1");
+
+    expect(seenSystems).toEqual([systemPromptFor("plan")]);
+    expect(seenSystems[0]).not.toBe(systemPromptFor("default"));
   });
 });
 

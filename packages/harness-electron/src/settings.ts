@@ -3,7 +3,9 @@
 // free of Electron imports so the runtime stays unit-testable.
 
 import { modelFromPreset, resolvePresetMeta, type ModelInfo } from "./modelPresets";
+import { AGENT_IDS, type AgentId } from "./agents";
 
+export type { AgentId } from "./agents";
 export type { ModelInfo } from "./modelPresets";
 
 export type ProviderKind = "openai" | "anthropic";
@@ -38,6 +40,8 @@ export interface HarnessSettings {
   locale?: UiLocale;
   /** 思考档位（""=跟随模型默认；off/low/medium/high）。 */
   reasoningEffort?: ReasoningEffort;
+  /** 当前内置 agent（default/plan/full），决定系统提示词；非法值回落 default。 */
+  activeAgent?: AgentId;
 }
 
 /** 思考档位全集；空串 = 不带参数（跟随模型默认）。max 透传给支持的端点
@@ -48,6 +52,10 @@ export const REASONING_EFFORTS: ReasoningEffort[] = ["", "off", "low", "medium",
 
 function normalizeReasoningEffort(raw: unknown): ReasoningEffort {
   return REASONING_EFFORTS.includes(raw as ReasoningEffort) ? (raw as ReasoningEffort) : "";
+}
+
+function normalizeActiveAgent(raw: unknown): AgentId {
+  return AGENT_IDS.includes(raw as AgentId) ? (raw as AgentId) : "default";
 }
 
 /** Built-in offline profile — always available, models: ["mock"]. */
@@ -98,6 +106,7 @@ export const DEFAULT_SETTINGS: HarnessSettings = {
   themeMode: "system",
   locale: "",
   reasoningEffort: "",
+  activeAgent: "default",
 };
 
 let customSeq = 0;
@@ -242,6 +251,7 @@ function migrateFromV1(v1: SettingsV1): HarnessSettings {
     themeMode: normalizeThemeMode((v1 as { themeMode?: unknown }).themeMode),
     locale: normalizeLocale((v1 as { locale?: unknown }).locale),
     reasoningEffort: normalizeReasoningEffort((v1 as { reasoningEffort?: unknown }).reasoningEffort),
+    activeAgent: normalizeActiveAgent((v1 as { activeAgent?: unknown }).activeAgent),
   };
 }
 
@@ -258,7 +268,8 @@ export function mergeSettings(raw: unknown): HarnessSettings {
     return { ...DEFAULT_SETTINGS, workspaceRoot: src.workspaceRoot ?? "",
       permissionMode: normalizePermissionMode(src.permissionMode),
       themeMode: normalizeThemeMode(src.themeMode), locale: normalizeLocale(src.locale),
-      reasoningEffort: normalizeReasoningEffort(src.reasoningEffort) };
+      reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),
+      activeAgent: normalizeActiveAgent(src.activeAgent) };
   }
 
   const profiles = src.profiles
@@ -277,6 +288,7 @@ export function mergeSettings(raw: unknown): HarnessSettings {
     themeMode: normalizeThemeMode(src.themeMode),
     locale: normalizeLocale(src.locale),
     reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),
+    activeAgent: normalizeActiveAgent(src.activeAgent),
   };
 }
 
@@ -327,12 +339,6 @@ export async function listModels(
     .filter((id): id is string => typeof id === "string" && id.length > 0);
   return [...new Set(ids)];
 }
-
-export const DEFAULT_SYSTEM_PROMPT =
-  "你是 InnocenceCode 的编程助手。你可以调用工具读写工作区文件。\n" +
-  "约定：引用代码位置用 `文件路径:行号`；修改文件前先 Read 确认原文；" +
-  "工具失败时读取错误信息自行纠正，不要重复同样的失败调用；" +
-  "回答用用户的语言，简洁直接。";
 
 export const MOCK_GREETING =
   "当前是本地 Mock 模型（未配置真实 API）。我只会原样回复，不会调用工具。\n\n" +

@@ -33,6 +33,13 @@ describe("Composer", () => {
     fireEvent.click(screen.getByRole("button", { name: /permission.mode.auto/ }));
     expect(onSettingsChange).toHaveBeenCalledWith({ permissionMode: "auto" });
   });
+  it("Agent chip 切换走 onSettingsChange({activeAgent})", () => {
+    const onSettingsChange = vi.fn();
+    render(<Composer t={t} streaming={false} settings={settings} onSettingsChange={onSettingsChange} onSend={() => {}} onStop={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /agent.select/ }));
+    fireEvent.click(screen.getByRole("button", { name: /agent.plan/ }));
+    expect(onSettingsChange).toHaveBeenCalledWith({ activeAgent: "plan" });
+  });
   it("header 插槽渲染在面板首行（落地态项目选择行）", () => {
     render(
       <Composer
