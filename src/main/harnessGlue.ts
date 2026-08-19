@@ -14,8 +14,12 @@ import {
 } from "@innocencecode/harness-electron";
 import {
   loadInnocenceConfig,
+  loadPluginToggles,
+  resolvePluginSet,
   rulesFromConfig,
   type HarnessPlugin,
+  type PluginDescriptor,
+  type PluginToggleSource,
   type ProjectPermissionConfig,
 } from "@innocencecode/harness-core";
 import { fsPlugin } from "@innocencecode/tools-fs";
@@ -23,6 +27,7 @@ import { shellPlugin } from "@innocencecode/tools-shell";
 import { subagentPlugin } from "@innocencecode/plugin-subagent";
 import { skillsPlugin } from "@innocencecode/plugin-skills";
 import { mcpPlugin } from "@innocencecode/plugin-mcp";
+import { todoPlugin } from "@innocencecode/tools-todo";
 import {
   IPC,
   appendText,
@@ -66,24 +71,59 @@ function projectRulesPlugin(config: ProjectPermissionConfig | undefined): Harnes
   };
 }
 
+/** 声明式插件关系表（spec B 3.4）：id → 依赖，core = 恒开不可关。
+ *  组合根只声明关系与实例化，启停判定（两级覆盖/依赖连带）全部交给
+ *  resolvePluginSet。描述符 id "todo" 映射 todoPlugin 实例（插件 name
+ *  为 "todoPlugin"，与描述符 id 不同名，故在此注明对应关系）。 */
+export const PLUGIN_DESCRIPTORS: readonly PluginDescriptor[] = [
+  { id: "fs", dependencies: [], core: true },
+  { id: "shell", dependencies: [], core: true },
+  { id: "subagent", dependencies: ["fs", "shell"] },
+  { id: "skills", dependencies: ["fs"] },
+  { id: "mcp", dependencies: [] },
+  { id: "todo", dependencies: [] },
+];
+
 /** Host composition root: one workspace's plugin set — workspace tools,
- *  subagents, project permission rules, project skills and MCP servers. */
-async function composePlugins(workspaceRoot: string): Promise<HarnessPlugin[]> {
-  const config = await loadInnocenceConfig(workspaceRoot);
-  return [
-    fsPlugin,
-    shellPlugin,
-    subagentPlugin,
-    projectRulesPlugin(config.permissions),
-    skillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }),
-    mcpPlugin({ servers: config.mcpServers ?? {} }),
-  ];
+ *  subagents, project permission rules, project skills, MCP servers and the
+ *  session todo tool. Declarative assembly: project plugins.yml + user
+ *  toggles → resolvePluginSet → instantiate by active id. fs/shell are core
+ *  and the project-rules plugin is not toggleable, so all three are always
+ *  present; skipped plugins and resolver warnings surface through the logger.
+ *  Exported for the integration test (real yml + real resolver, no Electron). */
+export async function composePlugins(
+  workspaceRoot: string,
+  userToggles?: PluginToggleSource,
+): Promise<HarnessPlugin[]> {
+  const [config, project] = await Promise.all([
+    loadInnocenceConfig(workspaceRoot),
+    loadPluginToggles(workspaceRoot),
+  ]);
+  const resolved = resolvePluginSet(PLUGIN_DESCRIPTORS, userToggles, project);
+  for (const { id, reason, via } of resolved.skipped) {
+    logger.info("plugin skipped", { id, reason, via });
+  }
+  for (const warning of resolved.warnings) logger.warn("plugin set", warning);
+
+  const active = new Set(resolved.active);
+  const plugins: HarnessPlugin[] = [];
+  if (active.has("fs")) plugins.push(fsPlugin);
+  if (active.has("shell")) plugins.push(shellPlugin);
+  // 项目权限规则在关系模型之外（spec 非目标：不可关闭），恒定注入。
+  plugins.push(projectRulesPlugin(config.permissions));
+  if (active.has("subagent")) plugins.push(subagentPlugin);
+  if (active.has("skills")) {
+    plugins.push(skillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }));
+  }
+  if (active.has("mcp")) plugins.push(mcpPlugin({ servers: config.mcpServers ?? {} }));
+  if (active.has("todo")) plugins.push(todoPlugin);
+  return plugins;
 }
 
 const runtime = new HarnessRuntime({
   settings: () => settings,
   persistDir: transcriptsDir(),
-  pluginsForSession: ({ workspaceRoot }) => composePlugins(workspaceRoot),
+  pluginsForSession: ({ workspaceRoot }) => composePlugins(workspaceRoot, settings.pluginToggles),
   hooks: {
     onDelta: (sessionId, messageId, delta) => {
       sessions.updateMessage(sessionId, messageId, (m) => {
