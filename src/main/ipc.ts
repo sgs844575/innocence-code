@@ -47,9 +47,12 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.sessionDelete, async (_e, id: string) => {
     // Stop first, then AWAIT resource release before unlinking the session
-    // index/transcript: the turn's final persist lands before the files
-    // disappear, and MCP child processes are gone when the delete resolves.
-    // dispose's bounded build-wait keeps this from ever hanging.
+    // index/transcript: MCP child processes are gone when the delete
+    // resolves, and dispose's bounded build-wait keeps this from ever
+    // hanging. The turn's final persist is NOT guaranteed to land before
+    // the files disappear: dispose waits the active run, but the
+    // fire-and-forget runtime.send tail (persistTurn after run settles)
+    // can still write afterwards — a known, harmless orphan transcript.
     stopChatTurn(id);
     await disposeSession(id);
     sessions.deleteSession(id);

@@ -155,7 +155,7 @@ export interface ModelInfo {
 // （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
 /** 脱敏持久化资源：工具调用作用的对象摘要，raw 值永不进入。 */
 export interface PermissionResourceInfo {
-  /** 资源类别（file/process/url/skill…）。 */
+  /** 资源类别（path/command/url…）。 */
   kind: string;
   /** 资源上的动作（read/write/execute…）。 */
   action: string;

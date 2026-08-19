@@ -60,10 +60,11 @@ export function resourceGrantKey(toolName: string, resource: PermissionResource)
 }
 
 /**
- * Pipeline (short-circuit, deny-first for safety):
+ * Pipeline (short-circuit; validateResource is the only fail-closed hard gate):
  *   0. validateResource      -> throw = reject（全模式硬校验，fail-closed）
- *   1. full mode             -> ALLOW（含 deny 规则，完全访问；仅跳过询问）
- *   2. any deny rule         -> DENY
+ *   1. full mode             -> ALLOW（完全访问：短路在 deny 规则之前，
+ *                                full 模式下 deny 规则不生效，仅跳过询问）
+ *   2. any deny rule         -> DENY（仅非 full 模式会执行到这一步）
  *   3. plan mode             -> readOnly ? ALLOW : DENY
  *   4. any allow rule        -> ALLOW
  *   5. auto mode             -> ALLOW
