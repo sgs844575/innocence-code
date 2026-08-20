@@ -46,6 +46,7 @@ import {
   createGitAdapter,
   GitWorkspaceError,
   type GitAdapter,
+  type GitBaseline,
   type WorktreeLease,
 } from "@innocencecode/task-git";
 import { LiveTaskPort } from "./taskPort";
@@ -187,8 +188,9 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
     // replays it.
     let gitLease: WorktreeLease | undefined;
     let effectiveRoot = userRoot;
+    let baseline: GitBaseline | undefined;
     if (kind === "git") {
-      const baseline = await git.captureBaseline(userRoot);
+      baseline = await git.captureBaseline(userRoot);
       await repository.storage.storage.writeFileAtomic(
         "baseline.json",
         `${JSON.stringify(baseline, null, 2)}\n`,
@@ -205,8 +207,6 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
             `task bridge: isolated worktree creation failed (no baseline fallback): ${String(error)}`,
           );
         }
-        await git.overlayBaseline(gitLease, baseline);
-        effectiveRoot = gitLease.path;
       }
     } else if (request.mode === "isolated") {
       throw new Error(
@@ -217,9 +217,16 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
     // Baseline checkpoint: CAS-put the effective workspace's files, then the
     // manifest that references them (checkpoint content before the manifest,
     // the same durability order the turn commit coordinator uses).
+    // The protected region starts the moment the attempt owns ANY resource
+    // (the worktree lease): every failure from the overlay on destroys the
+    // worktree, so a partial start can never orphan one.
     const checkpointId = mintId("ckpt");
     let watcher: WorkspaceWatcher | undefined;
     try {
+      if (gitLease && baseline) {
+        await git.overlayBaseline(gitLease, baseline);
+        effectiveRoot = gitLease.path;
+      }
       const snapshot = await scanWorkspace(effectiveRoot);
       const files = snapshot.files.filter((file) => !isGitInternal(file.path));
       for (const file of files) {

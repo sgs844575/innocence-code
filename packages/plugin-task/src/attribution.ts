@@ -15,13 +15,15 @@
  * task completion. Externally attributed paths carry a protected content
  * hash and must never be touched by task restore/apply (enforced in
  * Tasks 5/6 via {@link excludedPaths}).
+ *
+ * The ChangeSource/Attribution unions are task-core's canonical vocabulary
+ * (single-sourced with the persisted event types — see
+ * task-core/src/events.ts).
  */
+import type { TaskAttribution, TaskChangeSource } from "@innocencecode/task-core";
 
-/** Where a captured change came from. */
-export type ChangeSource =
-  | "declared" // the tool's declared write target (permission resource kind "path")
-  | "unknown" // watcher event or before/after scan delta, author unknown
-  | "delegated"; // recorded by a child scope on behalf of the parent task
+/** Where a captured change came from (task-core's canonical union). */
+export type ChangeSource = TaskChangeSource;
 
 export type AttributionStatus =
   | "candidate" // changed path detected, attribution not yet requested
@@ -30,8 +32,8 @@ export type AttributionStatus =
   | "excluded" // user attributed it to an external actor
   | "conflict"; // change overlaps a declared (expected) task write
 
-/** The user's answer to an attribution request. */
-export type Attribution = "task-owned" | "external";
+/** The user's answer to an attribution request (task-core's canonical union). */
+export type Attribution = TaskAttribution;
 
 /** A changed path as observed by the watcher or a before/after workspace scan. */
 export interface ObservedChange {

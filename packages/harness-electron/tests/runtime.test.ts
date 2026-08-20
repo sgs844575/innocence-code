@@ -672,8 +672,67 @@ describe("HarnessRuntime route cache", () => {
     await runtime.dispose("s1", "child");
     expect(disposed).toEqual(["s1:child"]);
 
+    // An EMPTY routeId normalizes to the main route (like send), never a
+    // dead key that silently matches nothing.
+    await runtime.dispose("s1", "");
+    expect(disposed).toEqual(["s1:child", "s1:main"]);
+    runtime.stop("s1", ""); // no throw, no dead-key leak
+
     await runtime.dispose("s1");
     expect([...disposed].sort()).toEqual(["s1:child", "s1:main"]);
+  });
+
+  it("roots a task route's session at the route-resolved workspace, not the settings root", async () => {
+    const taskWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "innocence-task-ws-"));
+    try {
+      const agentFactory = recordingAgentFactory();
+      const contexts: PluginFactoryContext[] = [];
+      const runtime = new HarnessRuntime({
+        ...runtimeOptions([{ text: "答" }], { workspaceRoot: workspace }, emptyRecorded()),
+        pluginsForSession: (context) => {
+          contexts.push(context);
+          return [];
+        },
+        agentFactory: agentFactory.factory,
+        // Task routes resolve to the task's effective workspace (its
+        // worktree); everything else keeps the settings root.
+        workspaceRootFor: ({ taskId }) => (taskId === "t1" ? taskWorkspace : undefined),
+      });
+
+      await runtime.send({ sessionId: "root-1", routeId: "child", taskId: "t1", text: "x", messageId: "m-r1" });
+      await runtime.send({ sessionId: "root-1", routeId: "main", taskId: "", text: "y", messageId: "m-r2" });
+
+      const child = agentFactory.sessions.get("root-1:child")!;
+      expect(child.workspaceRoot).toBe(taskWorkspace);
+      expect(contexts[0].workspaceRoot).toBe(taskWorkspace); // plugins compose against it too
+      expect(agentFactory.sessions.get("root-1:main")!.workspaceRoot).toBe(workspace);
+      await runtime.disposeAll();
+    } finally {
+      await fs.rm(taskWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  it("a failed build leaves the route buildable again (no stale build context)", async () => {
+    let fail = true;
+    const recorded: Recorded = emptyRecorded();
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }, recorded),
+      pluginsForSession: () => {
+        if (fail) {
+          fail = false;
+          throw new Error("factory boom");
+        }
+        return [];
+      },
+    });
+
+    await chatTurn(runtime, "retry-1", "一", "m-r1");
+    expect(recorded.errors).toHaveLength(1);
+    expect(recorded.completed).toBe(0);
+
+    await chatTurn(runtime, "retry-1", "二", "m-r2");
+    expect(recorded.completed).toBe(1);
+    expect(recorded.errors).toHaveLength(1);
   });
 
   it("persists non-main route turns as turn-v3 rows that never re-enter the main history", async () => {

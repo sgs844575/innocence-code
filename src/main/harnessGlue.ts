@@ -44,7 +44,7 @@ import { getMainWindow } from "./appWindow";
 import { broadcastTheme, setTheme } from "./theme";
 import { logger } from "./logger";
 import { broadcastSessions } from "./sessionEvents";
-import { createTaskRuntimeBridge, taskPluginsForRoute } from "./taskRuntimeBridge";
+import { createTaskRuntimeBridge, resolveTaskWorkspaceRoot, taskPluginsForRoute } from "./taskRuntimeBridge";
 
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -139,6 +139,15 @@ const taskBridge = createTaskRuntimeBridge({
 const runtime = new HarnessRuntime({
   settings: () => settings,
   persistDir: transcriptsDir(),
+  // Authoritative per-route workspace root: a live task's effective workspace
+  // (the isolated worktree) wins, then the session-bound project root, then
+  // settings — settings.workspaceRoot is never the sole task root.
+  workspaceRootFor: (context) =>
+    (context.taskId ? taskBridge.get(context.taskId)?.workspaceRoot : undefined) ||
+    resolveTaskWorkspaceRoot(context.sessionId, {
+      getSessionWorkspaceRoot: (id) => sessions.getSession(id)?.workspaceRoot || undefined,
+      fallbackRoot: settings.workspaceRoot,
+    }),
   pluginsForSession: async (context) => [
     ...(await composePlugins(context.workspaceRoot, settings.pluginToggles)),
     // Route-scoped task sessions get the change-capture middleware bound to

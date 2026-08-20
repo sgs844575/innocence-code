@@ -165,6 +165,34 @@ describe("taskRuntimeBridge.start", () => {
     await bridge.disposeAll();
   });
 
+  it("destroys the worktree when the baseline overlay fails mid-start (no orphan)", async () => {
+    const repo = await createGitFixture({ "a.txt": "x\n" });
+    const storageDir = await tempDir("ic-bridge-overlay-");
+    const worktreeDir = path.join(storageDir, "wt");
+    const failingOverlay: GitAdapter = {
+      ...createGitAdapter(),
+      overlayBaseline: async () => {
+        throw new Error("overlay boom");
+      },
+    };
+    const bridge = createTaskRuntimeBridge({
+      taskStorageDir: storageDir,
+      worktreeDir,
+      git: failingOverlay,
+      onTaskEvent: () => {},
+    });
+
+    await expect(
+      bridge.start({ taskId: "task_overlay", mode: "isolated", workspaceRoot: repo }),
+    ).rejects.toThrow("overlay");
+
+    // The attempt's worktree is gone — directory AND Git registration.
+    await expect(fs.access(path.join(worktreeDir, "task_overlay"))).rejects.toThrow();
+    expect(await worktreePaths(repo)).toHaveLength(1);
+    expect(bridge.listTasks()).toEqual([]);
+    await bridge.disposeAll();
+  });
+
   it("baseline mode runs directly in the user's workspace (no worktree)", async () => {
     const repo = await createGitFixture({ "a.txt": "x\n" });
     const { bridge, events } = await makeBridge();
