@@ -34,9 +34,10 @@ export interface PtySession {
   /** Resizes the pty (xterm fit-addon dimensions). */
   resize(cols: number, rows: number): void;
   /**
-   * Resolves with the accumulated output (ANSI escapes stripped) once it has
-   * settled — i.e. non-empty and quiet for a moment. Test and bootstrap aid;
-   * live consumers subscribe through the manager's onEvent instead.
+   * Resolves with the retained output tail (ANSI escapes stripped, capped at
+   * PTY_OUTPUT_BUFFER_MAX_CHARS) once it has settled — i.e. non-empty and
+   * quiet for a moment. Test and bootstrap aid; live consumers subscribe
+   * through the manager's onEvent instead (uncapped).
    */
   output(settleMs?: number): Promise<string>;
   /** Notifies when the shell exits (by itself or via dispose). */
@@ -91,6 +92,14 @@ function stripAnsi(text: string): string {
 const DISPOSE_TIMEOUT_MS = 5_000;
 const OUTPUT_WAIT_MS = 10_000;
 
+/**
+ * Raw output retained for output(): only the TAIL is ever needed (path and
+ * settle assertions), so a long-lived shell (e.g. a dev server streaming for
+ * hours) cannot grow main-process memory without bound. Events still carry
+ * every byte to live consumers regardless of this cap.
+ */
+export const PTY_OUTPUT_BUFFER_MAX_CHARS = 1_000_000;
+
 export class LivePtySession implements PtySession {
   readonly ptyId: string;
   readonly taskId: string;
@@ -125,7 +134,11 @@ export class LivePtySession implements PtySession {
     });
     this.pty.onData((data) => {
       if (this.ended) return;
+      // Cap the retained tail; every byte still flows through onEvent.
       this.buffer += data;
+      if (this.buffer.length > PTY_OUTPUT_BUFFER_MAX_CHARS) {
+        this.buffer = this.buffer.slice(this.buffer.length - PTY_OUTPUT_BUFFER_MAX_CHARS);
+      }
       this.lastDataAt = Date.now();
       this.options.onEvent({ type: "output", taskId: this.taskId, routeId: this.routeId, ptyId: this.ptyId, data });
     });

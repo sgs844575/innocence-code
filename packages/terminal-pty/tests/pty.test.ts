@@ -12,7 +12,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createPtyManager, type PtyEvent, type PtyManager } from "../src/index";
+import {
+  createPtyManager,
+  PTY_OUTPUT_BUFFER_MAX_CHARS,
+  type PtyEvent,
+  type PtyManager,
+} from "../src/index";
 
 const execFileAsync = promisify(execFile);
 const isWin = process.platform === "win32";
@@ -144,6 +149,27 @@ describe("PtyManager (real node-pty)", () => {
       await expect(b.dispose()).resolves.toBeUndefined();
     },
     20_000,
+  );
+
+  it(
+    "caps the output buffer at the last megabyte — no unbounded growth, tail preserved",
+    async () => {
+      const pty = await manager.create({ taskId: "t-cap", routeId: "r-cap", cwd: fixtureRoot });
+      // Push well past the cap through the real shell: head marker + 1.2 MB
+      // of padding + tail marker. The echoed command (which also mentions the
+      // markers) and the head marker must be evicted; the tail must survive.
+      await pty.write(
+        isWin
+          ? `node -e "console.log('HEAD_7A_START'); process.stdout.write('A'.repeat(1200000)); console.log('TAIL_9Z_END')"\r`
+          : `node -e "console.log('HEAD_7A_START'); process.stdout.write('A'.repeat(1200000)); console.log('TAIL_9Z_END')"\n`,
+      );
+      const text = await pty.output(500);
+      expect(text).toContain("TAIL_9Z_END");
+      expect(text).not.toContain("HEAD_7A_START");
+      expect(text.length).toBeLessThanOrEqual(PTY_OUTPUT_BUFFER_MAX_CHARS);
+      await manager.disposeForRoute("t-cap", "r-cap");
+    },
+    40_000,
   );
 
   it(
