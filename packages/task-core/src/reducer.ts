@@ -8,6 +8,7 @@ import {
   type Checkpoint,
   type Route,
   type TaskHead,
+  type TaskTurn,
 } from "./model";
 import { attachRoute, createRoute } from "./route";
 
@@ -41,10 +42,17 @@ export class TaskRecoveryError extends Error {
   }
 }
 
-/** Reduced task state: the task head plus the route DAG and turn checkpoints. */
+/** Reduced task state: the task head plus the route DAG, turn checkpoints and turn phases. */
 export interface TaskState extends TaskHead {
   routes: ReadonlyMap<string, Route>;
   checkpoints: ReadonlyMap<string, Checkpoint>;
+  turns: ReadonlyMap<string, TaskTurn>;
+}
+
+/** Narrows a reduced state back to the persistable task head fields (task.json). */
+export function toTaskHead(state: TaskState): TaskHead {
+  const { routes: _routes, checkpoints: _checkpoints, turns: _turns, ...head } = state;
+  return head;
 }
 
 const TASK_STATUSES: ReadonlySet<string> = new Set([
@@ -175,6 +183,14 @@ function validateTaskEvent(raw: unknown, eventIndex: number): TaskEvent {
       validateEnvelope(record, eventIndex);
       return record as unknown as TaskEvent;
     }
+    case "turnPrepared":
+    case "turnCommitted": {
+      requireNonEmptyString(record.turnId, "turnId", eventIndex);
+      requireNonEmptyString(record.checkpointId, "checkpointId", eventIndex);
+      requireNonEmptyString(record.routeId, "routeId", eventIndex);
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
     default:
       throw new TaskRecoveryError({
         kind: "unknown-event",
@@ -196,6 +212,7 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
   let head: TaskHead | null = null;
   let routes: ReadonlyMap<string, Route> = new Map();
   let checkpoints: ReadonlyMap<string, Checkpoint> = new Map();
+  let turns: ReadonlyMap<string, TaskTurn> = new Map();
 
   for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
     const event = validateTaskEvent(events[eventIndex], eventIndex);
@@ -235,6 +252,31 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
           files: event.files,
         });
         checkpoints = new Map(checkpoints).set(checkpoint.checkpointId, checkpoint);
+      } else if (event.type === "turnPrepared") {
+        if (turns.has(event.turnId)) {
+          throw incompleteEvent(eventIndex, `turn ${event.turnId} is already prepared`);
+        }
+        turns = new Map(turns).set(event.turnId, {
+          turnId: event.turnId,
+          checkpointId: event.checkpointId,
+          routeId: event.routeId,
+          phase: "prepared",
+        });
+      } else if (event.type === "turnCommitted") {
+        const prepared = turns.get(event.turnId);
+        if (prepared === undefined) {
+          throw incompleteEvent(eventIndex, "turnCommitted must follow turnPrepared for the same turn");
+        }
+        if (prepared.phase === "committed") {
+          throw incompleteEvent(eventIndex, `turn ${event.turnId} is already committed`);
+        }
+        if (prepared.checkpointId !== event.checkpointId) {
+          throw incompleteEvent(eventIndex, "turnCommitted checkpointId does not match turnPrepared");
+        }
+        if (prepared.routeId !== event.routeId) {
+          throw incompleteEvent(eventIndex, "turnCommitted routeId does not match turnPrepared");
+        }
+        turns = new Map(turns).set(event.turnId, { ...prepared, phase: "committed" });
       } else {
         routes = attachRoute(routes, event.route);
         head = withActiveRouteId(head, event.route.routeId);
@@ -248,5 +290,5 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
   if (head === null) {
     throw incompleteEvent(0, "event log must start with taskCreated");
   }
-  return { ...head, routes, checkpoints };
+  return { ...head, routes, checkpoints, turns };
 }

@@ -7,6 +7,8 @@ import {
   taskCreatedEvent,
   taskStatusEvent,
   turnCheckpointedEvent,
+  turnCommittedEvent,
+  turnPreparedEvent,
   type TaskEvent,
 } from "../src/index";
 
@@ -196,6 +198,85 @@ describe("structured recovery errors", () => {
   });
 });
 
+describe("turn lifecycle events (turnPrepared/turnCommitted)", () => {
+  const created = () => taskCreatedEvent({ taskId: "t1", routeId: "r0", baselineCheckpointId: "c0" });
+
+  it("tracks the per-turn commit phase from prepared to committed", () => {
+    const state = reduceTask([
+      created(),
+      turnPreparedEvent({ eventId: "e1", turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+      turnPreparedEvent({ eventId: "e2", turnId: "turn-2", checkpointId: "cp-2", routeId: "r0" }),
+      turnCommittedEvent({ eventId: "e3", turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+    ]);
+    expect(state.turns.get("turn-1")).toEqual({
+      turnId: "turn-1",
+      checkpointId: "cp-1",
+      routeId: "r0",
+      phase: "committed",
+    });
+    expect(state.turns.get("turn-2")?.phase).toBe("prepared");
+    expect(state.lastCommittedEventId).toBe("e3");
+  });
+
+  it("rejects turnCommitted without a matching turnPrepared", () => {
+    const recovery = captureRecovery(() =>
+      reduceTask([created(), turnCommittedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" })]),
+    );
+    expect(recovery.kind).toBe("incomplete-event");
+    expect(recovery.reason).toContain("turnPrepared");
+  });
+
+  it("rejects a duplicate turnPrepared and a duplicate turnCommitted", () => {
+    const duplicatePrepared = captureRecovery(() =>
+      reduceTask([
+        created(),
+        turnPreparedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+        turnPreparedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+      ]),
+    );
+    expect(duplicatePrepared.kind).toBe("incomplete-event");
+
+    const duplicateCommitted = captureRecovery(() =>
+      reduceTask([
+        created(),
+        turnPreparedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+        turnCommittedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+        turnCommittedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+      ]),
+    );
+    expect(duplicateCommitted.kind).toBe("incomplete-event");
+  });
+
+  it("rejects turnCommitted fields that disagree with turnPrepared", () => {
+    for (const mismatch of [
+      turnCommittedEvent({ turnId: "turn-1", checkpointId: "cp-OTHER", routeId: "r0" }),
+      turnCommittedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r-OTHER" }),
+    ]) {
+      const recovery = captureRecovery(() =>
+        reduceTask([
+          created(),
+          turnPreparedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" }),
+          mismatch,
+        ]),
+      );
+      expect(recovery.kind).toBe("incomplete-event");
+      expect(recovery.reason).toMatch(/does not match/);
+    }
+  });
+
+  it("rejects structurally invalid turn lifecycle events", () => {
+    for (const bad of [
+      { type: "turnPrepared", checkpointId: "cp-1", routeId: "r0" },
+      { type: "turnPrepared", turnId: "turn-1", routeId: "r0" },
+      { type: "turnPrepared", turnId: "turn-1", checkpointId: "cp-1" },
+      { type: "turnCommitted" },
+    ]) {
+      const recovery = captureRecovery(() => reduceTask([created(), bad as unknown as TaskEvent]));
+      expect(recovery.kind).toBe("incomplete-event");
+    }
+  });
+});
+
 describe("event factories", () => {
   it("fills JSON-safe envelopes and defaults", () => {
     const created = taskCreatedEvent();
@@ -208,6 +289,21 @@ describe("event factories", () => {
     expect(checkpointed.turnId).toBeTruthy();
     expect(checkpointed.routeId).toBeNull();
     expect(checkpointed.files).toEqual([]);
+  });
+
+  it("stamps turn lifecycle events with envelope ids and required fields", () => {
+    const prepared = turnPreparedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" });
+    expect(prepared).toEqual({
+      type: "turnPrepared",
+      eventId: expect.stringMatching(/^event_/) as unknown as string,
+      at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) as unknown as string,
+      turnId: "turn-1",
+      checkpointId: "cp-1",
+      routeId: "r0",
+    });
+    const committed = turnCommittedEvent({ turnId: "turn-1", checkpointId: "cp-1", routeId: "r0" });
+    expect(committed.type).toBe("turnCommitted");
+    expect(committed.turnId).toBe("turn-1");
   });
 
   it("deep-copies file entries instead of aliasing them", () => {

@@ -40,7 +40,29 @@ export interface RouteAttachedEvent extends TaskEventEnvelope {
   route: Route;
 }
 
-export type TaskEvent = TaskCreatedEvent | TaskStatusEvent | TurnCheckpointedEvent | RouteAttachedEvent;
+/** Step 2 of the turn commit sequence: checkpoint + manifest are durable. */
+export interface TurnPreparedEvent extends TaskEventEnvelope {
+  type: "turnPrepared";
+  turnId: string;
+  checkpointId: string;
+  routeId: string;
+}
+
+/** Final event of the turn commit sequence; makes the turn visible. */
+export interface TurnCommittedEvent extends TaskEventEnvelope {
+  type: "turnCommitted";
+  turnId: string;
+  checkpointId: string;
+  routeId: string;
+}
+
+export type TaskEvent =
+  | TaskCreatedEvent
+  | TaskStatusEvent
+  | TurnCheckpointedEvent
+  | RouteAttachedEvent
+  | TurnPreparedEvent
+  | TurnCommittedEvent;
 
 const defaultClock = createNodeIdClock();
 
@@ -121,6 +143,37 @@ export function routeAttachedEvent(input: RouteAttachedEventInput): RouteAttache
   return {
     type: "routeAttached",
     route: { ...input.route },
+    eventId: input.eventId ?? clock.newId("event"),
+    at: input.at ?? clock.now(),
+  };
+}
+
+export interface TurnLifecycleEventInput extends TaskEventEnvelope {
+  clock?: TaskIdClock;
+  turnId: string;
+  checkpointId: string;
+  routeId: string;
+}
+
+export function turnPreparedEvent(input: TurnLifecycleEventInput): TurnPreparedEvent {
+  const clock = clockOf(input);
+  return {
+    type: "turnPrepared",
+    turnId: input.turnId,
+    checkpointId: input.checkpointId,
+    routeId: input.routeId,
+    eventId: input.eventId ?? clock.newId("event"),
+    at: input.at ?? clock.now(),
+  };
+}
+
+export function turnCommittedEvent(input: TurnLifecycleEventInput): TurnCommittedEvent {
+  const clock = clockOf(input);
+  return {
+    type: "turnCommitted",
+    turnId: input.turnId,
+    checkpointId: input.checkpointId,
+    routeId: input.routeId,
     eventId: input.eventId ?? clock.newId("event"),
     at: input.at ?? clock.now(),
   };

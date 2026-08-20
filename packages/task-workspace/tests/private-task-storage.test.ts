@@ -124,10 +124,13 @@ describe("task repository over the private layout", () => {
     expect((await fs.stat(path.join(base, "tasks", "task_repo2", "checkpoints", "cp_x.json"))).isFile()).toBe(true);
   });
 
-  it("surfaces a corrupt events line instead of silently dropping it", async () => {
+  it("surfaces a corrupt mid-file events line instead of silently dropping it", async () => {
     const repository = await openTaskRepository(base, "task_repo3");
     await repository.append([taskCreatedEvent({ taskId: "task_repo3" })]);
     await repository.storage.storage.appendFile("events.jsonl", "{not-json}\n");
-    await expect(repository.list()).rejects.toThrow(/corrupt events\.jsonl/);
+    // A later valid record makes the corrupt line NON-final: mid-file corruption
+    // must surface, while a truncated FINAL record is recovery-tolerated.
+    await repository.append([{ type: "taskStatus", status: "running" }]);
+    await expect(repository.list()).rejects.toThrow(/task recovery failed/);
   });
 });

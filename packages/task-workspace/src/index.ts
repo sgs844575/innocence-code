@@ -9,4 +9,6 @@ export * from "./workspace-lock.ts";
 export * from "./task-mutation-lock.ts";
 export * from "./private-task-storage.ts";
 export * from "./watcher.ts";
+export * from "./event-log.ts";
 export * from "./task-repository.ts";
+export * from "./turn-commit-coordinator.ts";

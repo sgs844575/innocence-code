@@ -54,6 +54,21 @@ export interface Checkpoint {
   files: FileSnapshotRef[];
 }
 
+/** Commit phase of one conversation turn in the persistence sequence. */
+export type TurnPhase = "prepared" | "committed";
+
+/**
+ * One turn's lifecycle as tracked by the reducer: turnPrepared inserts it in
+ * the "prepared" phase and turnCommitted flips it to "committed". Only
+ * committed turns are visible to the UI and Agent history.
+ */
+export interface TaskTurn {
+  turnId: string;
+  checkpointId: string;
+  routeId: string;
+  phase: TurnPhase;
+}
+
 export interface Hunk {
   ref: string;
   path: string;

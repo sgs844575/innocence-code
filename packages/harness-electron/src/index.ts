@@ -42,6 +42,11 @@ export {
   canonicalizeHistory,
   decodeTranscript,
   encodeTurnV2,
+  encodeTurnV3,
+  type DecodedMessage,
   type DecodedTranscript,
+  type TranscriptRoute,
   type TurnRecordV2,
+  type TurnRecordV3,
+  type TurnRecordV3Input,
 } from "./transcript";

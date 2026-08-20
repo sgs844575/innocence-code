@@ -1,8 +1,18 @@
-// Transcript JSONL codec. New records are append-only turn-v2 rows; legacy
-// records are full-history snapshots. Legacy decoding canonicalizes UI/coalesced
-// tool shapes, groups messages into logical user turns, then merges snapshot
-// sequences without raw-JSON prefix guessing.
-import type { Message, MessagePart, ToolResultPart } from "@innocencecode/harness-core";
+// Transcript JSONL codec — record types and ENCODERS. Decoding (legacy
+// canonicalization, v2/v3 route-aware folding) lives in transcript-decode.ts;
+// this split keeps each module under the ~250-300 line responsibility budget.
+// New records are append-only turn-v3 rows; turn-v2 rows remain encodable for
+// hosts that have not adopted routes yet; legacy records are full-history
+// snapshots.
+import type { Message } from "@innocencecode/harness-core";
+import { canonicalizeHistory, type DecodedMessage } from "./transcript-decode";
+
+export {
+  canonicalizeHistory,
+  decodeTranscript,
+  type DecodedMessage,
+  type DecodedTranscript,
+} from "./transcript-decode";
 
 export interface TurnRecordV2 {
   at: string;
@@ -11,156 +21,31 @@ export interface TurnRecordV2 {
   messages: Message[];
 }
 
-interface LegacyTurnRecord {
+/** One committed conversation turn with explicit route identity and ancestry. */
+export interface TurnRecordV3 {
+  type: "turn-v3";
+  at: string;
+  eventId: string;
+  turnId: string;
+  routeId: string;
+  parentTurnId: string | null;
+  checkpointId: string;
+  messages: Message[];
+}
+
+/** Route view recovered from the transcript: v2 rows map to "main". */
+export interface TranscriptRoute {
+  routeId: string;
+  parentTurnId: string | null;
+  turnIds: readonly string[];
+}
+
+/** Raw shape of a legacy full-history snapshot row (decoding only). */
+export interface LegacyTurnRecord {
   at?: unknown;
   type?: unknown;
   user?: unknown;
   history?: unknown;
-}
-
-export interface DecodedTranscript {
-  history: Message[];
-  lastAt?: string;
-  validRecords: number;
-}
-
-function validPart(raw: unknown): raw is MessagePart {
-  if (typeof raw !== "object" || raw === null) return false;
-  const p = raw as { type?: unknown };
-  return p.type === "text" || p.type === "thinking" || p.type === "toolCall" || p.type === "toolResult";
-}
-
-function validMessage(raw: unknown): raw is Message {
-  if (typeof raw !== "object" || raw === null) return false;
-  const m = raw as { role?: unknown; parts?: unknown };
-  return (m.role === "user" || m.role === "assistant") && Array.isArray(m.parts);
-}
-
-/** UI history may put toolResult parts inside assistant messages. Convert it
- * back to canonical harness shape: assistant blocks, then user result blocks. */
-export function canonicalizeHistory(rawMessages: unknown[]): Message[] {
-  const out: Message[] = [];
-  for (const raw of rawMessages) {
-    if (!validMessage(raw)) continue;
-    const parts = raw.parts.filter(validPart);
-    if (parts.length === 0) continue;
-    if (raw.role === "user") {
-      out.push({ role: "user", parts });
-      continue;
-    }
-    let assistant: MessagePart[] = [];
-    let results: ToolResultPart[] = [];
-    const flushAssistant = () => {
-      if (assistant.length > 0) out.push({ role: "assistant", parts: assistant });
-      assistant = [];
-    };
-    const flushResults = () => {
-      if (results.length > 0) out.push({ role: "user", parts: results });
-      results = [];
-    };
-    for (const part of parts) {
-      if (part.type === "toolResult") {
-        flushAssistant();
-        results.push(part);
-      } else {
-        flushResults();
-        assistant.push(part);
-      }
-    }
-    flushAssistant();
-    flushResults();
-  }
-  return out;
-}
-
-function logicalTurns(messages: Message[]): Message[][] {
-  const turns: Message[][] = [];
-  let current: Message[] = [];
-  for (const message of messages) {
-    const startsTurn =
-      message.role === "user" &&
-      message.parts.some((p) => p.type === "text" && p.text.length > 0);
-    if (startsTurn && current.length > 0) {
-      turns.push(current);
-      current = [];
-    }
-    current.push(message);
-  }
-  if (current.length > 0) turns.push(current);
-  return turns;
-}
-
-function textOf(message: Message): string {
-  return message.parts.filter((p) => p.type === "text").map((p) => p.text).join("");
-}
-
-/** A legacy record's top-level `user` field identifies the turn persisted by
- * that line. Find the last matching textual user message and take it through
- * the end of the snapshot. This is deterministic across cumulative snapshots,
- * restart fragments, canonical/UI shapes, and repeated identical prompts. */
-function legacyCurrentTurn(record: LegacyTurnRecord): Message[] {
-  if (!Array.isArray(record.history)) return [];
-  const messages = canonicalizeHistory(record.history);
-  const marker = typeof record.user === "string" ? record.user : "";
-  if (!marker) return logicalTurns(messages).at(-1) ?? [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]!;
-    if (message.role === "user" && textOf(message) === marker) {
-      return messages.slice(i);
-    }
-  }
-  return logicalTurns(messages).at(-1) ?? [];
-}
-
-export function decodeTranscript(raw: string): DecodedTranscript {
-  const history: Message[] = [];
-  const seenTurnIds = new Set<string>();
-  const seenRawLines = new Set<string>();
-  let seededLegacy = false;
-  let lastAt: string | undefined;
-  let validRecords = 0;
-
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || seenRawLines.has(trimmed)) continue;
-    seenRawLines.add(trimmed);
-    let parsed: TurnRecordV2 | LegacyTurnRecord;
-    try {
-      parsed = JSON.parse(trimmed) as TurnRecordV2 | LegacyTurnRecord;
-    } catch {
-      continue;
-    }
-    if (typeof parsed.at === "string") lastAt = parsed.at;
-
-    if (parsed.type === "turn-v2") {
-      const record = parsed as TurnRecordV2;
-      if (!Array.isArray(record.messages)) continue;
-      validRecords += 1;
-      if (seenTurnIds.has(record.turnId)) continue;
-      seenTurnIds.add(record.turnId);
-      history.push(...canonicalizeHistory(record.messages));
-      continue;
-    }
-
-    const record = parsed as LegacyTurnRecord;
-    if (!Array.isArray(record.history)) continue;
-    validRecords += 1;
-    const allTurns = logicalTurns(canonicalizeHistory(record.history));
-    // Legacy runtime persisted only after a model turn completed. A user-only
-    // snapshot is a torn/intermediate row, not a completed conversation turn.
-    const completed = allTurns.filter((turn) => turn.some((m) => m.role === "assistant"));
-    if (completed.length === 0) continue;
-    if (!seededLegacy) {
-      // The first surviving record may already be cumulative (earlier JSONL rows
-      // were lost/truncated), so seed every completed turn it contains once.
-      history.push(...completed.flat());
-      seededLegacy = true;
-    } else {
-      const current = legacyCurrentTurn(record);
-      if (current.some((m) => m.role === "assistant")) history.push(...current);
-    }
-  }
-  return { history, lastAt, validRecords };
 }
 
 export function encodeTurnV2(turnId: string, at: string, messages: Message[]): string {
@@ -169,6 +54,32 @@ export function encodeTurnV2(turnId: string, at: string, messages: Message[]): s
     type: "turn-v2",
     turnId,
     messages: canonicalizeHistory(messages),
+  };
+  return `${JSON.stringify(record)}\n`;
+}
+
+export interface TurnRecordV3Input {
+  at: string;
+  eventId: string;
+  turnId: string;
+  routeId: string;
+  parentTurnId: string | null;
+  checkpointId: string;
+  /** Accepts plain Message[] or already-decoded messages with preservedParts. */
+  messages: readonly DecodedMessage[];
+}
+
+/** Encodes one turn-v3 line; preserved unknown parts survive re-encoding. */
+export function encodeTurnV3(input: TurnRecordV3Input): string {
+  const record: TurnRecordV3 = {
+    type: "turn-v3",
+    at: input.at,
+    eventId: input.eventId,
+    turnId: input.turnId,
+    routeId: input.routeId,
+    parentTurnId: input.parentTurnId,
+    checkpointId: input.checkpointId,
+    messages: canonicalizeHistory(input.messages),
   };
   return `${JSON.stringify(record)}\n`;
 }

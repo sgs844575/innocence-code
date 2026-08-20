@@ -4,6 +4,7 @@
  *
  *   <base>/tasks/<taskId>/objects/<sha256>
  *   <base>/tasks/<taskId>/checkpoints/<checkpointId>.json
+ *   <base>/tasks/<taskId>/artifacts/<evidence-ref>.json
  *   <base>/tasks/<taskId>/events.jsonl
  *   <base>/tasks/<taskId>/task.json
  *   <base>/tasks/<taskId>/{backup,temp,apply-journal}/
@@ -26,7 +27,7 @@ export function assertSafeTaskId(taskId: string): string {
   return taskId;
 }
 
-const TASK_DIRS = ["objects", "checkpoints", "events", "backup", "temp", "apply-journal"] as const;
+const TASK_DIRS = ["objects", "checkpoints", "artifacts", "events", "backup", "temp", "apply-journal"] as const;
 const LOCK_DIRS = ["locks", "locks/workspace", "locks/task"] as const;
 
 export interface PrivateTaskStorage {
@@ -39,6 +40,8 @@ export interface PrivateTaskStorage {
   readonly storage: SecureStorage;
   readonly objectsDir: string;
   readonly checkpointsDir: string;
+  /** Evidence refs (JSON) referenced by review/artifact flows. */
+  readonly artifactsDir: string;
   readonly backupDir: string;
   readonly tempDir: string;
   readonly applyJournalDir: string;
@@ -67,6 +70,7 @@ export async function openPrivateTaskStorage(baseDir: string, taskId: string): P
     storage,
     objectsDir: storage.subdir("objects"),
     checkpointsDir: storage.subdir("checkpoints"),
+    artifactsDir: storage.subdir("artifacts"),
     backupDir: storage.subdir("backup"),
     tempDir: storage.subdir("temp"),
     applyJournalDir: storage.subdir("apply-journal"),
