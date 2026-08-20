@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import type { AppInfo, HarnessSettings } from "../../shared/ipc";
 import type { TaskForkRouteRequest } from "../../shared/taskIpc";
-import { api, codeApi, taskApi } from "./lib/ipc";
+import { api, codeApi, taskApi, terminalApi } from "./lib/ipc";
 import { createT } from "./lib/i18n";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
@@ -28,6 +28,7 @@ import { ReviewPanel } from "./components/task/ReviewPanel";
 import { RoutePanel } from "./components/task/RoutePanel";
 import { ForkRouteDialog } from "./components/task/ForkRouteDialog";
 import { CodePanel } from "./components/code/CodePanel";
+import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import type { ForkMessageCommand, TaskChangeCardCommand } from "./components/MessageItem";
 import { groupHunksByFile, summarizeChanges } from "./components/task/taskViewModel";
 import { useSessionController } from "./state/useSessionController";
@@ -236,8 +237,13 @@ export function App(): React.JSX.Element {
           api={codeApi}
         />
       ),
+      // 终端（C2）：真实 preload 桥 + 活动任务路线；面板关闭即卸载
+      // （WorkbenchShell 常驻挂载仅在面板打开期间成立）。
+      terminal: (
+        <TerminalPanel api={terminalApi} activeTask={workbench.activeTask} />
+      ),
     }),
-    [t, task, workbench.state.activeRouteId, reviewFiles, reviewData.files, reviewAndRefresh, restoreAndRefresh, workbench.switchRoute],
+    [t, task, workbench.state.activeRouteId, reviewFiles, reviewData.files, reviewAndRefresh, restoreAndRefresh, workbench.switchRoute, workbench.activeTask],
   );
 
   // 恢复横幅：恢复状态 → 可见告警（重试/关闭），与写工具门禁同源。

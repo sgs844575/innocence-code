@@ -3,12 +3,14 @@
 import type { InnocenceCodeApi } from "../../../shared/ipc";
 import type { TaskIpcApi } from "../../../shared/taskIpc";
 import type { CodeIpcApi } from "../../../shared/codeIpc";
+import type { TerminalIpcApi } from "../../../shared/terminalIpc";
 
 declare global {
   interface Window {
     innocencecode: InnocenceCodeApi;
     innocencecodeTask: TaskIpcApi;
     innocencecodeCode: CodeIpcApi;
+    innocencecodeTerminal: TerminalIpcApi;
   }
 }
 
@@ -44,6 +46,19 @@ export const codeApi: CodeIpcApi = new Proxy({} as CodeIpcApi, {
     const value = (window.innocencecodeCode as unknown as Record<string, unknown>)[prop];
     return typeof value === "function"
       ? (value as (...args: unknown[]) => unknown).bind(window.innocencecodeCode)
+      : value;
+  },
+});
+
+/** Route-bound terminal API — the preload bridge behind TerminalPanel. */
+export const terminalApi: TerminalIpcApi = new Proxy({} as TerminalIpcApi, {
+  get(_target, prop: string) {
+    if (typeof window === "undefined" || !window.innocencecodeTerminal) {
+      throw new Error("preload bridge missing: window.innocencecodeTerminal is unavailable");
+    }
+    const value = (window.innocencecodeTerminal as unknown as Record<string, unknown>)[prop];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(window.innocencecodeTerminal)
       : value;
   },
 });

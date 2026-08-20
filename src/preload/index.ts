@@ -13,6 +13,12 @@ import {
   CodeIpcChannels,
   type CodeIpcApi,
 } from "../shared/codeIpc";
+import {
+  TerminalIpcChannels,
+  type TerminalIpcApi,
+  type TerminalExitEvent,
+  type TerminalOutputEvent,
+} from "../shared/terminalIpc";
 
 function subscribe(channel: string, listener: (...args: never[]) => void): () => void {
   const wrapped = (_e: unknown, ...args: unknown[]) => (listener as (...a: unknown[]) => void)(...args);
@@ -86,6 +92,17 @@ const codeApi: CodeIpcApi = {
   openExternalEditor: (req) => ipcRenderer.invoke(CodeIpcChannels.codeOpenExternalEditor, req),
 };
 
+/** Route-bound terminal API — create/write/resize/dispose + output/exit push. */
+const terminalApi: TerminalIpcApi = {
+  create: (req) => ipcRenderer.invoke(TerminalIpcChannels.terminalCreate, req),
+  write: (req) => ipcRenderer.invoke(TerminalIpcChannels.terminalWrite, req),
+  resize: (req) => ipcRenderer.invoke(TerminalIpcChannels.terminalResize, req),
+  dispose: (req) => ipcRenderer.invoke(TerminalIpcChannels.terminalDispose, req),
+  onTerminalOutput: (cb) => subscribeTask<TerminalOutputEvent>(TerminalIpcChannels.terminalOutput, cb),
+  onTerminalExit: (cb) => subscribeTask<TerminalExitEvent>(TerminalIpcChannels.terminalExit, cb),
+};
+
 contextBridge.exposeInMainWorld("innocencecode", api);
 contextBridge.exposeInMainWorld("innocencecodeTask", taskApi);
 contextBridge.exposeInMainWorld("innocencecodeCode", codeApi);
+contextBridge.exposeInMainWorld("innocencecodeTerminal", terminalApi);

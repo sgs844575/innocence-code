@@ -165,6 +165,22 @@ export function TerminalPanel({ api, activeTask, onClose }: TerminalPanelProps):
     setCollection((prev) => markStaleRoutes(prev, activeTask));
   }, [activeTask]);
 
+  // UNMOUNT SEMANTICS (explicit decision, final review C2 — the Task 9
+  // deferred question): the panel OWNS its terminals' lifecycle. The shell
+  // keeps the panel mounted across TAB switches (xterm scrollback survives),
+  // but a PANEL CLOSE unmounts it — every live (non-exited) terminal is then
+  // disposed through the bridge so no shell trees leak in main. Keep-alive
+  // across closes is rejected: the renderer state is gone, so re-opening
+  // would spawn new terminals while the old PTYs stayed alive forever.
+  useEffect(() => () => {
+    for (const entry of Object.values(collectionRef.current.entries)) {
+      if (entry.exited) continue;
+      void api.dispose({ taskId: entry.taskId, routeId: entry.routeId, ptyId: entry.ptyId }).catch(
+        () => undefined,
+      );
+    }
+  }, [api]);
+
   // Auto-create a terminal for the active route when none is live.
   useEffect(() => {
     if (!activeTask) return;

@@ -278,4 +278,43 @@ describe("TerminalPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "收起终端面板" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // -- Unmount semantics (explicit decision, final review C2) ----------------
+
+  it("panel unmount disposes every live terminal (no shell trees leak on close)", async () => {
+    const { rerender, unmount } = render(
+      <TerminalPanel api={api} activeTask={{ taskId: "t1", routeId: "main" }} />,
+    );
+    await screen.findByRole("tab", { name: /main/ });
+    rerender(<TerminalPanel api={api} activeTask={{ taskId: "t1", routeId: "route_x" }} />);
+    await screen.findByRole("tab", { name: /route_x/ });
+    // One route's shell already exited: only live terminals are disposed.
+    await act(async () => {
+      api.emitExit({ taskId: "t1", routeId: "route_x", ptyId: "pty_2", exitCode: 0 });
+    });
+
+    unmount();
+    await waitFor(() =>
+      expect(api.dispose).toHaveBeenCalledWith({ taskId: "t1", routeId: "main", ptyId: "pty_1" }),
+    );
+    expect(api.dispose).toHaveBeenCalledTimes(1); // exited route_x is skipped
+  });
+
+  it("mounts through the workbench wiring with the real preload proxy path", async () => {
+    // The exact prop path App uses: lib/ipc's terminalApi proxy reading
+    // window.innocencecodeTerminal (the preload bridge surface).
+    const { terminalApi } = await import("../../lib/ipc");
+    (window as unknown as Record<string, unknown>).innocencecodeTerminal = api;
+    const { WorkbenchShell } = await import("../workbench/WorkbenchShell");
+    render(
+      <WorkbenchShell viewportWidth={1280} open activeTab="terminal" panels={{
+        terminal: <TerminalPanel api={terminalApi} activeTask={{ taskId: "t1", routeId: "main" }} />,
+      }} />,
+    );
+    expect(document.querySelector("section[aria-label='终端面板']")).toBeTruthy();
+    await waitFor(() => expect(api.create).toHaveBeenCalledWith({ taskId: "t1", routeId: "main" }));
+    await screen.findByRole("tab", { name: /main/ });
+    // The window bridge intentionally stays for this file's afterEach(cleanup)
+    // unmount (the proxy's dispose path must keep working during teardown).
+  });
 });
