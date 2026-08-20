@@ -217,6 +217,31 @@ describe("overlayBaseline", () => {
     }
   }, 60_000);
 
+  it("re-overlays a readonly baseline file (second overlay keeps succeeding)", async () => {
+    // Windows refuses to rename over an existing READONLY target (EPERM);
+    // recovery replays the overlay unconditionally, so a second overlay of a
+    // 0o444 baseline file must still succeed and keep the readonly mode.
+    const fixture = track(await createGitFixture({ committed: { "seed.txt": "seed\n" }, untracked: { "locked.ts": "locked\n" } }));
+    const readonly = path.join(fixture.root, "locked.ts");
+    await fs.chmod(readonly, 0o444);
+    try {
+      const adapter = createGitAdapter();
+      const baseline = await adapter.captureBaseline(fixture.root);
+      const parent = trackDir(await tempDir("innocence-worktree-"));
+      const lease = await adapter.createWorktree({ root: fixture.root, path: path.join(parent, "wt") });
+      await adapter.overlayBaseline(lease, baseline);
+      const overlaid = path.join(lease.path, "locked.ts");
+      expect((await fs.lstat(overlaid)).mode & 0o7777).toBe(0o444);
+
+      await adapter.overlayBaseline(lease, baseline); // as recovery does
+      expect(await readRepoFile(lease.path, "locked.ts")).toBe("locked\n");
+      expect((await fs.lstat(overlaid)).mode & 0o7777).toBe(0o444);
+      await fs.chmod(overlaid, 0o666); // allow cleanup to delete it
+    } finally {
+      await fs.chmod(readonly, 0o666).catch(() => undefined);
+    }
+  }, 60_000);
+
   it("mirrors a source deletion that happened after capture", async () => {
     const fixture = track(
       await createGitFixture({ committed: { "seed.txt": "seed\n" }, untracked: { "later-gone.ts": "x\n" } }),

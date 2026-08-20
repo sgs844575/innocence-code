@@ -111,6 +111,28 @@ describe("isolated mode apply", () => {
     expect(await indexSnapshot(fixture.root)).toEqual(before);
   }, 60_000);
 
+  it("applies onto a read-only dirty file in the original workspace", async () => {
+    // the user's file carries the readonly bit; the accepted patch must
+    // still replace its bytes and keep the readonly mode
+    const fixture = track(await createGitFixture({ committed: { "a.txt": "1\n" } }));
+    const target = path.join(fixture.root, "a.txt");
+    await fs.chmod(target, 0o444);
+    try {
+      const result = await createGitAdapter().applyAccepted({
+        mode: "isolated",
+        root: fixture.root,
+        files: [{ path: "a.txt", baseHash: sha256("1\n"), incomingHash: sha256("2\n") }],
+        readContent: async () => enc("2\n"),
+      });
+      expect(result.conflicts).toEqual([]);
+      expect(result.applied).toEqual(["a.txt"]);
+      expect(await readRepoFile(fixture.root, "a.txt")).toBe("2\n");
+      expect((await fs.lstat(target)).mode & 0o7777).toBe(0o444); // mode preserved
+    } finally {
+      await fs.chmod(target, 0o666).catch(() => undefined);
+    }
+  }, 60_000);
+
   it("conflicts on external concurrent modification and writes nothing", async () => {
     const fixture = track(await createGitFixture({ committed: { "a.txt": "1\n", "b.txt": "b\n" } }));
     const reader = mapReader();

@@ -167,8 +167,10 @@ export async function captureBaseline(git: GitRunner, root: string): Promise<Git
 
 /**
  * Atomic file write inside a root: temp file in the same directory, fsync,
- * rename. mode is applied best-effort after the rename (POSIX exec bits,
- * Windows readonly bit).
+ * rename. A read-only bit on an EXISTING target is cleared first — Windows
+ * refuses to rename over READONLY files (EPERM), which would otherwise break
+ * re-overlay, recovery replay and baseline restore for that file class. The
+ * final mode is applied (best-effort) after the rename.
  */
 export async function writeGitFile(
   root: string,
@@ -188,6 +190,8 @@ export async function writeGitFile(
     } finally {
       await handle.close();
     }
+    // Clear a readonly target before the rename (ENOENT when absent is fine).
+    await fs.chmod(target, 0o666).catch(() => undefined);
     await fs.rename(temp, target);
   } catch (error) {
     await fs.rm(temp, { force: true });

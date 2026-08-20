@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createGitAdapter, GitProcessError, GitRecoveryError } from "../src/index.ts";
+import { createGitAdapter, GitProcessError, GitRecoveryError, type RecoverWorktreeInput } from "../src/index.ts";
 import {
   createGitFixture,
   fileExists,
@@ -277,6 +277,43 @@ describe("recoverWorktree", () => {
       }),
     ).rejects.toBeInstanceOf(GitRecoveryError);
   }, 60_000);
+
+  it("recovers repeatedly when the baseline contains a readonly file", async () => {
+    // recovery re-overlays the baseline unconditionally; a 0o444 baseline
+    // file must not turn the healthy path into a permanent EPERM pause
+    const fixture = track(
+      await createGitFixture({ committed: { "app.ts": "v1\n" }, untracked: { "locked.ts": "locked\n" } }),
+    );
+    const readonlySource = path.join(fixture.root, "locked.ts");
+    await fs.chmod(readonlySource, 0o444);
+    try {
+      const adapter = createGitAdapter();
+      const baseline = await adapter.captureBaseline(fixture.root);
+      const parent = trackDir(await tempDir("innocence-worktree-"));
+      const worktreePath = path.join(parent, "wt");
+      const lease = await adapter.createWorktree({ root: fixture.root, path: worktreePath });
+      await adapter.overlayBaseline(lease, baseline);
+      const recoverInput: RecoverWorktreeInput = {
+        root: fixture.root,
+        path: worktreePath,
+        baseCommit: lease.baseCommit,
+        baseline,
+        checkpointFiles: [],
+        readContent: async () => new Uint8Array(),
+      };
+
+      const recovered1 = await createGitAdapter().recoverWorktree(recoverInput);
+      const overlaid = path.join(recovered1.path, "locked.ts");
+      expect((await fs.lstat(overlaid)).mode & 0o7777).toBe(0o444);
+
+      const recovered2 = await createGitAdapter().recoverWorktree(recoverInput);
+      expect(await readRepoFile(recovered2.path, "locked.ts")).toBe("locked\n");
+      expect((await fs.lstat(overlaid)).mode & 0o7777).toBe(0o444);
+      await fs.chmod(overlaid, 0o666); // allow cleanup to delete it
+    } finally {
+      await fs.chmod(readonlySource, 0o666).catch(() => undefined);
+    }
+  }, 120_000);
 
   it("rejects recovery outside a Git repository", async () => {
     const dir = trackDir(await tempDir());
