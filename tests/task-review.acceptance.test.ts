@@ -147,7 +147,12 @@ async function fileText(file: string): Promise<string | null> {
   }
 }
 
-/** Appends a raw attributionPending event the capture middleware would emit. */
+/**
+ * Appends a raw attributionPending event the capture middleware would emit.
+ * (task-core ships no factory for the attribution* vocabulary — the object
+ * literal + `as TaskEvent` cast is the established pattern, see
+ * packages/task-cli/tests/cli-integration.test.ts.)
+ */
 async function appendAttributionPending(storageDir: string, taskId: string, paths: string[]): Promise<void> {
   const repository = await openTaskRepository(storageDir, taskId);
   await repository.append([{ type: "attributionPending", paths } as TaskEvent]);
