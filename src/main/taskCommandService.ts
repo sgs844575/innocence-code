@@ -195,8 +195,10 @@ export function createTaskCommandService(deps: TaskCommandServiceDeps): TaskComm
     },
     reviewHunk: (taskId, routeId, hunkRef, status, expectedVersion) =>
       service.review({ taskId, routeId, hunkRef, status, expectedVersion }),
-    restoreHunk: async (taskId, routeId, hunkRef) => {
-      const version = (await service.get(taskId)).version ?? "";
+    restoreHunk: async (taskId, routeId, hunkRef, expectedVersion) => {
+      // Renderer-supplied token wins (CAS); callers without one fall back to
+      // the fresh version (pre-existing no-CAS behavior for host-internal uses).
+      const version = expectedVersion ?? (await service.get(taskId)).version ?? "";
       await service.restore({ taskId, routeId, hunkRef, expectedVersion: version });
     },
     applyAccepted: async (taskId, routeId) => {

@@ -204,6 +204,10 @@ describe("Electron ↔ CLI command adapter parity", () => {
     expect(await codeOf(() => cli.review({ taskId: task.taskId, routeId: task.activeRouteId, hunkRef: hunks[0]!.ref, status: "accepted", expectedVersion: staleVersion }))).toBe("version-conflict");
     expect(await codeOf(() => electron.reviewHunk(task.taskId, task.activeRouteId, ghostRef, "accepted"))).toBe("hunk-not-found");
     expect(await codeOf(() => cli.review({ taskId: task.taskId, routeId: task.activeRouteId, hunkRef: ghostRef, status: "accepted" }))).toBe("hunk-not-found");
+    // restore enforces the same expectedVersion CAS (the renderer's token
+    // flows through the Electron handler to the service — M3 fold-in).
+    expect(await codeOf(() => electron.restoreHunk(task.taskId, task.activeRouteId, hunks[0]!.ref, staleVersion))).toBe("version-conflict");
+    expect(await codeOf(() => cli.restore({ taskId: task.taskId, routeId: task.activeRouteId, hunkRef: hunks[0]!.ref, expectedVersion: staleVersion }))).toBe("version-conflict");
     // completion gate with unreviewed hunks
     expect(await codeOf(() => electron.complete({ taskId: task.taskId, confirmValidationFailure: false }))).toBe("completion-gate");
     expect(await codeOf(() => cli.complete({ taskId: task.taskId, confirmValidationFailure: false }))).toBe("completion-gate");

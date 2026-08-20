@@ -42,7 +42,7 @@ export interface TaskCommandPort {
   forkRoute(request: TaskForkRouteRequest): Promise<TaskForkRouteResponse>;
   reviewHunk(taskId: string, routeId: string, hunkRef: string, status: "accepted" | "restored", expectedVersion?: string): Promise<void>;
   /** Restores one hunk: reverts its file to the checkpoint state (version-guarded). */
-  restoreHunk(taskId: string, routeId: string, hunkRef: string): Promise<void>;
+  restoreHunk(taskId: string, routeId: string, hunkRef: string, expectedVersion?: string): Promise<void>;
   applyAccepted(taskId: string, routeId: string): Promise<{ applied: string[]; conflicts: ConflictDetail[] }>;
   preflightApply(taskId: string, routeId: string): Promise<
     | { status: "clean" }
@@ -173,7 +173,14 @@ export class TaskIpcHandlers {
     const hunks = await this.commandPort.getHunks(request.taskId, request.routeId);
     assertHunkScope(hunks, request.hunkRef, request.taskId);
     this.assertRoute(state, request.routeId);
-    await this.commandPort.restoreHunk(request.taskId, request.routeId, request.hunkRef);
+    // The renderer's expectedVersion flows through (review enforces CAS the
+    // same way); a stale token rejects with version-conflict.
+    await this.commandPort.restoreHunk(
+      request.taskId,
+      request.routeId,
+      request.hunkRef,
+      request.expectedVersion,
+    );
   }
 
   async listRoutes(request: { taskId: string }): Promise<TaskListRoutesResponse> {
