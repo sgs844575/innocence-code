@@ -269,13 +269,31 @@ export function createTaskCommandService(deps: TaskCommandDeps): TaskCommandServ
     const preState = await stateOf(taskId);
     const route = routeOf(preState, routeId);
     const workspaceKey = await deps.workspace.canonicalKey(route.workspaceRoot);
+    return withMutationAt(taskId, routeId, workspaceKey, fn);
+  }
+
+  /**
+   * withMutation with an EXPLICIT workspace key — for mutations whose write
+   * target is not the route workspace (isolated apply writes into the
+   * ORIGINAL user workspace, so that root is what the lease must cover).
+   */
+  async function withMutationAt<T>(
+    taskId: string,
+    routeId: string,
+    workspaceKey: string,
+    fn: (context: TaskMutationLease, events: TaskEvent[], state: TaskState) => Promise<T>,
+  ): Promise<T> {
+    routeOf(await stateOf(taskId), routeId); // fail fast before touching locks
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), lockTimeoutMs);
     const acquire = async (label: string, run: () => Promise<AsyncDisposable>) => {
       try {
         return await run();
       } catch (error) {
-        if (String(error).toLowerCase().includes("abort")) {
+        // Typed classification: only THIS mutation's own timeout signal maps
+        // to lock-timeout; any other error (caller signal included, though the
+        // service passes none) propagates unchanged.
+        if (controller.signal.aborted) {
           throw new TaskCommandError("lock-timeout", `timed out acquiring the ${label} lease for task ${taskId}`);
         }
         throw error;
@@ -623,100 +641,128 @@ export function createTaskCommandService(deps: TaskCommandDeps): TaskCommandServ
     },
 
     async complete(request) {
-      const state = await stateOf(request.taskId);
-      const route = routeOf(state, state.activeRouteId);
-      const events = await eventsOf(request.taskId);
-      const hunks = await statusedHunks(request.taskId, state, route, events);
-      const validation = deps.validator
-        ? await deps.validator(request.taskId, state.activeRouteId, route.workspaceRoot)
-        : { success: true };
-      const gate: CompletionGateDto = {
-        runningTools: 0, // P1: single-turn, no live tool index in the service
-        unresolvedConflicts: deps.attribution.decisions(events)
-          .filter((decision) => decision.status === "conflict").length,
-        unstableCalls: [...state.turns.values()].filter((turn) => turn.phase === "prepared").length,
-        unreviewedChanges: hunks.filter((hunk) => hunk.status !== "accepted" && hunk.status !== "restored").length,
-        validation,
-      };
-      if (request.confirmValidationFailure && validation !== null && !validation.success) {
-        gate.validation = null;
-        await withMutation(request.taskId, state.activeRouteId, async () => {
-          await appendDurable(request.taskId, [validationOverrideEvent({ validationResult: validation, clock })]);
+      // The WHOLE gate evaluation runs under the mutation lease: a concurrent
+      // review/resolve cannot slip between the read and the decision, so the
+      // gate can never be computed from stale state.
+      await withMutation(request.taskId, (await stateOf(request.taskId)).activeRouteId,
+        async (_context, events, state) => {
+          const route = routeOf(state, state.activeRouteId);
+          const hunks = await statusedHunks(request.taskId, state, route, events);
+          const validation = deps.validator
+            ? await deps.validator(request.taskId, state.activeRouteId, route.workspaceRoot)
+            : { success: true };
+          const gate: CompletionGateDto = {
+            runningTools: 0, // P1: single-turn, no live tool index in the service
+            unresolvedConflicts: deps.attribution.decisions(events)
+              .filter((decision) => decision.status === "conflict").length,
+            unstableCalls: [...state.turns.values()].filter((turn) => turn.phase === "prepared").length,
+            unreviewedChanges: hunks.filter((hunk) => hunk.status !== "accepted" && hunk.status !== "restored").length,
+            validation,
+          };
+          if (request.confirmValidationFailure && validation !== null && !validation.success) {
+            gate.validation = null;
+            await appendDurable(request.taskId, [
+              validationOverrideEvent({ validationResult: validation, clock }),
+            ]);
+          }
+          const blocks = gate.unresolvedConflicts > 0 || gate.unstableCalls > 0 ||
+            gate.unreviewedChanges > 0 || (gate.validation !== null && !gate.validation.success);
+          if (blocks) {
+            throw new TaskCommandError("completion-gate", "completion gate", { gate });
+          }
         });
-      }
-      const blocks = gate.unresolvedConflicts > 0 || gate.unstableCalls > 0 ||
-        gate.unreviewedChanges > 0 || (gate.validation !== null && !gate.validation.success);
-      if (blocks) {
-        throw new TaskCommandError("completion-gate", "completion gate", { gate });
-      }
     },
 
     async applyAccepted(taskId, routeId, options) {
-      const state = await stateOf(taskId);
-      const route = routeOf(state, routeId);
-      const events = await eventsOf(taskId);
-      const patches = await patchesOf(taskId, state, route);
-      const hunks = await statusedHunks(taskId, state, route, events);
-      const unreviewed = hunks.filter((hunk) => hunk.status !== "accepted" && hunk.status !== "restored");
-      if (unreviewed.length > 0) {
-        throw new TaskCommandError("completion-gate", "completion gate", {
-          gate: { unreviewedChanges: unreviewed.length },
-        });
+      // Lease target resolution BEFORE acquiring: isolated apply's write
+      // target is the ORIGINAL user workspace (baseline root), not the route
+      // worktree — that root is what the workspace lease must cover.
+      const preState = await stateOf(taskId);
+      const preRoute = routeOf(preState, routeId);
+      const isolated = preState.mode === "isolated" && preState.workspaceKind === "git";
+      let applyRoot = preRoute.workspaceRoot;
+      if (isolated) {
+        const rawBaseline = await deps.store.readArtifact(taskId, "baseline.json");
+        if (rawBaseline === null) {
+          throw new TaskCommandError("invalid-request", "baseline.json not found for isolated apply");
+        }
+        const baseline = JSON.parse(rawBaseline) as { root?: unknown };
+        if (typeof baseline.root !== "string") {
+          throw new TaskCommandError("invalid-request", "baseline.json has no root");
+        }
+        applyRoot = baseline.root;
       }
-      // Patch hunks are always derived "pending"; the PERSISTED decisions live
-      // on the statused hunks — a file applies only when every hunk of it was
-      // accepted (restored files were reverted and never land).
-      const statusByRef = new Map(hunks.map((hunk) => [hunk.ref, hunk.status]));
-      const accepted = patches.filter((patch) =>
-        patch.hunks.length > 0 && patch.hunks.every((hunk) => statusByRef.get(hunk.ref) === "accepted"));
-      if (state.mode === "baseline" || state.workspaceKind !== "git") {
-        // Baseline tasks already live in the user workspace: apply is the
-        // confirmation step; restore() has reverted every rejected change.
-        return { applied: accepted.map((patch) => patch.path), conflicts: [] };
-      }
-      const rawBaseline = await deps.store.readArtifact(taskId, "baseline.json");
-      if (rawBaseline === null) {
-        throw new TaskCommandError("invalid-request", "baseline.json not found for isolated apply");
-      }
-      const baseline = JSON.parse(rawBaseline) as { root?: unknown };
-      if (typeof baseline.root !== "string") {
-        throw new TaskCommandError("invalid-request", "baseline.json has no root");
-      }
-      const scan = await deps.workspace.scan(route.workspaceRoot);
-      const contentPath = new Map(scan.files.map((file) => [file.hash ?? "", file.path]));
-      const input = {
-        mode: "isolated" as const,
-        root: baseline.root,
-        files: accepted.map((patch) => ({
-          path: patch.path,
-          baseHash: patch.before.hash,
-          incomingHash: patch.after.hash,
-        })),
-        readContent: async (hash: string) => {
-          const relativePath = contentPath.get(hash);
-          if (relativePath === undefined) throw new Error(`apply content not found: ${hash}`);
-          const bytes = await deps.workspace.read(route.workspaceRoot, relativePath);
-          if (bytes === null) throw new Error(`apply content unreadable: ${relativePath}`);
-          return bytes;
-        },
-      };
-      if (options?.dryRun) {
-        const report = await deps.git.preflightApply(input);
-        return { applied: [], conflicts: report.conflicts };
-      }
-      const result = await deps.git.applyAccepted(input);
-      return { applied: result.applied, conflicts: result.conflicts };
+      const workspaceKey = await deps.workspace.canonicalKey(applyRoot);
+      return withMutationAt(taskId, routeId, workspaceKey, async (_context, events, state) => {
+        const route = routeOf(state, routeId);
+        const patches = await patchesOf(taskId, state, route);
+        const hunks = await statusedHunks(taskId, state, route, events);
+        const unreviewed = hunks.filter((hunk) => hunk.status !== "accepted" && hunk.status !== "restored");
+        if (unreviewed.length > 0) {
+          throw new TaskCommandError("completion-gate", "completion gate", {
+            gate: { unreviewedChanges: unreviewed.length },
+          });
+        }
+        // Patch hunks are always derived "pending"; the PERSISTED decisions live
+        // on the statused hunks — a file applies only when every hunk of it was
+        // accepted (restored files were reverted and never land).
+        const statusByRef = new Map(hunks.map((hunk) => [hunk.ref, hunk.status]));
+        const accepted = patches.filter((patch) =>
+          patch.hunks.length > 0 && patch.hunks.every((hunk) => statusByRef.get(hunk.ref) === "accepted"));
+        if (state.mode === "baseline" || state.workspaceKind !== "git") {
+          // Baseline tasks already live in the user workspace: apply is the
+          // confirmation step; restore() has reverted every rejected change.
+          return { applied: accepted.map((patch) => patch.path), conflicts: [] };
+        }
+        const rawBaseline = await deps.store.readArtifact(taskId, "baseline.json");
+        if (rawBaseline === null) {
+          throw new TaskCommandError("invalid-request", "baseline.json not found for isolated apply");
+        }
+        const baseline = JSON.parse(rawBaseline) as { root: string };
+        const scan = await deps.workspace.scan(route.workspaceRoot);
+        const contentPath = new Map(scan.files.map((file) => [file.hash ?? "", file.path]));
+        const input = {
+          mode: "isolated" as const,
+          root: baseline.root,
+          files: accepted.map((patch) => ({
+            path: patch.path,
+            baseHash: patch.before.hash,
+            incomingHash: patch.after.hash,
+          })),
+          readContent: async (hash: string) => {
+            const relativePath = contentPath.get(hash);
+            if (relativePath === undefined) throw new Error(`apply content not found: ${hash}`);
+            const bytes = await deps.workspace.read(route.workspaceRoot, relativePath);
+            if (bytes === null) throw new Error(`apply content unreadable: ${relativePath}`);
+            return bytes;
+          },
+        };
+        if (options?.dryRun) {
+          const report = await deps.git.preflightApply(input);
+          return { applied: [], conflicts: report.conflicts };
+        }
+        const result = await deps.git.applyAccepted(input);
+        return { applied: result.applied, conflicts: result.conflicts };
+      });
     },
 
     async recover(taskId) {
-      const state = await deps.recover.recoverTask(taskId);
+      // Leased: recovery replays worktrees/checkpoints and must serialize
+      // against in-flight mutations of the same task.
+      const activeRouteId = (await stateOf(taskId)).activeRouteId;
+      const state = await withMutation(taskId, activeRouteId, async () =>
+        deps.recover.recoverTask(taskId));
       return withUnreviewed(taskId, state);
     },
 
     async delete(taskId) {
-      await eventsOf(taskId);
-      await deps.delete.deleteTask(taskId);
-      log("info", "task deleted", { taskId });
+      // Leased: deletion destroys worktrees and storage; a concurrent mutation
+      // of the same task must never interleave with it.
+      const activeRouteId = (await stateOf(taskId)).activeRouteId;
+      await withMutation(taskId, activeRouteId, async () => {
+        await deps.delete.deleteTask(taskId);
+        log("info", "task deleted", { taskId });
+      });
     },
 
     async recoveryWarnings(taskId) {

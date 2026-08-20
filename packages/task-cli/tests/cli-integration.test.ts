@@ -409,6 +409,33 @@ describe("task CLI adapter (no Electron host)", () => {
     expect(await fileText(path.join(repo, "untouched.txt"))).toBe("stay\n");
     expect(await gitExec(repo, ["diff", "--cached"])).toBe("");
   });
+
+  it("serializes recover and delete against an in-flight leased mutation on the same task", async () => {
+    const repo = await createGitFixture({ "a.txt": "base\n" });
+    const storageDir = await tempDir("ic-cli-del-");
+    const runtime = await createTaskCliRuntime({ storageDir, lockTimeoutMs: 1_500 });
+    const cli = createTaskCliAdapter({ taskRuntime: runtime, output: collectStructuredOutput() });
+    const task = await cli.start({ workspaceRoot: repo, mode: "isolated" });
+
+    // Hold the task lease exactly the way a service mutation does: recover and
+    // delete must be serialized behind it (bounded lock-timeout), never run
+    // concurrently with an in-flight mutation.
+    const owner = { taskId: task.taskId, routeId: task.activeRouteId };
+    const taskLease = await runtime.locks.acquireTaskLease(task.taskId, owner);
+    try {
+      await expect(cli.recover(task.taskId)).rejects.toMatchObject({ code: "lock-timeout" });
+      await expect(cli.delete(task.taskId)).rejects.toMatchObject({ code: "lock-timeout" });
+      // nothing was torn down while the lease was held
+      expect(await cli.getTask(task.taskId)).toMatchObject({ taskId: task.taskId });
+    } finally {
+      await taskLease[Symbol.asyncDispose]();
+    }
+
+    await expect(cli.recover(task.taskId)).resolves.toMatchObject({ taskId: task.taskId });
+    await expect(cli.delete(task.taskId)).resolves.toBeUndefined();
+    await expect(cli.getTask(task.taskId)).rejects.toMatchObject({ code: "task-not-found" });
+    await expect(fs.access(task.workspaceRoot)).rejects.toThrow();
+  }, 120_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -564,6 +591,51 @@ describe("two real processes compete for the workspace lock", () => {
     } finally {
       await a.endGracefully();
       await b.endGracefully();
+    }
+  }, 120_000);
+
+  it("serializes the final apply's write into the ORIGINAL workspace across processes", async () => {
+    const repo = await createGitFixture({ "a.txt": "base\n" });
+    const storageDir = await tempDir("ic-cli-applylock-");
+    const runtime = await createTaskCliRuntime({
+      storageDir,
+      lockTimeoutMs: 1_500,
+      agentWriter: async (task) => {
+        await fs.writeFile(path.join(task.workspaceRoot, "a.txt"), "base\nagent change\n", "utf8");
+      },
+    });
+    const cli = createTaskCliAdapter({ taskRuntime: runtime, output: collectStructuredOutput() });
+    const task = await cli.start({ workspaceRoot: repo, mode: "isolated" });
+    for (const hunk of await cli.listHunks(task.taskId, task.activeRouteId)) {
+      await cli.review({ taskId: task.taskId, routeId: task.activeRouteId, hunkRef: hunk.ref, status: "accepted" });
+    }
+    await cli.complete({ taskId: task.taskId, confirmValidationFailure: false });
+
+    // A second process holds the lease keyed on the ORIGINAL user workspace —
+    // the exact key isolated apply must take before writing into it.
+    const { canonicalWorkspaceKey } = await import("@innocencecode/task-workspace");
+    const contender = spawnChild("workspace-lock-service.child.ts", [
+      storageDir, task.taskId, task.activeRouteId,
+      await canonicalWorkspaceKey(repo),
+    ]);
+    try {
+      expect((await contender.nextEvent()).event).toBe("ready");
+      contender.send({ cmd: "hold" });
+      expect((await contender.nextEvent()).event).toBe("held");
+
+      // apply is BLOCKED (bounded) while the original workspace is leased
+      await expect(cli.applyAccepted(task.taskId, task.activeRouteId))
+        .rejects.toMatchObject({ code: "lock-timeout" });
+      expect(await fileText(path.join(repo, "a.txt"))).toBe("base\n"); // nothing written
+
+      contender.send({ cmd: "release" });
+      expect((await waitForEvent(contender, "released")).event).toBe("released");
+
+      const applied = await cli.applyAccepted(task.taskId, task.activeRouteId);
+      expect(applied.conflicts).toEqual([]);
+      expect(await fileText(path.join(repo, "a.txt"))).toBe("base\nagent change\n");
+    } finally {
+      await contender.endGracefully();
     }
   }, 120_000);
 });
