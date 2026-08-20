@@ -1,0 +1,33 @@
+/* workbench.css — 可停靠辅助面板（Task 11）的结构样式。
+   设计语言与 app.css 一致：连续表面 + hairline 分隔，无嵌套卡片；
+   颜色一律取 tokens/semantic.css 的 --color-app-* 变量。 */
+
+.workbench-panel-body {
+  background: var(--color-app-panel);
+}
+
+/* 停靠面板的调宽把手：hover/拖拽时一道 accent 发丝线。 */
+.workbench-resize-handle {
+  position: relative;
+}
+
+.workbench-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0 -1px;
+  background: transparent;
+  transition: background-color 120ms ease-out;
+}
+
+.workbench-resize-handle:hover::after,
+.workbench-resize-handle:active::after {
+  background: color-mix(in srgb, var(--color-app-accent) 40%, transparent);
+}
+
+/* 覆盖式（中屏）面板顶部对齐 titlebar 下缘的微调由 Tailwind 定位类承担；
+   这里只补 prefers-reduced-motion 的入口动画豁免。 */
+@media (prefers-reduced-motion: reduce) {
+  .workbench-resize-handle::after {
+    transition: none;
+  }
+}

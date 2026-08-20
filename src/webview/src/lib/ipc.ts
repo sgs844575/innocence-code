@@ -2,11 +2,13 @@
 // preload did not run (e.g. opened in a plain browser) instead of pretending.
 import type { InnocenceCodeApi } from "../../../shared/ipc";
 import type { TaskIpcApi } from "../../../shared/taskIpc";
+import type { CodeIpcApi } from "../../../shared/codeIpc";
 
 declare global {
   interface Window {
     innocencecode: InnocenceCodeApi;
     innocencecodeTask: TaskIpcApi;
+    innocencecodeCode: CodeIpcApi;
   }
 }
 
@@ -29,6 +31,19 @@ export const taskApi: TaskIpcApi = new Proxy({} as TaskIpcApi, {
     const value = (window.innocencecodeTask as unknown as Record<string, unknown>)[prop];
     return typeof value === "function"
       ? (value as (...args: unknown[]) => unknown).bind(window.innocencecodeTask)
+      : value;
+  },
+});
+
+/** Read-only code panel API — route-scoped reads/search/external editor. */
+export const codeApi: CodeIpcApi = new Proxy({} as CodeIpcApi, {
+  get(_target, prop: string) {
+    if (typeof window === "undefined" || !window.innocencecodeCode) {
+      throw new Error("preload bridge missing: window.innocencecodeCode is unavailable");
+    }
+    const value = (window.innocencecodeCode as unknown as Record<string, unknown>)[prop];
+    return typeof value === "function"
+      ? (value as (...args: unknown[]) => unknown).bind(window.innocencecodeCode)
       : value;
   },
 });

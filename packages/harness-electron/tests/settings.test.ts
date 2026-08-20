@@ -85,6 +85,7 @@ describe("mergeSettings", () => {
       locale: "zh-CN" as const,
       reasoningEffort: "high" as const,
       activeAgent: "full" as const,
+      externalEditorCommand: "code --wait",
     };
     expect(mergeSettings(input)).toEqual(input);
   });

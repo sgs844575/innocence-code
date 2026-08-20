@@ -1,0 +1,32 @@
+/* task.css — 任务面板（审查/路线/代码）共享的结构样式（Task 11）。
+   连续表面 + hairline：面板内部不再嵌套卡片，区块之间只用发丝线分隔；
+   颜色一律取 tokens/semantic.css 的 --color-app-* 变量。 */
+
+/* 文件树：行级 hover 高亮，选中行 bubble 底（组件类已带，此处统一行高）。 */
+.task-code-tree {
+  background: var(--color-app-panel);
+}
+
+.code-file-tree button[role="treeitem"] {
+  line-height: 1.6;
+}
+
+/* 搜索结果列表：hairline 分隔的紧凑行。 */
+.task-code-search-results > button + button {
+  border-top: 1px solid var(--color-app-hairline);
+}
+
+/* 只读内容视图：等宽字体 + 限宽长行横向滚动（whitespace-pre 已设）。 */
+.code-viewer {
+  background: var(--color-app-panel);
+  tab-size: 2;
+}
+
+.code-viewer::selection {
+  background: color-mix(in srgb, var(--color-app-accent) 30%, transparent);
+}
+
+/* 审查/路线/冲突面板共享的容器节奏：面板体内边距统一 hairline 间距。 */
+.workbench-panel-body > div > section {
+  border-bottom: 1px solid var(--color-app-hairline);
+}

@@ -7,6 +7,10 @@ import {
   TaskIpcChannels,
   type TaskIpcApi,
 } from "../shared/taskIpc";
+import {
+  CodeIpcChannels,
+  type CodeIpcApi,
+} from "../shared/codeIpc";
 
 function subscribe(channel: string, listener: (...args: never[]) => void): () => void {
   const wrapped = (_e: unknown, ...args: unknown[]) => (listener as (...a: unknown[]) => void)(...args);
@@ -64,5 +68,14 @@ const taskApi: TaskIpcApi = {
   recoveryWarnings: (req) => ipcRenderer.invoke(TaskIpcChannels.taskRecoveryWarnings, req),
 };
 
+/** Read-only code panel API — route-scoped reads/search/external editor. */
+const codeApi: CodeIpcApi = {
+  readFile: (req) => ipcRenderer.invoke(CodeIpcChannels.codeReadFile, req),
+  listFiles: (req) => ipcRenderer.invoke(CodeIpcChannels.codeListFiles, req),
+  search: (req) => ipcRenderer.invoke(CodeIpcChannels.codeSearch, req),
+  openExternalEditor: (req) => ipcRenderer.invoke(CodeIpcChannels.codeOpenExternalEditor, req),
+};
+
 contextBridge.exposeInMainWorld("innocencecode", api);
 contextBridge.exposeInMainWorld("innocencecodeTask", taskApi);
+contextBridge.exposeInMainWorld("innocencecodeCode", codeApi);

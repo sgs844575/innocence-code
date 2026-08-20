@@ -14,7 +14,7 @@ import {
   type PermissionChoice,
   type Session,
 } from "../../shared/ipc";
-import { api } from "./lib/ipc";
+import { api, codeApi, taskApi } from "./lib/ipc";
 import { createT } from "./lib/i18n";
 import { useMediaQuery } from "./lib/useMediaQuery";
 import { TitleBar } from "./components/TitleBar";
@@ -23,6 +23,11 @@ import { ChatView } from "./components/ChatView";
 import { SettingsView } from "./components/SettingsView";
 import { SETTINGS_SECTIONS, SettingsNav, type SettingsSection } from "./components/SettingsNav";
 import { NavRail } from "./components/NavRail";
+import { WorkbenchShell, useWorkbenchLayout } from "./components/workbench/WorkbenchShell";
+import { ReviewPanel } from "./components/task/ReviewPanel";
+import { RoutePanel, type RoutePanelModel } from "./components/task/RoutePanel";
+import { CodePanel } from "./components/code/CodePanel";
+import type { TaskSwitchRouteRequest } from "../../shared/taskIpc";
 
 const APP_NAME = "InnocenceCode";
 
@@ -46,6 +51,9 @@ export function App(): React.JSX.Element {
   const isMedium = useMediaQuery("(min-width: 640px)") && !isWide;
   const [railMode, setRailMode] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // 可停靠辅助面板（Task 11）：布局逻辑归 WorkbenchShell，这里只持开关与页签。
+  const workbench = useWorkbenchLayout();
 
   // Persisted locale wins; fall back to the system locale, then zh-CN.
   const lang = settings?.locale || appInfo?.locale || "zh-CN";
@@ -315,6 +323,33 @@ export function App(): React.JSX.Element {
     else setDrawerOpen((v) => !v);
   }, [isWide]);
 
+  // 辅助面板各页签（Task 12 接任务上下文与终端 preload 后填充真实数据）：
+  // 路线切换沿用 RoutePanel 的等待模式——switchRoute resolve 完整 view model
+  // 后才更新 UI，避免旧内容闪回。
+  const switchRoute = useCallback(async (request: TaskSwitchRouteRequest): Promise<RoutePanelModel> => {
+    await taskApi.switchRoute(request);
+    const { routes } = await taskApi.listRoutes({ taskId: request.taskId });
+    return {
+      routes: routes.map((route) => ({ ...route, forkTurnId: null, workspaceKind: "git" })),
+      activeRouteId: request.routeId,
+    };
+  }, []);
+
+  const workbenchPanels = useMemo(
+    () => ({
+      review: <ReviewPanel files={[]} t={t} />,
+      routes: <RoutePanel taskId="" routes={[]} activeRouteId="" t={t} switchRoute={switchRoute} />,
+      code: <CodePanel taskId="" routeId="" files={[]} t={t} api={codeApi} />,
+    }),
+    [t, switchRoute],
+  );
+
+  // TitleBar 状态簇：项目取当前会话（回落全局工作区）；路线与 Git branch
+  // 等任务上下文接入（Task 12）前显示「非 Git」。
+  const workspaceRoot = sessions.find((s) => s.id === activeId)?.workspaceRoot ?? settings?.workspaceRoot ?? "";
+  const projectName =
+    workspaceRoot === "" ? "" : (workspaceRoot.split(/[\\/]/).filter(Boolean).pop() ?? "");
+
   // Entering settings swaps the project sidebar for the settings menu.
   const handleOpenSettings = useCallback(() => {
     setView("settings");
@@ -380,6 +415,10 @@ export function App(): React.JSX.Element {
       <TitleBar
         sidebarOpen={isWide ? !railMode : drawerOpen}
         onToggleSidebar={handleToggleSidebar}
+        workbench={{ project: projectName, routeId: null, gitBranch: null }}
+        panelOpen={workbench.open}
+        onTogglePanel={workbench.togglePanel}
+        onToggleTerminal={workbench.openTerminal}
       />
       {/* One continuous surface: sidebar column (sidebar tone) + content
           column (panel tone), separated by hairlines only. */}
@@ -405,23 +444,32 @@ export function App(): React.JSX.Element {
               onPickWorkspace={() => void handlePickWorkspace()}
             />
           ) : (
-            <ChatView
+            <WorkbenchShell
+              open={workbench.open}
+              activeTab={workbench.tab}
+              onTabChange={workbench.setTab}
+              onClose={() => workbench.setOpen(false)}
+              panels={workbenchPanels}
               t={t}
-              appName={APP_NAME}
-              messages={messages}
-              streaming={streamingId !== null}
-              settings={settings}
-              permission={permission}
-              onSettingsChange={handleSettingsChange}
-              onPermissionRespond={handlePermissionRespond}
-              onSend={handleSend}
-              onStop={handleStop}
-              landing={activeId === null}
-              pendingProject={pendingProject}
-              onPickProject={setPendingProject}
-              recentProjects={recentProjects}
-              onOpenProjectDir={() => void handleOpenProjectDir()}
-            />
+            >
+              <ChatView
+                t={t}
+                appName={APP_NAME}
+                messages={messages}
+                streaming={streamingId !== null}
+                settings={settings}
+                permission={permission}
+                onSettingsChange={handleSettingsChange}
+                onPermissionRespond={handlePermissionRespond}
+                onSend={handleSend}
+                onStop={handleStop}
+                landing={activeId === null}
+                pendingProject={pendingProject}
+                onPickProject={setPendingProject}
+                recentProjects={recentProjects}
+                onOpenProjectDir={() => void handleOpenProjectDir()}
+              />
+            </WorkbenchShell>
           )}
         </main>
       </div>

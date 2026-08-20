@@ -47,6 +47,13 @@ export interface HarnessSettings {
   /** 用户级插件开关（四键 subagent/skills/mcp/todo）；缺失键 = 默认开。
    *  项目 .innocence/plugins.yml 优先于此设置（resolvePluginSet 两级覆盖）。 */
   pluginToggles?: PluginToggleSource;
+  /** 外部编辑器启动命令（Task 11 工作台入口）；"" = 未配置（入口禁用）。
+   *  首个 token 可加引号（含空格的路径）；多余 token 作为前置参数透传。 */
+  externalEditorCommand?: string;
+}
+
+function normalizeExternalEditorCommand(raw: unknown): string {
+  return typeof raw === "string" ? raw : "";
 }
 
 /** 思考档位全集；空串 = 不带参数（跟随模型默认）。max 透传给支持的端点
@@ -112,6 +119,7 @@ export const DEFAULT_SETTINGS: HarnessSettings = {
   locale: "",
   reasoningEffort: "",
   activeAgent: "default",
+  externalEditorCommand: "",
 };
 
 let customSeq = 0;
@@ -294,7 +302,8 @@ export function mergeSettings(raw: unknown): HarnessSettings {
       themeMode: normalizeThemeMode(src.themeMode), locale: normalizeLocale(src.locale),
       reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),
       activeAgent: normalizeActiveAgent(src.activeAgent),
-      pluginToggles: normalizePluginToggles(src.pluginToggles) };
+      pluginToggles: normalizePluginToggles(src.pluginToggles),
+      externalEditorCommand: normalizeExternalEditorCommand(src.externalEditorCommand) };
   }
 
   const profiles = src.profiles
@@ -315,6 +324,7 @@ export function mergeSettings(raw: unknown): HarnessSettings {
     reasoningEffort: normalizeReasoningEffort(src.reasoningEffort),
     activeAgent: normalizeActiveAgent(src.activeAgent),
     pluginToggles: normalizePluginToggles(src.pluginToggles),
+    externalEditorCommand: normalizeExternalEditorCommand(src.externalEditorCommand),
   };
 }
 
