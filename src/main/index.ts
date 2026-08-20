@@ -4,15 +4,25 @@ import { app, Menu } from "electron";
 import { handleAppScheme, registerAppScheme } from "./protocol";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
-import { initHarness, disposeAllRuntime, disposeTaskRuntime, rejectPendingPermissionAsks } from "./harnessGlue";
+import {
+  initHarness,
+  disposeAllRuntime,
+  disposeTaskRuntime,
+  rejectPendingPermissionAsks,
+  resolveRouteWorkspaceRoot,
+} from "./harnessGlue";
 import { initSessionStore } from "./sessions";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
 import { logger } from "./logger";
 import { ShutdownGate } from "./shutdown";
+import { createTerminalIpcService, registerTerminalIpc, type TerminalIpcService } from "./terminalIpc";
 
 // Custom schemes must be registered before app ready.
 registerAppScheme();
+
+/** Terminal IPC service — disposed on quit so no shell trees survive exit. */
+let terminalService: TerminalIpcService | undefined;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -32,6 +42,18 @@ if (!gotLock) {
       initSessionStore(app.getPath("userData"));
       registerIpcHandlers();
       await initHarness();
+
+      // Route-bound terminals (Task 9): the service resolves each terminal's
+      // cwd from the task bridge's route handle; output/exit events are
+      // pushed to the main window through the standard broadcast pattern.
+      terminalService = createTerminalIpcService({
+        resolveRouteCwd: resolveRouteWorkspaceRoot,
+        send: (channel, payload) => {
+          const win = getMainWindow();
+          if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+        },
+      });
+      await registerTerminalIpc(terminalService);
 
       const win = await createMainWindow();
       // Non-mac: the custom title bar's File/Edit/View/Help buttons pop up
@@ -69,9 +91,11 @@ if (!gotLock) {
         rejectPendingPermissionAsks();
         // Agent sessions first (aborts in-flight tool invocations, which
         // releases their task mutation leases), then the task runtime's
-        // watchers and worktree lease records.
+        // watchers and worktree lease records. Terminal shell trees go last
+        // (taskkill /T /F on Windows) so quit leaves no orphan shells.
         await disposeAllRuntime();
         await disposeTaskRuntime();
+        await terminalService?.disposeAll();
       } catch (err) {
         logger.error("shutdown dispose failed", { error: String(err) });
       } finally {

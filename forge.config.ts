@@ -5,7 +5,12 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      // node-pty ships native .node binaries required at runtime — keep the
+      // whole package (JS loader + prebuilds) outside the ASAR archive so
+      // require("node-pty") works from the bundled main process.
+      unpack: "**/node_modules/node-pty/**",
+    },
     executableName: "InnocenceCode",
   },
   rebuildConfig: {},

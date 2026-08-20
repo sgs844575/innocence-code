@@ -340,3 +340,10 @@ export async function disposeAllRuntime(): Promise<void> {
 export async function disposeTaskRuntime(): Promise<void> {
   await taskBridge.disposeAll();
 }
+
+/** Route-bound terminals (Task 9): the authoritative per-route workspace
+ *  root for live tasks. The terminal IPC resolves cwd exclusively through
+ *  this — renderer requests carry ids only, never paths. */
+export function resolveRouteWorkspaceRoot(taskId: string, routeId: string): string | undefined {
+  return taskBridge.getRoute(taskId, routeId)?.workspaceRoot;
+}

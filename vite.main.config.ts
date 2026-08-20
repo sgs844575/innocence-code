@@ -18,7 +18,10 @@ export default defineConfig({
     },
     outDir: ".vite/build",
     rollupOptions: {
-      external: ["electron"],
+      // node-pty is a native addon — it must stay a runtime require
+      // (never inlined into the bundle); forge.config.ts unpacks it from
+      // the ASAR archive for packaging.
+      external: ["electron", "node-pty"],
     },
   },
   resolve: {
@@ -36,6 +39,7 @@ export default defineConfig({
       "@innocencecode/plugin-skills": pkg("plugin-skills"),
       "@innocencecode/plugin-mcp": pkg("plugin-mcp"),
       "@innocencecode/harness-electron": pkg("harness-electron"),
+      "@innocencecode/terminal-pty": pkg("terminal-pty"),
     },
   },
 });
