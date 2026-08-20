@@ -3,8 +3,10 @@
 // (see src/main/menu.ts popupMenu). This is a drag region except for the
 // interactive controls, since the window is frameless.
 //
-// Task 11: the workbench status cluster (project / route / Git branch or
-// "非 Git") plus the external-editor entry and the panel/terminal toggles.
+// Task 11: the workbench status cluster (project / route / Git branch — the
+// branch chip hides until real git detection lands, so a null never renders
+// a wrong "非 Git") plus the external-editor entry and the panel/terminal
+// toggles. Labels go through the injected t (i18n keys titlebar.*).
 // Strictly props-in/events-out — no data fetching here.
 import {
   Bell,
@@ -18,6 +20,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import { api } from "../lib/ipc";
+import { zhCN } from "../lib/i18n";
 import type { MenuId } from "../../../shared/ipc";
 
 interface Props {
@@ -27,13 +30,15 @@ interface Props {
   workbench?: {
     project: string;
     routeId: string | null;
-    /** null → “非 Git”。 */
+    /** null → chip hidden (real Git detection lands with the task context wiring). */
     gitBranch: string | null;
   };
   onOpenExternalEditor?: () => void;
   panelOpen?: boolean;
   onTogglePanel?: () => void;
+  terminalOpen?: boolean;
   onToggleTerminal?: () => void;
+  t?: (key: string) => string;
 }
 
 const MENUS: { id: MenuId; label: string }[] = [
@@ -53,7 +58,9 @@ export function TitleBar({
   onOpenExternalEditor,
   panelOpen,
   onTogglePanel,
+  terminalOpen,
   onToggleTerminal,
+  t = (key: string): string => zhCN[key] ?? key,
 }: Props): React.JSX.Element {
   return (
     <header className="titlebar app-drag flex h-9 shrink-0 items-center gap-1 px-2 text-(--color-app-muted)">
@@ -90,11 +97,11 @@ export function TitleBar({
         ))}
       </nav>
 
-      {/* Workbench 状态簇：项目 / 对话路线 / Git branch 或「非 Git」。 */}
+      {/* Workbench 状态簇：项目 / 对话路线 / Git branch（未知时整片隐藏）。 */}
       {workbench && (
         <div className="app-no-drag ml-2 hidden min-w-0 items-center gap-2 text-[11.5px] md:flex">
           {workbench.project !== "" && (
-            <span className="flex min-w-0 items-center gap-1" title={`项目 ${workbench.project}`}>
+            <span className="flex min-w-0 items-center gap-1" title={`${t("titlebar.project")} ${workbench.project}`}>
               <FolderGit2 size={12} className="shrink-0" />
               <span className="max-w-[160px] truncate">{workbench.project}</span>
             </span>
@@ -102,14 +109,19 @@ export function TitleBar({
           {workbench.routeId !== null && (
             <span
               className="flex shrink-0 items-center gap-1 rounded bg-(--color-app-bubble) px-1.5 py-0.5 font-mono text-[10.5px]"
-              title={`对话路线 ${workbench.routeId}`}
+              title={`${t("titlebar.route")} ${workbench.routeId}`}
             >
               <GitBranch size={10} /> {workbench.routeId}
             </span>
           )}
-          <span className="flex shrink-0 items-center gap-1 font-mono text-[10.5px]" title={workbench.gitBranch ?? "非 Git"}>
-            <GitBranch size={10} /> {workbench.gitBranch ?? "非 Git"}
-          </span>
+          {workbench.gitBranch !== null && (
+            <span
+              className="flex shrink-0 items-center gap-1 font-mono text-[10.5px]"
+              title={workbench.gitBranch}
+            >
+              <GitBranch size={10} /> {workbench.gitBranch}
+            </span>
+          )}
         </div>
       )}
 
@@ -118,8 +130,8 @@ export function TitleBar({
       {/* 外部编辑器入口 + 面板/终端开关（宿主未接线时禁用）。 */}
       <button
         type="button"
-        aria-label="在外部编辑器打开"
-        title="在外部编辑器打开"
+        aria-label={t("titlebar.externalEditor")}
+        title={t("titlebar.externalEditor")}
         disabled={onOpenExternalEditor === undefined}
         onClick={onOpenExternalEditor}
         className={`${iconButton} max-[860px]:hidden`}
@@ -129,8 +141,8 @@ export function TitleBar({
       {onTogglePanel && (
         <button
           type="button"
-          aria-label="切换辅助面板"
-          title="切换辅助面板"
+          aria-label={t("titlebar.togglePanel")}
+          title={t("titlebar.togglePanel")}
           aria-pressed={panelOpen}
           onClick={onTogglePanel}
           className={iconButton}
@@ -139,7 +151,14 @@ export function TitleBar({
         </button>
       )}
       {onToggleTerminal && (
-        <button type="button" aria-label="切换终端" title="切换终端" onClick={onToggleTerminal} className={iconButton}>
+        <button
+          type="button"
+          aria-label={t("titlebar.toggleTerminal")}
+          title={t("titlebar.toggleTerminal")}
+          aria-pressed={terminalOpen}
+          onClick={onToggleTerminal}
+          className={iconButton}
+        >
           <SquareTerminal size={14} />
         </button>
       )}

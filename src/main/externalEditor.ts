@@ -68,7 +68,7 @@ export function createExternalEditor(deps: ExternalEditorDeps): ExternalEditorSe
       if (!root) {
         throw new Error(`external editor: unknown task/route: ${request.taskId}/${request.routeId}`);
       }
-      const absolute = await assertRouteFile(root, request.relativePath);
+      const { absolute } = await assertRouteFile(root, request.relativePath);
       const { line, column } = request;
       if (
         (line !== undefined && (!Number.isSafeInteger(line) || line < 1)) ||

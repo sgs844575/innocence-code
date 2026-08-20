@@ -33,10 +33,19 @@ export interface CodeReaderService extends CodeReader {
 export interface CodeReaderDeps {
   /** Authoritative route root from the task runtime bridge's route handle. */
   resolveRouteRoot(taskId: string, routeId: string): string | undefined;
+  /** Byte-source override (tests observe "no read for oversized files"). */
+  readBytes?: (absolute: string) => Promise<Uint8Array>;
 }
 
 /** Text content beyond this is cut (the viewer shows a truncation notice). */
 export const MAX_CODE_CONTENT_BYTES = 1_000_000;
+/**
+ * Hard read gate: files whose stat size exceeds this NEVER enter a byte read —
+ * the reader returns file-level metadata only, so a huge build output or asset
+ * in the route worktree cannot spike main-process memory. (Binary sniffing
+ * also only ever examines the first 8000 bytes of an already-bounded read.)
+ */
+export const MAX_CODE_READ_BYTES = 2_000_000;
 /** NUL byte within the first 8000 bytes marks content as binary (git heuristic). */
 const BINARY_SNIFF_BYTES = 8000;
 
@@ -78,10 +87,13 @@ async function assertNoSymlinkSegments(root: string, relativePath: string): Prom
 
 /**
  * Shared route-file guard: safe relative path + per-segment symlink rejection
- * + regular-file check. Returns the absolute path under the route root.
- * Consumed by the code reader and the external editor launcher.
+ * + regular-file check. Returns the absolute path and stat size under the
+ * route root. Consumed by the code reader and the external editor launcher.
  */
-export async function assertRouteFile(root: string, relativePath: string): Promise<string> {
+export async function assertRouteFile(
+  root: string,
+  relativePath: string,
+): Promise<{ absolute: string; size: number }> {
   if (!isSafeRelativePath(relativePath)) {
     throw new Error(`code reader: relativePath is outside workspace: ${JSON.stringify(relativePath)}`);
   }
@@ -91,7 +103,7 @@ export async function assertRouteFile(root: string, relativePath: string): Promi
     throw new Error(`code reader: file not found: ${relativePath}`);
   });
   if (!stat.isFile()) throw new Error(`code reader: not a regular file: ${relativePath}`);
-  return absolute;
+  return { absolute, size: stat.size };
 }
 
 /** Walks the route root; ".git" internals never appear in the listing. */
@@ -109,6 +121,9 @@ async function listRelativeFiles(root: string, dir = "", out: string[] = []): Pr
 }
 
 export function createCodeReader(deps: CodeReaderDeps): CodeReaderService {
+  const readBytes =
+    deps.readBytes ?? ((absolute: string) => fs.readFile(absolute).then((buffer) => new Uint8Array(buffer)));
+
   function routeRoot(taskId: string, routeId: string): string {
     const root = deps.resolveRouteRoot(taskId, routeId);
     if (!root) throw new Error(`code reader: unknown task/route: ${taskId}/${routeId}`);
@@ -118,8 +133,13 @@ export function createCodeReader(deps: CodeReaderDeps): CodeReaderService {
   return {
     async readFile({ taskId, routeId, relativePath }): Promise<CodeFileContent> {
       const root = routeRoot(taskId, routeId);
-      const absolute = await assertRouteFile(root, relativePath);
-      const bytes = new Uint8Array(await fs.readFile(absolute));
+      // Stat gate FIRST: oversized files never enter a byte read — metadata
+      // only (no memory spike from large worktree artifacts).
+      const { absolute, size } = await assertRouteFile(root, relativePath);
+      if (size > MAX_CODE_READ_BYTES) {
+        return { path: relativePath, content: "", language: languageOf(relativePath), readOnly: true, binary: false, truncated: true, size };
+      }
+      const bytes = await readBytes(absolute);
       if (looksBinary(bytes)) {
         return { path: relativePath, content: "", language: "binary", readOnly: true, binary: true, truncated: false, size: bytes.length };
       }

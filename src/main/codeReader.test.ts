@@ -1,12 +1,13 @@
 // Tests for the route-scoped CodeReader — path validation (traversal /
 // absolute / drive letters / symlink escape), task/route ownership through the
-// bridge port, language detection, and binary metadata-only reads. Uses a
-// temp workspace; no Electron.
+// bridge port, language detection, binary metadata-only reads, and the
+// stat-gated size cap (oversized files return metadata WITHOUT a byte read).
+// Uses a temp workspace; no Electron.
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createCodeReader } from "./codeReader";
+import { createCodeReader, MAX_CODE_READ_BYTES } from "./codeReader";
 
 let storage: string;
 
@@ -36,11 +37,14 @@ const routes = (): Record<string, string | undefined> => ({
   "t1/r2": undefined, // unknown route for t1
 });
 
-function makeReader(overrides?: { resolveRouteRoot?: (taskId: string, routeId: string) => string | undefined }) {
+function makeReader(overrides?: {
+  resolveRouteRoot?: (taskId: string, routeId: string) => string | undefined;
+  readBytes?: (absolute: string) => Promise<Uint8Array>;
+}) {
   const map = routes();
   const resolveRouteRoot =
     overrides?.resolveRouteRoot ?? vi.fn((taskId: string, routeId: string) => map[`${taskId}/${routeId}`]);
-  return { resolveRouteRoot, reader: createCodeReader({ resolveRouteRoot }) };
+  return { resolveRouteRoot, reader: createCodeReader({ resolveRouteRoot, readBytes: overrides?.readBytes }) };
 }
 
 describe("codeReader path safety", () => {
@@ -123,6 +127,38 @@ describe("codeReader reads", () => {
     expect((await reader.readFile({ taskId: "t1", routeId: "r1", relativePath: "notes.md" })).language).toBe(
       "markdown",
     );
+  });
+
+  it("returns metadata only for an oversized file without reading its bytes", async () => {
+    // 真实文件：stat 尺寸超过读取上限（内容任意，反正不该被读）。
+    await fs.writeFile(
+      path.join(storage, "route", "big.ts"),
+      Buffer.alloc(MAX_CODE_READ_BYTES + 1, 0x78),
+    );
+    const readBytes = vi.fn(async () => new Uint8Array([0x78]));
+    const { reader } = makeReader({ readBytes });
+    const file = await reader.readFile({ taskId: "t1", routeId: "r1", relativePath: "big.ts" });
+    expect(file.content).toBe("");
+    expect(file.truncated).toBe(true);
+    expect(file.binary).toBe(false);
+    expect(file.size).toBe(MAX_CODE_READ_BYTES + 1);
+    expect(file.language).toBe("typescript");
+    expect(readBytes).not.toHaveBeenCalled(); // stat 门禁：零字节读取
+  });
+
+  it("returns metadata only for a large binary file without reading its bytes", async () => {
+    await fs.writeFile(
+      path.join(storage, "route", "huge.bin"),
+      Buffer.alloc(MAX_CODE_READ_BYTES + 512, 0x00),
+    );
+    const readBytes = vi.fn(async () => new Uint8Array([0x00]));
+    const { reader } = makeReader({ readBytes });
+    const file = await reader.readFile({ taskId: "t1", routeId: "r1", relativePath: "huge.bin" });
+    expect(file.binary).toBe(false); // 未知内容——尺寸门禁先于嗅探
+    expect(file.content).toBe("");
+    expect(file.truncated).toBe(true);
+    expect(file.size).toBe(MAX_CODE_READ_BYTES + 512);
+    expect(readBytes).not.toHaveBeenCalled();
   });
 
   it("lists route files relative and excludes .git internals", async () => {

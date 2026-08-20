@@ -418,7 +418,9 @@ export function App(): React.JSX.Element {
         workbench={{ project: projectName, routeId: null, gitBranch: null }}
         panelOpen={workbench.open}
         onTogglePanel={workbench.togglePanel}
+        terminalOpen={workbench.open && workbench.tab === "terminal"}
         onToggleTerminal={workbench.openTerminal}
+        t={t}
       />
       {/* One continuous surface: sidebar column (sidebar tone) + content
           column (panel tone), separated by hairlines only. */}
