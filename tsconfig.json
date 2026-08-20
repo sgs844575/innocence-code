@@ -21,6 +21,7 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
+    "tests/**/*.ts",
     "forge.config.ts",
     "vite.*.config.ts"
   ]

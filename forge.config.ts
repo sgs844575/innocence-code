@@ -12,6 +12,27 @@ const config: ForgeConfig = {
       unpack: "**/node_modules/node-pty/**",
     },
     executableName: "InnocenceCode",
+    // The pruner walks the ROOT production graph, which does not include
+    // workspace packages' dependencies — node-pty (a dependency of the
+    // @innocencecode/terminal-pty workspace) would be pruned away. The ignore
+    // filter below is the single source of truth for what ships; pruning is
+    // therefore off.
+    prune: false,
+    // plugin-vite's default copy filter keeps ONLY /.vite — node-pty (the one
+    // runtime require vite.main.config.ts externalizes) would never reach the
+    // package and require("node-pty") would fail in the packaged app. A
+    // function-valued ignore takes over from the plugin: keep the .vite
+    // bundles, package.json and node-pty (JS + native prebuilds, unpacked
+    // above); every other project file is already inlined into the bundles.
+    ignore: (file) => {
+      if (!file) return false; // the root path arrives empty — always keep it
+      return (
+        !file.startsWith("/.vite") &&
+        file !== "/package.json" &&
+        file !== "/node_modules" &&
+        !file.startsWith("/node_modules/node-pty")
+      );
+    },
   },
   rebuildConfig: {},
   makers: [

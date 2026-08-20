@@ -38,8 +38,17 @@ export default defineConfig({
       "@innocencecode/plugin-subagent": pkg("plugin-subagent"),
       "@innocencecode/plugin-skills": pkg("plugin-skills"),
       "@innocencecode/plugin-mcp": pkg("plugin-mcp"),
+      "@innocencecode/plugin-task": pkg("plugin-task"),
       "@innocencecode/harness-electron": pkg("harness-electron"),
       "@innocencecode/terminal-pty": pkg("terminal-pty"),
+      // task stack (P1): the command service, its CLI adapter, the Git
+      // adapter, the workspace repository, plugin-task's attribution fold and
+      // the hardened storage all compile from source into the bundle
+      "@innocencecode/task-cli": pkg("task-cli"),
+      "@innocencecode/task-core": pkg("task-core"),
+      "@innocencecode/task-git": pkg("task-git"),
+      "@innocencecode/task-workspace": pkg("task-workspace"),
+      "@innocencecode/secure-storage-node": pkg("secure-storage-node"),
     },
   },
 });
