@@ -107,17 +107,34 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-/** Executable paths of every running process (empty for inaccessible ones). */
+/**
+ * Executable paths of every running process (empty for inaccessible ones).
+ * Prefers wmic; falls back to PowerShell CIM when wmic is absent (removed on
+ * Windows 11 24H2+).
+ */
 async function processImagePaths(): Promise<string[]> {
-  const { stdout } = await execFileAsync(
-    "wmic",
-    ["process", "get", "ExecutablePath", "/format:csv"],
-    { windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
-  );
-  return stdout
-    .split(/\r?\n/)
-    .map((line) => line.split(",").filter((field) => field !== "").at(-1) ?? "")
-    .filter((value) => value.trim().length > 0);
+  const spawnOptions = { windowsHide: true, maxBuffer: 64 * 1024 * 1024 } as const;
+  try {
+    const { stdout } = await execFileAsync("wmic", ["process", "get", "ExecutablePath", "/format:csv"], spawnOptions);
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.split(",").filter((field) => field !== "").at(-1) ?? "")
+      .filter((value) => value.trim().length > 0);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(`process enumeration failed (wmic present but errored): ${String(error)}`);
+    }
+    const { stdout } = await execFileAsync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        "Get-CimInstance Win32_Process -Property ExecutablePath | Where-Object { $_.ExecutablePath } | Select-Object -ExpandProperty ExecutablePath",
+      ],
+      spawnOptions,
+    );
+    return stdout.split(/\r?\n/).filter((value) => value.trim().length > 0);
+  }
 }
 
 /** Every *.lock file under a root (task/workspace lease residue). */
@@ -195,17 +212,17 @@ describe("packaged-exit acceptance (requires `npm run package` first)", () => {
     expect(leakedLocks, "lock lease files must not survive the packaged exit").toEqual([]);
 
     // residue sweep 2: a beat after exit, no process image from the packaged
-    // tree (winpty/conpty agents, OpenConsole, spawned children) survives
+    // tree (winpty/conpty agents, OpenConsole, spawned children) survives.
+    // Scoped to IMAGE PATHS only: node-pty ships its agents inside the
+    // package, so a packaged-tree prefix (or any app.asar.unpacked path)
+    // catches every real residue — while matching by BASENAME would wrongly
+    // flag unrelated system processes (Windows Terminal keeps an
+    // OpenConsole.exe alive for every console pane on dev machines).
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     const packageDirLower = packageDir.toLowerCase();
-    const agentBasenames = new Set(["winpty-agent.exe", "openconsole.exe", "conpty.exe"]);
     const residuals = (await processImagePaths()).filter((image) => {
       const lower = image.toLowerCase();
-      return (
-        lower.startsWith(packageDirLower) ||
-        lower.includes("app.asar.unpacked") ||
-        agentBasenames.has(path.basename(lower))
-      );
+      return lower.startsWith(packageDirLower) || lower.includes("app.asar.unpacked");
     });
     expect(residuals, "no packaged-tree process may survive the exit").toEqual([]);
     console.log("[packaged-exit] residue sweep clean (no processes, no lock leases)");
