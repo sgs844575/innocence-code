@@ -29,6 +29,13 @@ export interface ReverseApplyInput {
    * would leave things — journal on disk, committed marker absent.
    */
   crashAfterFiles?: number;
+  /**
+   * Test-only fault injection: die after the Nth file's atomic rename has
+   * landed but BEFORE the journal records it as applied — the on-disk file
+   * holds desired content while the journal still says applied:false.
+   * Recovery must detect and roll back this unrecorded replacement.
+   */
+  crashBetweenRenameAndJournal?: number;
 }
 
 export interface FileConflict {
@@ -142,6 +149,11 @@ export async function applyReverse(input: ReverseApplyInput, deps: ApplyDeps): P
   const applied: string[] = [];
   for (const entry of entries) {
     await applyEntry(root, entry, deps.contentStore, journal.transactionId);
+    if (input.crashBetweenRenameAndJournal !== undefined && applied.length + 1 === input.crashBetweenRenameAndJournal) {
+      // rename landed; the journal never records it — the unrecorded-
+      // replacement window recovery must handle.
+      throw new Error(APPLY_CRASH_SENTINEL);
+    }
     entry.applied = true;
     applied.push(entry.path);
     await writeJournal(deps.storage, journal);

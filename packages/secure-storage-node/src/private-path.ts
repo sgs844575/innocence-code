@@ -82,7 +82,12 @@ export interface SecureStorage {
   writeFileAtomic(relativePath: string, content: string | Uint8Array): Promise<string>;
   /** Appends to a 0600 file (fsync'd), creating it when missing. */
   appendFile(relativePath: string, content: string | Uint8Array): Promise<string>;
-  /** Creates a 0600 file only if it does not exist (O_EXCL semantics). */
+  /**
+   * Creates a 0600 file only if it does not exist. The file is published
+   * atomically WITH its full content: content is written+fsync'd to a temp
+   * sibling and `link()`ed into place (EEXIST means someone else won), so
+   * other processes can never observe an empty/partial file at the target.
+   */
   createFileExclusive(relativePath: string, content: string | Uint8Array): Promise<ExclusiveCreateResult>;
   readFile(relativePath: string): Promise<Uint8Array>;
   readTextFile(relativePath: string): Promise<string>;
@@ -289,15 +294,23 @@ export async function openSecureStorage(rootDir: string, options: SecureStorageO
 
     async createFileExclusive(relativePath, content) {
       const absolute = await ensureParent(relativePath);
+      // Write the complete content to a temp sibling (same directory ⇒ same
+      // volume), then link it into place: link(2) fails atomically with
+      // EEXIST when the target exists, so the target only ever appears with
+      // its full content — an empty or partially written file is unobservable.
+      const temp = `${absolute}.${randomUUID()}.tmp`;
+      await openSecureFile(temp, "w", content);
       try {
-        await openSecureFile(absolute, "wx", content);
-        return { path: absolute, created: true };
+        await fs.link(temp, absolute);
       } catch (error) {
+        await fs.rm(temp, { force: true });
         if ((error as NodeJS.ErrnoException).code === "EEXIST") {
           return { path: absolute, created: false };
         }
         throw error;
       }
+      await fs.rm(temp, { force: true });
+      return { path: absolute, created: true };
     },
 
     async readFile(relativePath) {

@@ -161,6 +161,40 @@ describe("workspace write lock (in-process semantics)", () => {
     const second = (await lock.acquire(workspaceRoot, OTHER)) as LockHandle;
     await second.release();
   }, 30000);
+
+  it("never recovers an unparseable lease (a live but stalled owner keeps its lock)", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(base, "ws-"));
+    // Simulate a writer that created the lock file but stalled before its
+    // content flushed (or any foreign/corrupt lease): no PID is provable, so
+    // recovery is forbidden — the contender must wait, never delete.
+    const lockPath = path.join(base, "locks", "workspace", `${sha256Hex(await fs.realpath(workspaceRoot))}.lock`);
+    await fs.writeFile(lockPath, "");
+
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 400);
+    await expect(lock.acquire(workspaceRoot, OWNER, controller.signal)).rejects.toThrowError(/abort/i);
+    expect(await fs.readFile(lockPath, "utf8")).toBe(""); // untouched
+
+    // same for readable-but-garbage content
+    await fs.writeFile(lockPath, "not-a-lease");
+    const secondController = new AbortController();
+    setTimeout(() => secondController.abort(), 400);
+    await expect(lock.acquire(workspaceRoot, OWNER, secondController.signal)).rejects.toThrowError(/abort/i);
+    expect(await fs.readFile(lockPath, "utf8")).toBe("not-a-lease");
+  }, 30000);
+
+  it("never treats a non-ENOENT read error as a released lock", async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(base, "ws-"));
+    // A directory at the lease path makes reads fail with EISDIR (not
+    // ENOENT): transient/systemic read failures must never become "stale".
+    const lockPath = path.join(base, "locks", "workspace", `${sha256Hex(await fs.realpath(workspaceRoot))}.lock`);
+    await fs.mkdir(lockPath);
+
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 400);
+    await expect(lock.acquire(workspaceRoot, OWNER, controller.signal)).rejects.toThrowError(/abort/i);
+    expect((await fs.stat(lockPath)).isDirectory()).toBe(true); // untouched
+  }, 30000);
 });
 
 describe("workspace write lock (real child processes)", () => {
@@ -210,17 +244,20 @@ describe("workspace write lock (real child processes)", () => {
       // the contender keeps retrying and NEVER wins while the owner lives
       expect(await contenderChild.noEventFor(1200)).toBe(true);
 
-      // the owner can still release and re-acquire: its lease was never stolen
+      // only the real release hands the lease over: the contender (the only
+      // remaining acquirer) must acquire afterwards — the owner's lease was
+      // never stolen while it was alive
       ownerChild.send({ cmd: "release" });
       expect((await waitForEvent(ownerChild, "released")).event).toBe("released");
-      ownerChild.send({ ...acquireCmd, workspaceKey: workspaceRoot });
-      expect((await waitForEvent(ownerChild, "acquired")).event).toBe("acquired");
-      // now the contender gets its turn only after the real release
-      ownerChild.send({ cmd: "release" });
-      await waitForEvent(ownerChild, "released");
       expect((await waitForEvent(contenderChild, "acquired")).event).toBe("acquired");
       contenderChild.send({ cmd: "release" });
       await waitForEvent(contenderChild, "released");
+
+      // the lock file is healthy after the handover: a fresh acquire works
+      ownerChild.send({ ...acquireCmd, workspaceKey: workspaceRoot });
+      expect((await waitForEvent(ownerChild, "acquired")).event).toBe("acquired");
+      ownerChild.send({ cmd: "release" });
+      await waitForEvent(ownerChild, "released");
     } finally {
       await ownerChild.endGracefully();
       await contenderChild.endGracefully();
@@ -247,6 +284,37 @@ describe("workspace write lock (real child processes)", () => {
       await handle.release();
     } finally {
       await ownerChild.killTree();
+    }
+  }, 30000);
+
+  it("repeated simultaneous races always yield exactly one winner (atomic lease publish)", async () => {
+    // Regression for the create-vs-flush race: with link()-based publishing
+    // a lock file only ever appears with its full lease content, so a
+    // contender can never misread a live owner's lock as empty/stale.
+    for (let round = 0; round < 3; round += 1) {
+      const workspaceRoot = await fs.mkdtemp(path.join(base, `race-${round}-`));
+      const a = spawnChild("workspace-lock.child.ts", [base, workspaceRoot]);
+      const b = spawnChild("workspace-lock.child.ts", [base, workspaceRoot]);
+      try {
+        expect((await a.nextEvent()).event).toBe("ready");
+        expect((await b.nextEvent()).event).toBe("ready");
+        a.send({ ...acquireCmd, workspaceKey: workspaceRoot });
+        b.send({ ...acquireCmd, workspaceKey: workspaceRoot });
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const acquired = [a, b].flatMap((proc) => proc.events.filter((event) => event.event === "acquired"));
+        expect(acquired, `round ${round}`).toHaveLength(1);
+
+        const winner = a.events.some((event) => event.event === "acquired") ? a : b;
+        const loser = winner === a ? b : a;
+        winner.send({ cmd: "release" });
+        await waitForEvent(winner, "released");
+        await waitForEvent(loser, "acquired");
+        loser.send({ cmd: "release" });
+        await waitForEvent(loser, "released");
+      } finally {
+        await a.endGracefully();
+        await b.endGracefully();
+      }
     }
   }, 30000);
 });

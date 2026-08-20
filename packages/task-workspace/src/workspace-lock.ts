@@ -176,37 +176,60 @@ function makeHandle(storage: SecureStorage, relativePath: string, lease: LockLea
   };
 }
 
+type LeaseRead =
+  | { kind: "lease"; lease: LockLease }
+  /** ENOENT: the lock was released or recovered by someone else. */
+  | { kind: "gone" }
+  /** Readable but not a lease (empty, truncated or foreign content). */
+  | { kind: "unparseable" }
+  /** Read failed with an error other than ENOENT (e.g. transient EPERM/EBUSY/EISDIR). */
+  | { kind: "unreadable" };
+
+async function readLease(storage: SecureStorage, relativePath: string): Promise<LeaseRead> {
+  let raw: string;
+  try {
+    raw = await storage.readTextFile(relativePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { kind: "gone" };
+    }
+    return { kind: "unreadable" };
+  }
+  const lease = parseLease(raw);
+  return lease === null ? { kind: "unparseable" } : { kind: "lease", lease };
+}
+
 /**
- * Reads a lease, retrying briefly when the content does not parse yet: the
- * winner of O_EXCL creates the file before its content is flushed, so a
- * concurrent contender can briefly observe an empty file. Only a lease that
- * stays unparseable (or vanishes) is reported as unreadable.
+ * Reads a lease, retrying briefly while the content does not parse or the
+ * read fails transiently. Only ENOENT ("gone") is ever classified as a
+ * missing lock; unparseable/unreadable states are NEVER treated as stale —
+ * see acquireFileLock for why.
  */
 async function readLeaseSettled(
   storage: SecureStorage,
   relativePath: string,
   attempts = 5,
   delayMs = 40,
-): Promise<{ raw: string | null; lease: LockLease | null }> {
-  for (let attempt = 0; ; attempt += 1) {
-    let raw: string | null = null;
-    try {
-      raw = await storage.readTextFile(relativePath);
-    } catch {
-      raw = null; // vanished (released or recovered)
-    }
-    const lease = raw === null ? null : parseLease(raw);
-    if (lease !== null || raw === null || attempt >= attempts - 1) {
-      return { raw, lease };
-    }
+): Promise<LeaseRead> {
+  let last = await readLease(storage, relativePath);
+  for (let attempt = 1; attempt < attempts && (last.kind === "unparseable" || last.kind === "unreadable"); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, delayMs));
+    last = await readLease(storage, relativePath);
   }
+  return last;
 }
 
 /**
  * Generic exclusive file-lock acquire loop shared by the workspace and task
  * leases. `key` is hashed into the lock file name; `lockDirRelative` is the
  * secure-storage subpath that holds the lock files.
+ *
+ * Staleness is decided ONLY by owner liveness, never by wall-clock timeouts:
+ * a lock is recovered exclusively when its lease PARSES and its PID does not
+ * exist, or its PID exists with a different start identity (PID reuse). A
+ * lease that cannot be parsed or read might belong to a live (if stalled)
+ * owner, so it is treated as actively held — the contender keeps retrying
+ * until its AbortSignal fires; removing such a file needs an operator.
  */
 export async function acquireFileLock(
   storage: SecureStorage,
@@ -232,6 +255,8 @@ export async function acquireFileLock(
     if (signal?.aborted) {
       throw new Error(LOCK_ACQUIRE_ABORTED);
     }
+    // createFileExclusive publishes the lease atomically WITH its content
+    // (temp + link), so a contender never observes an empty lock file.
     const created = await storage.createFileExclusive(relativePath, JSON.stringify(lease));
     if (created.created) {
       return makeHandle(storage, relativePath, lease);
@@ -239,20 +264,31 @@ export async function acquireFileLock(
 
     const existing = await readLeaseSettled(storage, relativePath);
 
-    let stale = existing.lease === null; // still-unparseable lease: writer died mid-write
-    if (existing.lease !== null) {
-      if (isPidAlive(existing.lease.pid)) {
-        let startId = startIds.get(existing.lease.pid);
-        if (startId === undefined) {
-          startId = await readProcessStartId(existing.lease.pid);
-          startIds.set(existing.lease.pid, startId);
-        }
-        if (startId !== null && startId !== existing.lease.processStartId) {
-          stale = true; // same pid, different process: the owner is gone
-        }
-      } else {
-        stale = true; // pid does not exist
+    if (existing.kind === "gone") {
+      continue; // released or recovered while we were looking; retry create
+    }
+    if (existing.kind !== "lease") {
+      // unparseable or unreadable: liveness cannot be PROVEN, so the lock
+      // is treated as actively held. Never deleted, never timed out.
+      await sleepWithSignal(backoff, signal);
+      backoff = Math.min(Math.floor(backoff * 1.6), MAX_BACKOFF_MS);
+      continue;
+    }
+
+    let stale = false;
+    if (isPidAlive(existing.lease.pid)) {
+      let startId = startIds.get(existing.lease.pid);
+      if (startId === undefined) {
+        startId = await readProcessStartId(existing.lease.pid);
+        startIds.set(existing.lease.pid, startId);
       }
+      if (startId !== null && startId !== existing.lease.processStartId) {
+        stale = true; // same pid, different process: the owner is gone (PID reuse)
+      } else {
+        // live owner (or unverifiable identity — never steal)
+      }
+    } else {
+      stale = true; // pid does not exist
     }
 
     if (!stale) {
@@ -261,11 +297,12 @@ export async function acquireFileLock(
       continue;
     }
 
-    // Stale: delete only when the token we judged is still on disk, so a
-    // concurrent recoverer's fresh lock can never be deleted.
-    const current = await readLeaseSettled(storage, relativePath, 1);
-    if (current.lease !== null && existing.lease !== null && current.lease.leaseToken !== existing.lease.leaseToken) {
-      continue; // already recovered and possibly reacquired
+    // Stale (proven): delete only when the exact lease we judged is still on
+    // disk. ANY other state — gone, changed token, or newly unparseable/
+    // unreadable content — means we lost the race; never delete then.
+    const current = await readLease(storage, relativePath);
+    if (current.kind !== "lease" || current.lease.leaseToken !== existing.lease.leaseToken) {
+      continue;
     }
     await storage.deleteFile(relativePath);
   }

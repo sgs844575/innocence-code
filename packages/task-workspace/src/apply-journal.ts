@@ -131,7 +131,12 @@ async function restoreBackup(root: string, entry: ApplyJournalEntry, contentStor
  *   match their desired hashes is proven complete: the committed marker is
  *   backfilled and the journal removed;
  * - anything else is rolled back: every APPLIED path is restored from its
- *   backup ref (or deleted when it had no pre-transaction content).
+ *   backup ref (or deleted when it had no pre-transaction content). Entries
+ *   that were never RECORDED as applied are rolled back too when the disk
+ *   content is conclusively the desired content — the process died between
+ *   the atomic rename and the journal write, and desired content on disk is
+ *   not pre-transaction content (the journal guarantees desiredHash differs
+ *   from beforeHash for every entry).
  *
  * Staleness is proven by content hashes, never by wall-clock timeouts.
  */
@@ -164,7 +169,15 @@ export async function recoverApplyJournals(
 
     for (const entry of [...journal.entries].reverse()) {
       if (!entry.applied) {
-        continue;
+        // Unrecorded-replacement window: the rename/unlink landed but the
+        // journal write did not. diskHash === desiredHash (and differs from
+        // beforeHash) proves the file is NOT at its pre-transaction bytes,
+        // so it must be rolled back like any applied entry.
+        const current = await diskHash(journal.root, entry.path);
+        const replacedUnrecorded = current !== entry.beforeHash && current === entry.desiredHash;
+        if (!replacedUnrecorded) {
+          continue; // untouched: still at pre-transaction bytes
+        }
       }
       await restoreBackup(journal.root, entry, contentStore);
       report.rolledBack.push(entry.path);

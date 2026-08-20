@@ -101,6 +101,38 @@ describe("apply journal crash simulation and recovery", () => {
     });
   }
 
+  for (const crashFile of [1, 3]) {
+    it(`rolls back a replacement the journal never recorded (crash between rename and journal write, file ${crashFile})`, async () => {
+      const { root, storage, objects, patches, contentOf } = await threeFileTransaction();
+
+      // dies after the Nth file's rename landed but BEFORE the journal marks
+      // it applied: disk holds desired bytes, journal says applied:false
+      await expect(
+        createPatchEngine({ storage, contentStore: objects })
+          .applyReverse({ root, patches, crashBetweenRenameAndJournal: crashFile }),
+      ).rejects.toThrowError(APPLY_CRASH_SENTINEL);
+
+      const journals = await listJournals(storage);
+      expect(journals).toHaveLength(1);
+      expect(journals[0]!.committed).toBe(false);
+      const crashedEntry = journals[0]!.entries[crashFile - 1]!;
+      expect(crashedEntry.applied).toBe(false);
+      // ...yet the file on disk already holds the DESIRED ("1") content
+      expect(await readFileText(root, crashedEntry.path)).toBe(contentOf(crashedEntry.path, "1"));
+
+      const report = await createPatchEngine({ storage, contentStore: objects }).recoverApplyJournals();
+      expect(report.completed).toEqual([]);
+      expect(report.rolledBack).toContain(crashedEntry.path);
+
+      // ALL files are back to pre-transaction bytes — including the one the
+      // journal never recorded
+      for (const name of ["a.txt", "b.txt", "c.txt"]) {
+        expect(await readFileText(root, name)).toBe(contentOf(name, "2"));
+      }
+      expect(await listJournals(storage)).toEqual([]);
+    });
+  }
+
   it("completes a provably-finished transaction (all desired present, marker missing)", async () => {
     const { root, storage, objects, patches } = await threeFileTransaction();
 

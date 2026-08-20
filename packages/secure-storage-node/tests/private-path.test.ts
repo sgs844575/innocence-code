@@ -94,6 +94,23 @@ describe("secure storage file primitives", () => {
     expect(await storage.readTextFile("locks/a.lock")).toBe("owner-1");
   });
 
+  it("createFileExclusive publishes complete content atomically (link, never an empty file)", async () => {
+    const storage = await openSecureStorage(uniqueRoot(), { dirs: ["locks"] });
+    const lease = JSON.stringify({ pid: process.pid, token: "abc" });
+    const result = await storage.createFileExclusive("locks/ws.lock", lease);
+    // The target exists WITH its full content the moment it exists at all —
+    // no contender can ever read an empty or partial lease.
+    expect(result.created).toBe(true);
+    expect(await fs.readFile(result.path, "utf8")).toBe(lease);
+    // loser keeps the winner's bytes untouched
+    const loser = await storage.createFileExclusive("locks/ws.lock", "other");
+    expect(loser.created).toBe(false);
+    expect(await fs.readFile(loser.path, "utf8")).toBe(lease);
+    // no temp siblings are left behind after success or after EEXIST
+    const siblings = (await fs.readdir(path.join(storage.root, "locks"))).filter((name) => name.endsWith(".tmp"));
+    expect(siblings).toEqual([]);
+  });
+
   it("writeFileAtomic replaces content and leaves no temp files behind", async () => {
     const storage = await openSecureStorage(uniqueRoot(), { dirs: ["checkpoints"] });
     await storage.writeFileAtomic("checkpoints/cp.json", "v1");
