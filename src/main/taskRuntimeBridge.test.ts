@@ -13,7 +13,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createExecutionScope } from "@innocencecode/harness-core";
 import { createGitAdapter, type GitAdapter, type GitWorkspaceInfo } from "@innocencecode/task-git";
 import type { TaskEvent, TaskScope } from "@innocencecode/plugin-task";
-import { reduceTask } from "@innocencecode/task-core";
+import {
+  reduceTask,
+  turnCommittedEvent,
+  turnPreparedEvent,
+  turnCheckpointedEvent,
+  type Checkpoint,
+} from "@innocencecode/task-core";
+import { openTaskRepository, sha256Bytes } from "@innocencecode/task-workspace";
 import {
   createTaskRuntimeBridge,
   resolveTaskWorkspaceRoot,
@@ -357,6 +364,151 @@ describe("taskRuntimeBridge port", () => {
     await context[Symbol.asyncDispose]();
     await bridge.disposeAll();
   });
+});
+
+describe("taskRuntimeBridge.forkRoute", () => {
+  it("forks from the persisted base commit and checkpoint after the original HEAD moves, then recovers", async () => {
+    const repo = await createGitFixture({ "app.txt": "base\n", "keep.txt": "keep\n" });
+    await fs.writeFile(path.join(repo, "dirty.txt"), "dirty baseline\n", "utf8");
+    const storageDir = await tempDir("ic-bridge-fork-");
+    const worktreeDir = path.join(storageDir, "worktrees");
+    const bridge = createTaskRuntimeBridge({ taskStorageDir: storageDir, worktreeDir });
+    const source = await bridge.start({
+      taskId: "task_fork",
+      sessionId: "session_fork",
+      mode: "isolated",
+      workspaceRoot: repo,
+    });
+    const sourceBase = (await gitExec(source.workspaceRoot, ["rev-parse", "HEAD"])).trim();
+    const originalStatus = await gitExec(repo, ["status", "--porcelain=v1"]);
+    const sourceEventsBefore = [...(await bridge.listEvents(source.taskId))];
+
+    const checkpointBytes = new TextEncoder().encode("checkpoint one\n");
+    const checkpointHash = sha256Bytes(checkpointBytes);
+    const repository = await openTaskRepository(storageDir, source.taskId);
+    await repository.objects.put(checkpointBytes);
+    const checkpoint: Checkpoint = {
+      checkpointId: "c1",
+      taskId: source.taskId,
+      routeId: "main",
+      turnId: "a2",
+      files: [
+        { path: "app.txt", exists: true, hash: checkpointHash, mode: 0o100644, binary: false },
+        { path: "future.txt", exists: false, hash: null, mode: null, binary: false },
+      ],
+    };
+    await repository.writeCheckpoint(checkpoint);
+    await repository.append([
+      turnCheckpointedEvent({ checkpointId: "c1", routeId: "main", turnId: "a2", files: checkpoint.files }),
+      turnPreparedEvent({
+        turnId: "a2",
+        checkpointId: "c1",
+        routeId: "main",
+        role: "assistant",
+        prompt: "original prompt",
+        parentCheckpointId: "c1",
+      }),
+      turnCommittedEvent({ turnId: "a2", checkpointId: "c1", routeId: "main" }),
+    ]);
+
+    // Move the user's repository HEAD after task start. Forking must ignore it.
+    await fs.writeFile(path.join(repo, "app.txt"), "future commit\n", "utf8");
+    await fs.writeFile(path.join(repo, "future.txt"), "future only\n", "utf8");
+    await gitExec(repo, ["add", "app.txt", "future.txt"]);
+    await gitExec(repo, ["commit", "-m", "move head after task start"]);
+
+    const child = await bridge.forkRoute({
+      sessionId: source.sessionId,
+      taskId: source.taskId,
+      sourceRouteId: "main",
+      sourceTurnId: "a2",
+      mode: "retry-assistant",
+      routeName: "Retry a2",
+    });
+
+    expect(child.parentRouteId).toBe("main");
+    expect(child.checkpointId).toBe("c1");
+    expect(child.baseCommit).toBe(sourceBase);
+    expect(await fileText(path.join(child.workspaceRoot, "app.txt"))).toBe("checkpoint one\n");
+    expect(await fileText(path.join(child.workspaceRoot, "dirty.txt"))).toBe("dirty baseline\n");
+    expect(await fileText(path.join(child.workspaceRoot, "future.txt"))).toBeNull();
+    expect((await gitExec(child.workspaceRoot, ["rev-parse", "HEAD"])).trim()).toBe(sourceBase);
+    expect(await gitExec(repo, ["status", "--porcelain=v1"])).toBe(originalStatus);
+    expect((await bridge.listEvents(source.taskId)).slice(0, sourceEventsBefore.length)).toEqual(sourceEventsBefore);
+
+    await bridge.disposeAll();
+    const restarted = createTaskRuntimeBridge({ taskStorageDir: storageDir, worktreeDir });
+    const recovered = await restarted.recoverTask(source.taskId);
+    expect(recovered.routes.get(child.routeId)?.workspaceRoot).toBe(child.workspaceRoot);
+    expect(await fileText(path.join(child.workspaceRoot, "app.txt"))).toBe("checkpoint one\n");
+    expect((await gitExec(child.workspaceRoot, ["rev-parse", "HEAD"])).trim()).toBe(sourceBase);
+    const recoveredChild = restarted.getRoute(source.taskId, child.routeId);
+    expect(recoveredChild?.workspaceRoot).toBe(child.workspaceRoot);
+    const context = await recoveredChild!.port.acquireMutationContext(taskScopeOf(source.taskId, child.routeId));
+    await recoveredChild!.port.append(context, { type: "attributionPending", paths: ["continued.txt"] });
+    await context[Symbol.asyncDispose]();
+    expect((await restarted.listEvents(source.taskId)).at(-1)).toMatchObject({
+      type: "attributionPending",
+      paths: ["continued.txt"],
+    });
+    await restarted.disposeAll();
+  }, 120_000);
+
+  it("cleans the child worktree and leaves route state untouched when checkpoint bytes fail validation", async () => {
+    const repo = await createGitFixture({ "app.txt": "base\n" });
+    const storageDir = await tempDir("ic-bridge-fork-fail-");
+    const worktreeDir = path.join(storageDir, "worktrees");
+    const bridge = createTaskRuntimeBridge({ taskStorageDir: storageDir, worktreeDir });
+    const source = await bridge.start({
+      taskId: "task_fork_fail",
+      sessionId: "session_fork_fail",
+      mode: "isolated",
+      workspaceRoot: repo,
+    });
+    const repository = await openTaskRepository(storageDir, source.taskId);
+    const bytes = new TextEncoder().encode("expected\n");
+    const hash = sha256Bytes(bytes);
+    await repository.objects.put(bytes);
+    const checkpoint: Checkpoint = {
+      checkpointId: "c_bad",
+      taskId: source.taskId,
+      routeId: "main",
+      turnId: "a_bad",
+      files: [{ path: "app.txt", exists: true, hash, mode: 0o100644, binary: false }],
+    };
+    await repository.writeCheckpoint(checkpoint);
+    await repository.append([
+      turnCheckpointedEvent({ checkpointId: checkpoint.checkpointId, routeId: "main", turnId: "a_bad", files: checkpoint.files }),
+      turnPreparedEvent({
+        turnId: "a_bad",
+        checkpointId: checkpoint.checkpointId,
+        routeId: "main",
+        role: "assistant",
+        prompt: "original",
+        parentCheckpointId: checkpoint.checkpointId,
+      }),
+      turnCommittedEvent({ turnId: "a_bad", checkpointId: checkpoint.checkpointId, routeId: "main" }),
+    ]);
+    await fs.writeFile(repository.objects.path(hash), "tampered\n", "utf8");
+    const eventsBefore = await bridge.listEvents(source.taskId);
+    const headBefore = await repository.readTaskHead();
+    const worktreesBefore = await worktreePaths(repo);
+
+    await expect(bridge.forkRoute({
+      sessionId: source.sessionId,
+      taskId: source.taskId,
+      sourceRouteId: "main",
+      sourceTurnId: "a_bad",
+      mode: "retry-assistant",
+      routeName: "bad retry",
+    })).rejects.toThrow(/hash mismatch/i);
+
+    expect(await bridge.listEvents(source.taskId)).toEqual(eventsBefore);
+    expect(await repository.readTaskHead()).toEqual(headBefore);
+    expect(await worktreePaths(repo)).toEqual(worktreesBefore);
+    expect(bridge.getRoute(source.taskId, "main")?.workspaceRoot).toBe(source.workspaceRoot);
+    await bridge.disposeAll();
+  }, 120_000);
 });
 
 describe("taskRuntimeBridge lifecycle", () => {

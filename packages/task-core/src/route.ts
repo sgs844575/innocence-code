@@ -10,6 +10,7 @@ export interface CreateRouteInput {
   forkTurnId?: string | null;
   workspaceRoot?: string;
   readonly?: boolean;
+  baseCommit?: string;
 }
 
 /** Creates a writable top-level route unless fork fields say otherwise. */
@@ -21,6 +22,7 @@ export function createRoute(input: CreateRouteInput): Route {
     checkpointId: input.checkpointId,
     workspaceRoot: input.workspaceRoot ?? "",
     readonly: input.readonly ?? false,
+    ...(input.baseCommit ? { baseCommit: input.baseCommit } : {}),
   };
 }
 

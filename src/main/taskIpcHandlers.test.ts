@@ -89,10 +89,11 @@ class FakeCommandPort implements TaskCommandPort {
     parentRouteId: null,
     checkpointId: "ckpt",
   });
-  forkRoute = async (_taskId: string, forkFrom: string) => ({
+  forkRoute: TaskCommandPort["forkRoute"] = async (request) => ({
     routeId: "fork_1",
-    parentRouteId: forkFrom,
+    parentRouteId: request.sourceRouteId,
     checkpointId: "ckpt_fork",
+    workspaceRoot: "/worktrees/fork_1",
   });
   reviewHunk = async () => {};
   applyAccepted = async () => ({ applied: true as const });
@@ -295,17 +296,28 @@ describe("TaskIpcHandlers", () => {
 
   // --- forkRoute ---
 
-  it("forkRoute returns new route DTO", async () => {
-    const result = await handlers.forkRoute({ taskId: "t1", forkFrom: "main" });
-    expect(result.routeId).toBeDefined();
+  const forkRequest = () => ({
+    sessionId: "s1",
+    taskId: "t1",
+    sourceRouteId: "main",
+    sourceTurnId: "a2",
+    mode: "retry-assistant" as const,
+    routeName: "Retry a2",
+  });
+
+  it("forkRoute returns the isolated route DTO", async () => {
+    const result = await handlers.forkRoute(forkRequest());
+    expect(result).toMatchObject({ routeId: "fork_1", workspaceRoot: "/worktrees/fork_1" });
   });
 
   it("forkRoute rejects when task workspace is not git", async () => {
     bridgeState.handle = fakeHandle({ workspaceKind: "snapshot" });
     handlers = buildHandlers();
-    await expect(
-      handlers.forkRoute({ taskId: "t1", forkFrom: "main" }),
-    ).rejects.toThrow("git");
+    await expect(handlers.forkRoute(forkRequest())).rejects.toThrow("Git repository required");
+  });
+
+  it("forkRoute rejects a renderer request from another session", async () => {
+    await expect(handlers.forkRoute({ ...forkRequest(), sessionId: "other" })).rejects.toThrow("session scope");
   });
 
   // --- restore hunk scope ---

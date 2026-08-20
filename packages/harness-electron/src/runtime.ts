@@ -6,6 +6,7 @@
 // turn-persistence.ts.
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { Route } from "@innocencecode/task-core";
 import {
   AgentSession,
   createExecutionScope,
@@ -23,6 +24,7 @@ import {
   DEFAULT_ROUTE_ID,
   type PermissionAsk,
   type PluginFactoryContext,
+  type RuntimeForkRouteInput,
   type RuntimeOptions,
   type RuntimeSendRequest,
 } from "./runtime-types";
@@ -112,6 +114,11 @@ export class HarnessRuntime {
         err instanceof Error ? err.message : String(err),
       );
     }
+  }
+
+  async forkRoute(input: RuntimeForkRouteInput): Promise<Route> {
+    if (!this.options.forkRoute) throw new Error("forkRoute host port is not configured");
+    return this.options.forkRoute(input);
   }
 
   /** Stops the active run of one route (empty routeId = the main route,

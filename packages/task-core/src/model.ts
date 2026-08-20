@@ -36,6 +36,8 @@ export interface Route {
   checkpointId: string;
   workspaceRoot: string;
   readonly: boolean;
+  /** Immutable Git commit used to create/recover this route's worktree. */
+  baseCommit?: string;
 }
 
 export interface FileSnapshotRef {
@@ -67,6 +69,10 @@ export interface TaskTurn {
   checkpointId: string;
   routeId: string;
   phase: TurnPhase;
+  /** Conversation metadata used by pure fork command resolution. */
+  role?: "user" | "assistant";
+  prompt?: string;
+  parentCheckpointId?: string;
 }
 
 export interface Hunk {

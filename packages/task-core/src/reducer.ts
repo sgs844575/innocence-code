@@ -130,6 +130,9 @@ function validateRoute(raw: unknown, eventIndex: number): void {
   if (typeof route.readonly !== "boolean") {
     throw incompleteEvent(eventIndex, "route.readonly must be a boolean");
   }
+  if (route.baseCommit !== undefined) {
+    requireNonEmptyString(route.baseCommit, "route.baseCommit", eventIndex);
+  }
 }
 
 /** Validates one FileSnapshotRef entry of a turnCheckpointed event. */
@@ -169,6 +172,7 @@ function validateTaskEvent(raw: unknown, eventIndex: number): TaskEvent {
       requireEnumValue(record.mode, "mode", TASK_MODES, eventIndex);
       requireNonEmptyString(record.routeId, "routeId", eventIndex);
       requireNonEmptyString(record.baselineCheckpointId, "baselineCheckpointId", eventIndex);
+      if (record.baseCommit !== undefined) requireNonEmptyString(record.baseCommit, "baseCommit", eventIndex);
       validateEnvelope(record, eventIndex);
       return record as unknown as TaskEvent;
     }
@@ -200,6 +204,9 @@ function validateTaskEvent(raw: unknown, eventIndex: number): TaskEvent {
       requireNonEmptyString(record.turnId, "turnId", eventIndex);
       requireNonEmptyString(record.checkpointId, "checkpointId", eventIndex);
       requireNonEmptyString(record.routeId, "routeId", eventIndex);
+      if (record.role !== undefined) requireEnumValue(record.role, "role", new Set(["user", "assistant"]), eventIndex);
+      if (record.prompt !== undefined && typeof record.prompt !== "string") throw incompleteEvent(eventIndex, "prompt must be a string");
+      if (record.parentCheckpointId !== undefined) requireNonEmptyString(record.parentCheckpointId, "parentCheckpointId", eventIndex);
       validateEnvelope(record, eventIndex);
       return record as unknown as TaskEvent;
     }
@@ -272,6 +279,7 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
           parentRouteId: null,
           checkpointId: event.baselineCheckpointId,
           workspaceRoot: event.workspaceRoot,
+          baseCommit: event.baseCommit,
         }),
       );
     } else {
@@ -301,6 +309,9 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
           checkpointId: event.checkpointId,
           routeId: event.routeId,
           phase: "prepared",
+          ...(event.role ? { role: event.role } : {}),
+          ...(event.prompt !== undefined ? { prompt: event.prompt } : {}),
+          ...(event.parentCheckpointId ? { parentCheckpointId: event.parentCheckpointId } : {}),
         });
       } else if (event.type === "turnCommitted") {
         const prepared = turns.get(event.turnId);

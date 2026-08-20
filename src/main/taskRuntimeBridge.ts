@@ -29,6 +29,8 @@ import {
   type Checkpoint,
   type TaskEvent as CoreTaskEvent,
   type TaskMode,
+  type Route,
+  type TaskState,
   type WorkspaceKind,
 } from "@innocencecode/task-core";
 import {
@@ -50,6 +52,7 @@ import {
   type WorktreeLease,
 } from "@innocencecode/task-git";
 import { LiveTaskPort } from "./taskPort";
+import { createForkedTaskRoute, type ForkRouteInput } from "./taskRouteFork";
 
 export type { TaskRuntimePort };
 
@@ -103,9 +106,13 @@ export interface TaskRuntimeBridgeOptions {
 export interface TaskRuntimeBridge {
   start(request: TaskStartRequest): Promise<TaskHandle>;
   get(taskId: string): TaskHandle | undefined;
+  getRoute(taskId: string, routeId: string): TaskHandle | undefined;
   listTasks(): string[];
   /** Event log of one task (the single log: core + plugin events). */
   listEvents(taskId: string): Promise<readonly CoreTaskEvent[]>;
+  forkRoute(input: ForkRouteInput): Promise<Route>;
+  /** Restores persisted route worktrees after process restart. */
+  recoverTask(taskId: string): Promise<TaskState>;
   /** Subscribes to task events (complements the injected emitter). */
   onTaskEvent(listener: (notification: TaskEventNotification) => void): () => void;
   /** Releases one task's runtime resources: watcher + lease records. Worktrees survive. */
@@ -116,12 +123,21 @@ export interface TaskRuntimeBridge {
   disposeAll(): Promise<void>;
 }
 
+interface LiveRoute {
+  readonly handle: TaskHandle;
+  readonly port: LiveTaskPort;
+  readonly watcher: WorkspaceWatcher;
+  readonly lease?: WorktreeLease;
+}
+
 interface LiveTask {
   readonly handle: TaskHandle;
   readonly repository: TaskRepository;
-  readonly port: LiveTaskPort;
-  readonly watcher: WorkspaceWatcher;
-  readonly gitLease?: WorktreeLease;
+  readonly baseline?: GitBaseline;
+  readonly taskLock: TaskMutationLock;
+  readonly workspaceLock: WorkspaceWriteLock;
+  readonly routes: Map<string, LiveRoute>;
+  readonly workspaceRoot: string;
 }
 
 const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -251,6 +267,7 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
         mode: request.mode,
         routeId,
         baselineCheckpointId: checkpointId,
+        baseCommit: baseline?.headCommit ?? undefined,
       });
       await repository.append([created]);
       await repository.writeTaskHead(toTaskHead(reduceTask([created])));
@@ -281,7 +298,15 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
         baselineCheckpointId: checkpointId,
         port,
       });
-      live.set(taskId, { handle, repository, port, watcher, gitLease });
+      live.set(taskId, {
+        handle,
+        repository,
+        baseline,
+        taskLock: locks.task,
+        workspaceLock: locks.workspace,
+        workspaceRoot: userRoot,
+        routes: new Map([[routeId, { handle, port, watcher, lease: gitLease }]]),
+      });
       emit(taskId, created);
       return handle;
     } catch (error) {
@@ -302,18 +327,29 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
   async function destroyWorktreeOfTask(taskId: string): Promise<void> {
     try {
       const repository = await openTaskRepository(options.taskStorageDir, taskId);
-      const raw = await repository.storage.storage
-        .readTextFile("baseline.json")
-        .catch(() => null);
+      const events = await repository.list();
+      const state = reduceTask(events);
+      const raw = await repository.storage.storage.readTextFile("baseline.json").catch(() => null);
       if (raw === null) return;
       const baseline = JSON.parse(raw) as { root?: unknown; headCommit?: unknown };
       if (typeof baseline.root !== "string" || typeof baseline.headCommit !== "string") return;
-      await git.destroyWorktree({
-        leaseId: `recovered:${taskId}`,
-        repoRoot: baseline.root,
-        path: path.join(worktreeDir, taskId),
-        baseCommit: baseline.headCommit,
-      });
+      for (const route of state.routes.values()) {
+        if (!route.baseCommit || route.parentRouteId === null) continue;
+        await git.destroyWorktree({
+          leaseId: `recovered:${taskId}:${route.routeId}`,
+          repoRoot: baseline.root,
+          path: route.workspaceRoot,
+          baseCommit: route.baseCommit,
+        });
+      }
+      if (state.mode === "isolated") {
+        await git.destroyWorktree({
+          leaseId: `recovered:${taskId}:main`,
+          repoRoot: baseline.root,
+          path: [...state.routes.values()].find((route) => route.parentRouteId === null)?.workspaceRoot ?? path.join(worktreeDir, taskId),
+          baseCommit: baseline.headCommit,
+        });
+      }
     } catch (error) {
       log("error", "task worktree destroy failed", String(error));
     }
@@ -328,24 +364,30 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
       return;
     }
     live.delete(taskId);
-    task.port.markReleased();
-    await task.watcher.stop().catch((error) => log("warn", "task watcher stop failed", String(error)));
-    if (destroyWorktree && task.gitLease) {
-      await git
-        .destroyWorktree(task.gitLease)
-        .catch((error) => log("error", "task worktree destroy failed", String(error)));
-    } else if (task.gitLease) {
-      // closeLease releases NOTHING on disk — the worktree survives app
-      // quit and session teardown; destroyWorktree ONLY on explicit deletion.
-      await git.closeLease(task.gitLease).catch((error) =>
-        log("warn", "task worktree lease close failed", String(error)),
-      );
+    for (const route of task.routes.values()) {
+      route.port.markReleased();
+      await route.watcher.stop().catch((error) => log("warn", "task watcher stop failed", String(error)));
+    }
+    const leases = [...task.routes.values()].flatMap((route) => route.lease ? [route.lease] : []);
+    for (const lease of leases) {
+      if (destroyWorktree) {
+        await git
+          .destroyWorktree(lease)
+          .catch((error) => log("error", "task worktree destroy failed", String(error)));
+      } else {
+        // closeLease releases NOTHING on disk — every route worktree survives
+        // quit/session teardown; destroyWorktree runs only on explicit deletion.
+        await git.closeLease(lease).catch((error) =>
+          log("warn", "task worktree lease close failed", String(error)),
+        );
+      }
     }
   }
 
   return {
     start: startTask,
     get: (taskId) => live.get(taskId)?.handle,
+    getRoute: (taskId, routeId) => live.get(taskId)?.routes.get(routeId)?.handle,
     listTasks: () => [...live.keys()],
     async listEvents(taskId) {
       const task = live.get(taskId);
@@ -353,6 +395,120 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
       // Not live: read from disk (fresh process / after release).
       const repository = await openTaskRepository(options.taskStorageDir, taskId);
       return repository.list();
+    },
+    async forkRoute(input) {
+      const task = live.get(input.taskId);
+      if (!task) throw new Error(`task bridge: task not live: ${input.taskId}`);
+      if (!task.baseline) throw new Error("Git repository required for code-state fork");
+      const result = await createForkedTaskRoute({
+        repository: task.repository,
+        git,
+        taskLock: task.taskLock,
+        baseline: task.baseline,
+        userWorkspaceRoot: task.handle.userWorkspaceRoot,
+        worktreeDir,
+        mintRouteId: () => mintId("route"),
+        prepareRoute: async (route, lease) => {
+          const port = new LiveTaskPort({
+            taskId: input.taskId,
+            workspaceRoot: route.workspaceRoot,
+            repository: task.repository,
+            locks: { task: task.taskLock, workspace: task.workspaceLock },
+            onAppend: (event) => emit(input.taskId, event),
+            log,
+          });
+          const watcher = createWorkspaceWatcher(route.workspaceRoot, {
+            onEvent: port.sink,
+            ignore: isGitInternal,
+          });
+          await watcher.start();
+          const handle: TaskHandle = Object.freeze({
+            ...task.handle,
+            routeId: route.routeId,
+            workspaceRoot: route.workspaceRoot,
+            port,
+          });
+          task.routes.set(route.routeId, { handle, port, watcher, lease });
+          return async () => {
+            task.routes.delete(route.routeId);
+            port.markReleased();
+            await watcher.stop();
+          };
+        },
+      }, input);
+      emit(input.taskId, result.event);
+      return result.route;
+    },
+    async recoverTask(taskId) {
+      const existing = live.get(taskId);
+      if (existing) return reduceTask(await existing.repository.list());
+      const repository = await openTaskRepository(options.taskStorageDir, taskId);
+      const state = reduceTask(await repository.list());
+      const raw = await repository.storage.storage.readTextFile("baseline.json");
+      const baseline = JSON.parse(raw) as GitBaseline;
+      const locks = options.locks ?? {
+        task: createTaskMutationLock(repository.storage.locksStorage),
+        workspace: createWorkspaceWriteLock(repository.storage.locksStorage),
+      };
+      const routes = new Map<string, LiveRoute>();
+      try {
+        for (const route of state.routes.values()) {
+          const checkpoint = await repository.readCheckpoint(route.checkpointId);
+          if (!checkpoint) throw new Error(`checkpoint not found: ${route.checkpointId}`);
+          let lease: WorktreeLease | undefined;
+          if (route.baseCommit && (route.parentRouteId !== null || state.mode === "isolated")) {
+            lease = await git.recoverWorktree({
+              root: baseline.root,
+              path: route.workspaceRoot,
+              baseCommit: route.baseCommit,
+              baseline,
+              checkpointFiles: checkpoint.files.map((file) => ({ path: file.path, hash: file.hash })),
+              readContent: (hash) => repository.objects.get(hash),
+            });
+          }
+          const port = new LiveTaskPort({
+            taskId,
+            workspaceRoot: route.workspaceRoot,
+            repository,
+            locks,
+            onAppend: (event) => emit(taskId, event),
+            log,
+          });
+          const watcher = createWorkspaceWatcher(route.workspaceRoot, { onEvent: port.sink, ignore: isGitInternal });
+          await watcher.start();
+          const handle: TaskHandle = Object.freeze({
+            taskId,
+            sessionId: state.sessionId,
+            routeId: route.routeId,
+            mode: state.mode,
+            workspaceKind: state.workspaceKind,
+            workspaceRoot: route.workspaceRoot,
+            userWorkspaceRoot: baseline.root,
+            baselineCheckpointId: state.routes.get("main")?.checkpointId ?? route.checkpointId,
+            port,
+          });
+          routes.set(route.routeId, { handle, port, watcher, lease });
+        }
+        const handle = routes.get(state.activeRouteId)?.handle ?? routes.values().next().value?.handle;
+        if (!handle) throw new Error(`task ${taskId} has no recoverable routes`);
+        live.set(taskId, {
+          handle,
+          repository,
+          baseline,
+          taskLock: locks.task,
+          workspaceLock: locks.workspace,
+          workspaceRoot: baseline.root,
+          routes,
+        });
+        return state;
+      } catch (error) {
+        for (const route of routes.values()) {
+          route.port.markReleased();
+          await route.watcher.stop().catch(() => undefined);
+          if (route.lease) await git.closeLease(route.lease).catch(() => undefined);
+        }
+        throw error;
+      }
     },
     onTaskEvent(listener) {
       listeners.add(listener);
@@ -373,10 +529,12 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
  */
 export function taskPluginsForRoute(
   bridge: TaskRuntimeBridge,
-  context: { taskId?: string; toolIndex: SessionToolIndex },
+  context: { taskId?: string; routeId: string; toolIndex: SessionToolIndex },
 ): HarnessPlugin[] {
   if (!context.taskId) return [];
-  const handle = bridge.get(context.taskId);
+  const handle = context.routeId
+    ? bridge.getRoute(context.taskId, context.routeId)
+    : bridge.get(context.taskId);
   if (!handle) return [];
   return [
     taskPlugin({

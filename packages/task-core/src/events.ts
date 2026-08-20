@@ -20,6 +20,8 @@ export interface TaskCreatedEvent extends TaskEventEnvelope {
   mode: TaskMode;
   routeId: string;
   baselineCheckpointId: string;
+  /** Immutable Git base captured when the task starts. */
+  baseCommit?: string;
 }
 
 export interface TaskStatusEvent extends TaskEventEnvelope {
@@ -46,6 +48,9 @@ export interface TurnPreparedEvent extends TaskEventEnvelope {
   turnId: string;
   checkpointId: string;
   routeId: string;
+  role?: "user" | "assistant";
+  prompt?: string;
+  parentCheckpointId?: string;
 }
 
 /** Final event of the turn commit sequence; makes the turn visible. */
@@ -125,6 +130,7 @@ export interface TaskCreatedEventInput extends TaskEventEnvelope {
   mode?: TaskMode;
   routeId?: string;
   baselineCheckpointId?: string;
+  baseCommit?: string;
 }
 
 /** Zero-argument friendly factory: every field has a domain default. */
@@ -141,6 +147,7 @@ export function taskCreatedEvent(input: TaskCreatedEventInput = {}): TaskCreated
     mode: input.mode ?? "baseline",
     routeId: input.routeId ?? clock.newId("route"),
     baselineCheckpointId: input.baselineCheckpointId ?? clock.newId("checkpoint"),
+    ...(input.baseCommit ? { baseCommit: input.baseCommit } : {}),
   };
 }
 
@@ -201,6 +208,9 @@ export interface TurnLifecycleEventInput extends TaskEventEnvelope {
   turnId: string;
   checkpointId: string;
   routeId: string;
+  role?: "user" | "assistant";
+  prompt?: string;
+  parentCheckpointId?: string;
 }
 
 export function turnPreparedEvent(input: TurnLifecycleEventInput): TurnPreparedEvent {
@@ -210,6 +220,9 @@ export function turnPreparedEvent(input: TurnLifecycleEventInput): TurnPreparedE
     turnId: input.turnId,
     checkpointId: input.checkpointId,
     routeId: input.routeId,
+    ...(input.role ? { role: input.role } : {}),
+    ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+    ...(input.parentCheckpointId ? { parentCheckpointId: input.parentCheckpointId } : {}),
     eventId: input.eventId ?? clock.newId("event"),
     at: input.at ?? clock.now(),
   };

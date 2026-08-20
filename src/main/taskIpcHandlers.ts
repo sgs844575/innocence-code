@@ -19,6 +19,7 @@ import type {
   TaskApplyResponse,
   TaskCheckpointResponse,
   TaskGetResponse,
+  TaskForkRouteRequest,
   TaskListRoutesResponse,
   TaskRecoveryWarningsResponse,
   TaskRestoreRequest,
@@ -37,7 +38,7 @@ export interface TaskCommandPort {
   getHunks(taskId: string, routeId: string): Promise<Hunk[]>;
   listRoutes(taskId: string): Promise<TaskRouteSummary[]>;
   switchRoute(taskId: string, routeId: string): Promise<TaskRouteSummary>;
-  forkRoute(taskId: string, forkFromRouteId: string): Promise<TaskRouteSummary>;
+  forkRoute(request: TaskForkRouteRequest): Promise<TaskRouteSummary>;
   reviewHunk(taskId: string, routeId: string, hunkRef: string, status: "accepted" | "restored"): Promise<void>;
   applyAccepted(taskId: string, routeId: string): Promise<{ applied: true }>;
   preflightApply(taskId: string, routeId: string): Promise<
@@ -199,17 +200,19 @@ export class TaskIpcHandlers {
     await this.commandPort.switchRoute(request.taskId, request.routeId);
   }
 
-  async forkRoute(request: { taskId: string; forkFrom: string }): Promise<TaskRouteSummary> {
+  async forkRoute(request: TaskForkRouteRequest): Promise<TaskRouteSummary> {
     const handle = this.bridge.get(request.taskId);
     if (!handle) throw new Error(`task not found: ${request.taskId}`);
     const state = await this.resolveTask(request.taskId);
-    this.assertRoute(state, request.forkFrom);
-    // workspaceKind is on the handle (not in reduced TaskState which only
-    // tracks routes/checkpoints/turns).  Use the handle's authoritative value.
+    this.assertRoute(state, request.sourceRouteId);
+    if (handle.sessionId !== request.sessionId) throw new Error("forkRoute session scope");
     if (handle.workspaceKind !== "git") {
-      throw new Error("forkRoute requires a git workspace");
+      throw new Error("Git repository required for code-state fork");
     }
-    return this.commandPort.forkRoute(request.taskId, request.forkFrom);
+    if (request.mode === "edit-user" && !request.editedText?.trim()) {
+      throw new Error("edited text is required");
+    }
+    return this.commandPort.forkRoute(request);
   }
 
   async editUserMessage(request: {

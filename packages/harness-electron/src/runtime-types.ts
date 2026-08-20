@@ -13,6 +13,7 @@ import type {
   ToolCallPart,
   ToolResultPart,
 } from "@innocencecode/harness-core";
+import type { Route } from "@innocencecode/task-core";
 import type { HarnessSettings } from "./settings";
 
 /** Route id plain chat turns run on; the transcript codec maps v2 rows here. */
@@ -115,6 +116,16 @@ export interface RouteWorkspaceContext {
   messageId: string;
 }
 
+export interface RuntimeForkRouteInput {
+  sessionId: string;
+  taskId: string;
+  sourceRouteId: string;
+  sourceTurnId: string;
+  mode: "edit-user" | "retry-assistant";
+  editedText?: string;
+  routeName: string;
+}
+
 export interface RuntimeOptions {
   settings(): HarnessSettings;
   hooks: RuntimeHooks;
@@ -131,6 +142,8 @@ export interface RuntimeOptions {
   workspaceRootFor?(
     context: RouteWorkspaceContext,
   ): string | undefined | Promise<string | undefined>;
+  /** Host port that owns Git/task storage orchestration for route creation. */
+  forkRoute?(input: RuntimeForkRouteInput): Promise<Route>;
   /** Directory for JSONL session transcripts; omitted = no persistence. */
   persistDir?: string;
   /** Replaces the settings-based provider construction (test seam). */

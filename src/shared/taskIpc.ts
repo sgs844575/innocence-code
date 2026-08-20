@@ -38,6 +38,7 @@ export interface TaskRouteSummary {
   routeId: string;
   parentRouteId: string | null;
   checkpointId: string;
+  workspaceRoot?: string;
 }
 
 export interface ValidationResult {
@@ -127,8 +128,13 @@ export interface TaskSwitchRouteRequest {
 }
 
 export interface TaskForkRouteRequest {
+  sessionId: string;
   taskId: string;
-  forkFrom: string;
+  sourceRouteId: string;
+  sourceTurnId: string;
+  mode: "edit-user" | "retry-assistant";
+  editedText?: string;
+  routeName: string;
 }
 
 export interface TaskEditUserMessageRequest {

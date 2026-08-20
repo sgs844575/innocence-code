@@ -630,6 +630,35 @@ describe("HarnessRuntime build/dispose races", () => {
   });
 });
 
+describe("HarnessRuntime route forks", () => {
+  it("delegates the exact forkRoute request to the host route port", async () => {
+    const input = {
+      sessionId: "s1",
+      taskId: "t1",
+      sourceRouteId: "main",
+      sourceTurnId: "a2",
+      mode: "retry-assistant" as const,
+      routeName: "Retry a2",
+    };
+    const route = {
+      routeId: "child",
+      parentRouteId: "main",
+      forkTurnId: "a2",
+      checkpointId: "c1",
+      workspaceRoot: "D:/wt/child",
+      readonly: false,
+    };
+    const forkRoute = vi.fn(async () => route);
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([], { workspaceRoot: workspace }),
+      forkRoute,
+    });
+
+    await expect(runtime.forkRoute(input)).resolves.toEqual(route);
+    expect(forkRoute).toHaveBeenCalledWith(input);
+  });
+});
+
 describe("HarnessRuntime route cache", () => {
   it("does not share AgentSession history between routes", async () => {
     const agentFactory = recordingAgentFactory();

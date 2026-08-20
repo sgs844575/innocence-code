@@ -143,11 +143,12 @@ const runtime = new HarnessRuntime({
   // (the isolated worktree) wins, then the session-bound project root, then
   // settings — settings.workspaceRoot is never the sole task root.
   workspaceRootFor: (context) =>
-    (context.taskId ? taskBridge.get(context.taskId)?.workspaceRoot : undefined) ||
+    (context.taskId ? taskBridge.getRoute(context.taskId, context.routeId)?.workspaceRoot : undefined) ||
     resolveTaskWorkspaceRoot(context.sessionId, {
       getSessionWorkspaceRoot: (id) => sessions.getSession(id)?.workspaceRoot || undefined,
       fallbackRoot: settings.workspaceRoot,
     }),
+  forkRoute: (input) => taskBridge.forkRoute(input),
   pluginsForSession: async (context) => [
     ...(await composePlugins(context.workspaceRoot, settings.pluginToggles)),
     // Route-scoped task sessions get the change-capture middleware bound to
