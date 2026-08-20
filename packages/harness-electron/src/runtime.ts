@@ -1,15 +1,21 @@
+// Harness runtime: owns one AgentSession per chat-session ROUTE
+// (`${sessionId}:${routeId}` — see route-cache.ts for the cache mechanics),
+// rebuilds a route's session when settings change, and translates harness
+// events into the host's streaming UI hooks. Tool activity is forwarded as
+// structured parts via onTool (paired by id/toolCallId).
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
   AgentSession,
   createExecutionScope,
-  type ExecutionScope,
+  type ExecutionScopeIdentity,
   type HarnessEvent,
   type HarnessPlugin,
   type Message,
   type PermissionDecider,
   type PermissionRequest,
   type Provider,
+  type Tool,
   type ToolCallPart,
   type ToolResultPart,
 } from "@innocencecode/harness-core";
@@ -22,9 +28,22 @@ import {
   type HarnessSettings,
 } from "./settings";
 import { systemPromptFor } from "./agents";
-import { decodeTranscript, encodeTurnV2 } from "./transcript";
+import { decodeTranscript, encodeTurnV2, encodeTurnV3 } from "./transcript";
+import {
+  RouteSessionCache,
+  routeCacheKey,
+  sessionDisposedError,
+} from "./route-cache";
+
+export {
+  IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS,
+  routeCacheKey,
+} from "./route-cache";
 
 export type AskResponse = "allow" | "allowSession" | "deny";
+
+/** Route id plain chat turns run on; the transcript codec maps v2 rows here. */
+export const DEFAULT_ROUTE_ID = "main";
 
 export interface PermissionAsk {
   requestId: string;
@@ -52,13 +71,40 @@ export interface RuntimeHooks {
 }
 
 /**
+ * Late-bound view over the session's registered tools. Plugins are composed
+ * BEFORE the AgentSession exists, so a host plugin that needs tool metadata
+ * at execution time (e.g. the task capture middleware's lookupTool) receives
+ * this index in its factory context; the runtime adopts the session's
+ * registry right after the build, always before the first tool invocation.
+ */
+export interface SessionToolIndex {
+  get(toolName: string): Tool | undefined;
+}
+
+export function createSessionToolIndex(): SessionToolIndex & {
+  adopt(tools: ReadonlyMap<string, Tool>): void;
+} {
+  let adopted: ReadonlyMap<string, Tool> | undefined;
+  return {
+    get: (toolName) => adopted?.get(toolName),
+    adopt(tools) {
+      adopted = tools;
+    },
+  };
+}
+
+/**
  * Everything the host composition root needs to assemble one session's
  * plugin set. The runtime owns no concrete plugin — hosts (Electron glue,
  * CLI, tests) decide which capabilities each session gets.
  */
 export interface PluginFactoryContext {
-  /** Host-level chat session id (the runtime's cache key). */
+  /** Host-level chat session id (the route key's session part). */
   sessionId: string;
+  /** Route the session serves (normalized; plain chat turns use "main"). */
+  routeId: string;
+  /** Task identity when the route belongs to a task; undefined for plain chat. */
+  taskId?: string;
   /** Id of the message/turn that triggered this session build. */
   messageId: string;
   /** Settings value this session is built under (settings() at build time). */
@@ -67,9 +113,21 @@ export interface PluginFactoryContext {
   workspaceRoot: string;
   /**
    * Correlation scope for the session bootstrap: a fresh invocation id
-   * stamped with the chat session identity (no tool is involved).
+   * stamped with the chat session + route (and task, when present) identity.
    */
-  scope: ExecutionScope;
+  scope: ReturnType<typeof createExecutionScope>;
+  /** Late-bound tool index; resolves names after the session's build. */
+  toolIndex: SessionToolIndex;
+}
+
+/** One agent turn: route/task identity plus the user input and host message id. */
+export interface RuntimeSendRequest {
+  sessionId: string;
+  /** Owning task id; "" for plain (non-task) chat turns. */
+  taskId: string;
+  routeId: string;
+  text: string | Message;
+  messageId: string;
 }
 
 export interface RuntimeOptions {
@@ -83,255 +141,209 @@ export interface RuntimeOptions {
   persistDir?: string;
   /** Replaces the settings-based provider construction (test seam). */
   providerFactory?: (settings: HarnessSettings) => Provider;
+  /**
+   * Wraps the AgentSession construction (test seam): receives the factory
+   * context plus the deferred default build, and must produce the session
+   * that enters the route cache.
+   */
+  agentFactory?: (
+    context: PluginFactoryContext,
+    create: () => Promise<AgentSession>,
+  ) => Promise<AgentSession>;
 }
 
 let seq = 0;
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(seq++).toString(36)}`;
 
-/**
- * How long dispose() waits for an in-flight session build before giving up
- * (app quit must not hang on a stuck MCP spawn). The dispose tombstone
- * already guarantees the late build releases its own product, so expiry
- * only ends the wait — it never leaks on its own.
- */
-export const IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS = 10_000;
+/** Build context the cache's build callback needs, keyed by cache key. */
+interface RouteBuildContext {
+  sessionId: string;
+  routeId: string;
+  taskId: string;
+  messageId: string;
+}
 
 /**
- * Fail-fast error for a turn targeting a chat session that dispose() owns
- * (in progress or timed out): its build is doomed, so the turn errors via
- * onError immediately instead of parking on a promise that never settles.
- */
-const sessionDisposedError = (chatSessionId: string): Error =>
-  new Error(`会话已释放（${chatSessionId}），本轮已取消，请重建会话`);
-
-/**
- * Owns one AgentSession per chat session, rebuilt when settings change, and
- * translates harness events into the host's streaming UI hooks. Tool activity
- * is forwarded as structured parts via onTool (paired by id/toolCallId).
+ * Owns one AgentSession per chat-session route, rebuilt when settings
+ * change, and translates harness events into the host's streaming UI hooks.
  */
 export class HarnessRuntime {
   private readonly options: RuntimeOptions;
-  private readonly sessions = new Map<string, { key: string; session: AgentSession }>();
-  /** In-flight session builds, keyed by chat session id (build dedup). */
-  private readonly building = new Map<string, Promise<AgentSession>>();
-  /** Chat session ids whose dispose() arrived while a build was in flight. */
-  private readonly disposing = new Set<string>();
-  private readonly running = new Map<string, AbortController>();
+  private readonly cache: RouteSessionCache;
+  private readonly buildContexts = new Map<string, RouteBuildContext>();
 
   constructor(options: RuntimeOptions) {
     this.options = options;
+    this.cache = new RouteSessionCache({
+      build: (key) => this.buildSession(key),
+      settleDispose: (key, session) => this.settleDispose(key, session),
+      log: (level, msg, data) => this.options.hooks.log(level, msg, data),
+    });
   }
 
   /**
-   * Runs one agent turn. `messageId` is supplied by the host so the IPC
-   * handler can return it synchronously before the turn completes.
+   * Runs one agent turn on the request's route. `messageId` is supplied by
+   * the host so the IPC handler can return it synchronously before the turn
+   * completes. Task identity (non-empty taskId) is stamped on every tool
+   * invocation scope of the run, so task middleware can attribute effects.
    */
-  async send(chatSessionId: string, text: string, messageId: string): Promise<void> {
+  async send(request: RuntimeSendRequest): Promise<void> {
+    const routeId = request.routeId || DEFAULT_ROUTE_ID;
+    const key = routeCacheKey(request.sessionId, routeId);
     const controller = new AbortController();
-    this.running.set(chatSessionId, controller);
+    this.cache.startRun(key, controller);
 
     try {
-      const agent = await this.agentFor(chatSessionId, messageId);
+      const agent = await this.agentFor(
+        request.sessionId,
+        routeId,
+        request.taskId,
+        request.messageId,
+      );
       const historyStart = agent.history.length;
       const unsubscribe = agent.on((event) =>
-        this.forwardEvent(chatSessionId, messageId, event),
+        this.forwardEvent(request.sessionId, request.messageId, event),
       );
       try {
-        await agent.run(text, controller.signal);
+        const identity: ExecutionScopeIdentity = request.taskId
+          ? { sessionId: request.sessionId, taskId: request.taskId, routeId }
+          : { sessionId: request.sessionId, routeId };
+        await agent.run(request.text, controller.signal, identity);
       } finally {
         unsubscribe();
-        this.running.delete(chatSessionId);
+        this.cache.endRun(key);
       }
-      this.options.hooks.onCompleted(chatSessionId, messageId);
-      await this.persistTurn(chatSessionId, messageId, agent.history.slice(historyStart));
+      this.options.hooks.onCompleted(request.sessionId, request.messageId);
+      await this.persistTurn(
+        request.sessionId,
+        request.messageId,
+        routeId,
+        request.taskId,
+        agent.history.slice(historyStart),
+      );
     } catch (err) {
       this.options.hooks.onError(
-        chatSessionId,
-        messageId,
+        request.sessionId,
+        request.messageId,
         err instanceof Error ? err.message : String(err),
       );
     }
   }
 
-  stop(chatSessionId: string): void {
-    this.running.get(chatSessionId)?.abort();
+  /** Stops the active run of one route — or every route of the chat session
+   *  when the route is omitted (user-level stop). */
+  stop(sessionId: string, routeId?: string): void {
+    if (routeId === undefined) this.cache.abortSession(sessionId);
+    else this.cache.abort(routeCacheKey(sessionId, routeId));
   }
 
   /**
-   * Releases one chat session's agent resources: aborts any active run,
-   * waits for it to settle and disposes the session's plugins. Deleting a
-   * cache entry alone is not resource cleanup. Never rejects — disposal
-   * failures are reported through the log hook.
-   *
-   * A build can be in flight (its awaits span plugin factories and
-   * AgentSession.create — MCP spawns take seconds): dispose then releases
-   * the cached entry immediately, marks the id so the landing build releases
-   * its own product instead of caching it, and waits for that to happen —
-   * BOUNDED by IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS so a hung spawn cannot
-   * hang the quit path. A session built for a deleted chat id therefore
-   * never leaks and its triggering send fails fast with 会话已释放.
+   * Releases one route's agent resources (or every route of the chat
+   * session when the route is omitted): aborts any active run, waits for it
+   * to settle and disposes the session's plugins. Deleting a cache entry
+   * alone is not resource cleanup. Never rejects — disposal failures are
+   * reported through the log hook. See RouteSessionCache.dispose for the
+   * in-flight build/tombstone semantics.
    */
-  async dispose(chatSessionId: string): Promise<void> {
-    const inFlight = this.building.get(chatSessionId);
-    if (!inFlight) {
-      await this.releaseCached(chatSessionId);
-      return;
-    }
-    // Tombstone FIRST (synchronously): the build's landing check must see
-    // it even if it races past this point while we release the old entry.
-    this.disposing.add(chatSessionId);
-    await this.releaseCached(chatSessionId);
-    await this.waitBuildForDisposal(chatSessionId, inFlight);
-  }
-
-  /**
-   * Bounded wait for an in-flight build during dispose. Resolves when the
-   * build settles (tombstone lifted here) or the bound expires (error logged;
-   * the tombstone must then OUTLIVE this call — a late landing product must
-   * still see it and self-release — so its removal is handed to the build's
-   * landing). Never rejects.
-   */
-  private async waitBuildForDisposal(
-    chatSessionId: string,
-    inFlight: Promise<AgentSession>,
-  ): Promise<void> {
-    let settleTombstone = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        inFlight,
-        new Promise<void>((resolve) => {
-          timer = setTimeout(() => {
-            settleTombstone = false;
-            this.options.hooks.log(
-              "error",
-              "dispose timed out waiting for in-flight build",
-              chatSessionId,
-            );
-            // Lift the tombstone once the stuck build eventually lands (ok
-            // or failed) so future sends can rebuild; until then it stays
-            // visible and the landing product self-releases.
-            const lift = () => this.disposing.delete(chatSessionId);
-            inFlight.then(lift, lift);
-            resolve();
-          }, IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS);
-        }),
-      ]);
-    } catch {
-      // The build failed or was cancelled by this dispose — its product is
-      // already released (or never existed); nothing more to clean up.
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
-      if (settleTombstone) this.disposing.delete(chatSessionId);
-    }
+  async dispose(sessionId: string, routeId?: string): Promise<void> {
+    if (routeId === undefined) await this.cache.disposeSession(sessionId);
+    else await this.cache.dispose(routeCacheKey(sessionId, routeId));
   }
 
   /** Releases every cached agent session and every in-flight build (e.g. app shutdown). */
   async disposeAll(): Promise<void> {
-    // In-flight builds first: dispose() makes each landing product release
-    // itself instead of re-populating the cache after the sweep below.
-    const building = [...this.building.keys()];
-    await Promise.all(building.map((id) => this.dispose(id)));
-    const entries = [...this.sessions];
-    this.sessions.clear();
-    await Promise.all(
-      entries.map(([chatSessionId, entry]) => this.settleDispose(chatSessionId, entry.session)),
-    );
+    await this.cache.disposeAll();
   }
 
-  private async releaseCached(chatSessionId: string): Promise<void> {
-    const cached = this.sessions.get(chatSessionId);
-    if (!cached) return;
-    this.sessions.delete(chatSessionId);
-    await this.settleDispose(chatSessionId, cached.session);
-  }
-
-  private async settleDispose(chatSessionId: string, session: AgentSession): Promise<void> {
+  private async settleDispose(key: string, session: AgentSession): Promise<void> {
+    this.buildContexts.delete(key);
     try {
       await session.dispose();
     } catch (err) {
-      this.options.hooks.log("error", "session dispose failed", `${chatSessionId}: ${String(err)}`);
+      this.options.hooks.log("error", "session dispose failed", `${key}: ${String(err)}`);
     }
   }
 
-  /**
-   * Resolves the agent session for one chat session. Concurrent sends share
-   * a single in-flight build: a dropped losing build would leak its plugins
-   * (e.g. an MCP child-process tree nobody disposes). EXCEPTION: while
-   * dispose() owns the id (including the post-timeout window, where the
-   * stuck build never settles), joining that build would park the new turn
-   * forever on a session that is already doomed — fail fast instead.
-   */
-  private agentFor(chatSessionId: string, messageId: string): Promise<AgentSession> {
-    if (this.disposing.has(chatSessionId)) {
-      throw sessionDisposedError(chatSessionId);
-    }
-    const inFlight = this.building.get(chatSessionId);
-    if (inFlight) return inFlight;
-
-    const settled = this.buildSession(chatSessionId, messageId).finally(() => {
-      // Cleared on settle so failures never pin a rejected promise: a later
-      // send retries the build instead of replaying the old outcome.
-      if (this.building.get(chatSessionId) === settled) {
-        this.building.delete(chatSessionId);
-      }
-    });
-    this.building.set(chatSessionId, settled);
-    return settled;
-  }
-
-  private async buildSession(
-    chatSessionId: string,
+  private agentFor(
+    sessionId: string,
+    routeId: string,
+    taskId: string,
     messageId: string,
   ): Promise<AgentSession> {
+    const key = routeCacheKey(sessionId, routeId);
+    // The initiating send's context wins: the cache calls build(key)
+    // synchronously when no build is in flight, so the context is always
+    // set before the (single, deduplicated) build reads it.
+    this.buildContexts.set(key, { sessionId, routeId, taskId, messageId });
+    return this.cache.agentFor(key);
+  }
+
+  private async buildSession(key: string): Promise<AgentSession> {
+    const context = this.buildContexts.get(key);
+    if (!context) throw sessionDisposedError(key);
+    const { sessionId, routeId, taskId, messageId } = context;
     const settings = this.options.settings();
-    const key = JSON.stringify(settings);
-    const cached = this.sessions.get(chatSessionId);
-    if (cached && cached.key === key) return cached.session;
+    const settingsKey = JSON.stringify(settings);
+    const cached = this.cache.peek(key);
+    if (cached && cached.settingsKey === settingsKey) return cached.session;
 
     const workspaceRoot = settings.workspaceRoot || process.cwd();
 
     const decider: PermissionDecider = {
       ask: async (request) => {
         const ask: PermissionAsk = { requestId: nextId("perm"), call: request };
-        const answer = await this.options.hooks.askPermission(chatSessionId, messageId, ask);
+        const answer = await this.options.hooks.askPermission(sessionId, messageId, ask);
         return answer;
       },
     };
 
+    const toolIndex = createSessionToolIndex();
     // Plugins come from the host composition root — the runtime owns no
     // concrete capability, so tools/skills/MCP wiring lives in the host.
-    const plugins = await this.options.pluginsForSession({
-      sessionId: chatSessionId,
+    const factoryContext: PluginFactoryContext = {
+      sessionId,
+      routeId,
+      taskId: taskId || undefined,
       messageId,
       settings,
       workspaceRoot,
-      scope: createExecutionScope("session", undefined, { sessionId: chatSessionId }),
-    });
+      scope: createExecutionScope("session", undefined, {
+        sessionId,
+        routeId,
+        ...(taskId ? { taskId } : {}),
+      }),
+      toolIndex,
+    };
+    const plugins = await this.options.pluginsForSession(factoryContext);
 
-    const session = await AgentSession.create({
-      plugins,
-      provider:
-        this.options.providerFactory?.(settings) ?? this.buildProvider(settings),
-      workspaceRoot,
-      systemPrompt: systemPromptFor(settings.activeAgent ?? "default"),
-      permission: {
-        mode: settings.permissionMode,
-        decider,
-        // Every resolution (including full mode) is audited through the host
-        // log with the persisted request — raw args never reach this surface.
-        audit: (entry) => {
-          this.options.hooks.log("info", "permission", {
-            mode: entry.mode,
-            tool: entry.request.toolName,
-            resource: `${entry.request.resource.action}:${entry.request.resource.kind}:${entry.request.resource.scope}`,
-            decision: entry.resolution.decision,
-            via: entry.resolution.via,
-          });
+    const create = () =>
+      AgentSession.create({
+        plugins,
+        provider:
+          this.options.providerFactory?.(settings) ?? this.buildProvider(settings),
+        workspaceRoot,
+        systemPrompt: systemPromptFor(settings.activeAgent ?? "default"),
+        permission: {
+          mode: settings.permissionMode,
+          decider,
+          // Every resolution (including full mode) is audited through the host
+          // log with the persisted request — raw args never reach this surface.
+          audit: (entry) => {
+            this.options.hooks.log("info", "permission", {
+              mode: entry.mode,
+              tool: entry.request.toolName,
+              resource: `${entry.request.resource.action}:${entry.request.resource.kind}:${entry.request.resource.scope}`,
+              decision: entry.resolution.decision,
+              via: entry.resolution.via,
+            });
+          },
         },
-      },
-      logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
-    });
+        logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
+      });
+    const session = await (this.options.agentFactory?.(factoryContext, create) ?? create());
+    // The session exists now, so its registry can back the late-bound index.
+    toolIndex.adopt(session.registry.tools);
+
     if (cached) {
       // Rebuilds (settings changed) keep the conversation: copy the previous
       // session's canonical history FIRST, then release the old session —
@@ -340,12 +352,14 @@ export class HarnessRuntime {
       session.history.push(
         ...cached.session.history.map((m) => ({ role: m.role, parts: [...m.parts] })),
       );
-    } else if (this.options.persistDir) {
-      // Fresh runtime after app restart: seed from the canonical transcript
-      // codec, never from renderer/UI-coalesced session messages.
+    } else if (this.options.persistDir && routeId === DEFAULT_ROUTE_ID) {
+      // Fresh runtime after app restart: the MAIN route seeds from the
+      // canonical transcript codec (never renderer/UI-coalesced messages).
+      // Non-main routes keep an empty history — their durable state is the
+      // task system's (turn commit), not the chat transcript.
       try {
         const raw = await fs.readFile(
-          path.join(this.options.persistDir, `${chatSessionId}.jsonl`),
+          path.join(this.options.persistDir, `${sessionId}.jsonl`),
           "utf8",
         );
         const prior = decodeTranscript(raw).history;
@@ -358,19 +372,19 @@ export class HarnessRuntime {
         }
       }
     }
-    if (this.disposing.has(chatSessionId)) {
+    if (this.cache.isDisposing(key)) {
       // dispose() arrived while this build was in flight: release the
       // product in place — it must never enter the cache or run a turn.
       // (The previously cached session, if any, was already released by
       // dispose() itself.)
-      await this.settleDispose(chatSessionId, session);
-      throw sessionDisposedError(chatSessionId);
+      await this.cache.releaseInPlace(key, session);
+      throw sessionDisposedError(key);
     }
-    this.sessions.set(chatSessionId, { key, session });
+    this.cache.commit(key, settingsKey, session);
     if (cached) {
       // dispose() may have released this old entry mid-build; the second
       // call is an idempotent no-op (session dispose deduplicates).
-      await this.settleDispose(chatSessionId, cached.session);
+      await this.settleDispose(key, cached.session);
     }
     return session;
   }
@@ -398,17 +412,17 @@ export class HarnessRuntime {
     }
   }
 
-  private forwardEvent(chatSessionId: string, messageId: string, event: HarnessEvent): void {
+  private forwardEvent(sessionId: string, messageId: string, event: HarnessEvent): void {
     const hooks = this.options.hooks;
     switch (event.type) {
       case "token":
-        hooks.onDelta(chatSessionId, messageId, event.text);
+        hooks.onDelta(sessionId, messageId, event.text);
         break;
       case "thinking":
-        hooks.onThinking(chatSessionId, messageId, event.text);
+        hooks.onThinking(sessionId, messageId, event.text);
         break;
       case "toolCall":
-        hooks.onTool(chatSessionId, messageId, {
+        hooks.onTool(sessionId, messageId, {
           type: "toolCall",
           id: event.id,
           toolName: event.call.toolName,
@@ -416,7 +430,7 @@ export class HarnessRuntime {
         });
         break;
       case "toolResult":
-        hooks.onTool(chatSessionId, messageId, {
+        hooks.onTool(sessionId, messageId, {
           type: "toolResult",
           toolCallId: event.toolCallId,
           content: event.content,
@@ -425,25 +439,48 @@ export class HarnessRuntime {
         });
         break;
       case "compaction":
-        hooks.onDelta(chatSessionId, messageId, "\n\n> 🗜️ 已压缩较早的对话历史\n");
+        hooks.onDelta(sessionId, messageId, "\n\n> 🗜️ 已压缩较早的对话历史\n");
         break;
       case "error":
-        hooks.onDelta(chatSessionId, messageId, `\n\n> ⚠️ ${event.message}\n`);
+        hooks.onDelta(sessionId, messageId, `\n\n> ⚠️ ${event.message}\n`);
         break;
       default:
         break;
     }
   }
 
-  private async persistTurn(chatSessionId: string, turnId: string, messages: Message[]): Promise<void> {
-    if (!this.options.persistDir || messages.length === 0) return;
+  /**
+   * Persists one completed turn of a route. Task-scoped turns are SKIPPED —
+   * the task commit flow (TurnCommitCoordinator + transcript sink) owns
+   * their durable turn-v3 rows, so the runtime must never double-write
+   * them. Non-task turns: the main route keeps turn-v2 (host hydration
+   * depends on it); other routes append turn-v3 rows with explicit route
+   * identity (empty checkpointId — no checkpoint backs a non-task turn),
+   * which the decoder keeps OUT of the main history.
+   */
+  private async persistTurn(
+    sessionId: string,
+    turnId: string,
+    routeId: string,
+    taskId: string,
+    messages: Message[],
+  ): Promise<void> {
+    if (!this.options.persistDir || messages.length === 0 || taskId) return;
     try {
       await fs.mkdir(this.options.persistDir, { recursive: true });
-      await fs.appendFile(
-        path.join(this.options.persistDir, `${chatSessionId}.jsonl`),
-        encodeTurnV2(turnId, new Date().toISOString(), messages),
-        "utf8",
-      );
+      const line =
+        routeId === DEFAULT_ROUTE_ID
+          ? encodeTurnV2(turnId, new Date().toISOString(), messages)
+          : encodeTurnV3({
+              at: new Date().toISOString(),
+              eventId: nextId("event"),
+              turnId,
+              routeId,
+              parentTurnId: null,
+              checkpointId: "",
+              messages,
+            });
+      await fs.appendFile(path.join(this.options.persistDir, `${sessionId}.jsonl`), line, "utf8");
     } catch (err) {
       this.options.hooks.log("warn", "persist failed", String(err));
     }

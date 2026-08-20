@@ -30,12 +30,16 @@ export {
 export {
   HarnessRuntime,
   IN_FLIGHT_BUILD_DISPOSE_TIMEOUT_MS,
+  DEFAULT_ROUTE_ID,
+  routeCacheKey,
   type AskResponse,
   type LiveToolPart,
   type PermissionAsk,
   type PluginFactoryContext,
   type RuntimeHooks,
   type RuntimeOptions,
+  type RuntimeSendRequest,
+  type SessionToolIndex,
 } from "./runtime";
 export { modelFromPreset, resolvePresetMeta, type PresetModelMeta } from "./modelPresets";
 export {

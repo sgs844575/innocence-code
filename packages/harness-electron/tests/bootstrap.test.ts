@@ -109,7 +109,13 @@ describe("agent workflow end-to-end (bootstrap stand-in)", () => {
       pluginsForSession: () => [fsPlugin, shellPlugin],
     });
 
-    await runtime.send("boot-sess", "给 feature.mjs 打补丁并验证", "msg_boot");
+    await runtime.send({
+      sessionId: "boot-sess",
+      taskId: "",
+      routeId: "main",
+      text: "给 feature.mjs 打补丁并验证",
+      messageId: "msg_boot",
+    });
 
     // The patched file and the new test exist in the real workspace.
     const patched = await fs.readFile(path.join(workspace, "feature.mjs"), "utf8");

@@ -4,7 +4,7 @@ import { app, Menu } from "electron";
 import { handleAppScheme, registerAppScheme } from "./protocol";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
-import { initHarness, disposeAllRuntime, rejectPendingPermissionAsks } from "./harnessGlue";
+import { initHarness, disposeAllRuntime, disposeTaskRuntime, rejectPendingPermissionAsks } from "./harnessGlue";
 import { initSessionStore } from "./sessions";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
@@ -67,7 +67,11 @@ if (!gotLock) {
     void (async () => {
       try {
         rejectPendingPermissionAsks();
+        // Agent sessions first (aborts in-flight tool invocations, which
+        // releases their task mutation leases), then the task runtime's
+        // watchers and worktree lease records.
         await disposeAllRuntime();
+        await disposeTaskRuntime();
       } catch (err) {
         logger.error("shutdown dispose failed", { error: String(err) });
       } finally {

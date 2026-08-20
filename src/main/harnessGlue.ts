@@ -9,6 +9,7 @@ import { app, dialog, type BrowserWindow } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  DEFAULT_ROUTE_ID,
   HarnessRuntime,
   DEFAULT_SETTINGS,
   listModels,
@@ -43,6 +44,7 @@ import { getMainWindow } from "./appWindow";
 import { broadcastTheme, setTheme } from "./theme";
 import { logger } from "./logger";
 import { broadcastSessions } from "./sessionEvents";
+import { createTaskRuntimeBridge, taskPluginsForRoute } from "./taskRuntimeBridge";
 
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -126,10 +128,23 @@ export async function composePlugins(
   return plugins;
 }
 
+/** Task runtime bridge: opens tasks (baseline/isolated), holds each task's
+ *  TaskRuntimePort and injects plugin-task middleware into route-scoped
+ *  sessions (see taskRuntimeBridge.ts — electron-free by construction). */
+const taskBridge = createTaskRuntimeBridge({
+  taskStorageDir: path.join(app.getPath("userData"), "tasks"),
+  log: (level, msg, data) => logger[level]("task bridge", { msg, data: String(data) }),
+});
+
 const runtime = new HarnessRuntime({
   settings: () => settings,
   persistDir: transcriptsDir(),
-  pluginsForSession: ({ workspaceRoot }) => composePlugins(workspaceRoot, settings.pluginToggles),
+  pluginsForSession: async (context) => [
+    ...(await composePlugins(context.workspaceRoot, settings.pluginToggles)),
+    // Route-scoped task sessions get the change-capture middleware bound to
+    // the live task's port; plain chat contexts contribute nothing.
+    ...taskPluginsForRoute(taskBridge, context),
+  ],
   hooks: {
     onDelta: (sessionId, messageId, delta) => {
       sessions.updateMessage(sessionId, messageId, (m) => {
@@ -270,7 +285,8 @@ export function respondPermission(requestId: string, choice: PermissionChoice): 
 let nextMsg = 0;
 const messageId = () => `msg_${Date.now().toString(36)}_${(nextMsg++).toString(36)}`;
 
-/** Starts an agent turn; returns the assistant message id immediately. */
+/** Starts an agent turn; returns the assistant message id immediately. Plain
+ *  chat turns run on the main route without task identity. */
 export function sendChatTurn(sessionId: string, text: string): string {
   const id = messageId();
   sessions.appendMessage(sessionId, {
@@ -281,7 +297,7 @@ export function sendChatTurn(sessionId: string, text: string): string {
     streaming: true,
   });
   broadcastSessions();
-  void runtime.send(sessionId, text, id);
+  void runtime.send({ sessionId, taskId: "", routeId: DEFAULT_ROUTE_ID, text, messageId: id });
   return id;
 }
 
@@ -306,4 +322,11 @@ export function rejectPendingPermissionAsks(): void {
  *  runs, disposes all plugins (MCP child trees included). Never rejects. */
 export async function disposeAllRuntime(): Promise<void> {
   await runtime.disposeAll();
+}
+
+/** Releases every live task's runtime resources (app shutdown): watchers and
+ *  worktree lease records. Worktrees survive restarts; explicit task
+ *  deletion (destroyWorktree) runs only through the task flows. */
+export async function disposeTaskRuntime(): Promise<void> {
+  await taskBridge.disposeAll();
 }

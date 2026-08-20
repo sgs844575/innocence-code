@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { AgentSession } from "@innocencecode/harness-core";
 import { createMockProvider, type MockTurn } from "@innocencecode/provider-mock";
 import { fsPlugin } from "@innocencecode/tools-fs";
 import { shellPlugin } from "@innocencecode/tools-shell";
@@ -18,6 +19,27 @@ import {
   type RuntimeHooks,
   type RuntimeOptions,
 } from "../src";
+
+/** Plain (non-task, main-route) turn through the request-object send API. */
+function chatTurn(
+  runtime: HarnessRuntime,
+  sessionId: string,
+  text: string,
+  messageId: string,
+): Promise<void> {
+  return runtime.send({ sessionId, taskId: "", routeId: "main", text, messageId });
+}
+
+/** agentFactory seam wrapper: records each built AgentSession by cache key. */
+function recordingAgentFactory() {
+  const sessions = new Map<string, AgentSession>();
+  const factory: NonNullable<RuntimeOptions["agentFactory"]> = async (context, create) => {
+    const session = await create();
+    sessions.set(`${context.sessionId}:${context.routeId}`, session);
+    return session;
+  };
+  return { sessions, factory };
+}
 
 let persistDir: string;
 let workspace: string;
@@ -91,7 +113,7 @@ describe("HarnessRuntime", () => {
     const recorded: Recorded = emptyRecorded();
     const runtime = makeRuntime([{ text: "你好，我是回复" }], { workspaceRoot: workspace }, recorded);
 
-    await runtime.send("sess-1", "打个招呼", "msg_t1");
+    await chatTurn(runtime, "sess-1", "打个招呼", "msg_t1");
 
     expect(recorded.deltas.join("")).toContain("你好，我是回复");
     expect(recorded.completed).toBe(1);
@@ -112,7 +134,7 @@ describe("HarnessRuntime", () => {
     const first = new HarnessRuntime({
       ...runtimeOptions([{ text: "第一答" }], full),
     });
-    await first.send("sess-restart", "第一问", "turn-1");
+    await chatTurn(first, "sess-restart", "第一问", "turn-1");
 
     // New runtime instance = fully closed/reopened app.
     const seenRequests: string[][] = [];
@@ -125,7 +147,7 @@ describe("HarnessRuntime", () => {
             seenRequests.push(req.messages.map((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text).join(""))),
         }),
     });
-    await second.send("sess-restart", "第二问", "turn-2");
+    await chatTurn(second, "sess-restart", "第二问", "turn-2");
 
     expect(seenRequests[0]).toEqual(["第一问", "第一答", "第二问"]); // 模型拿到完整上下文且本轮仅一次
     const raw = await fs.readFile(path.join(persistDir, "sess-restart.jsonl"), "utf8");
@@ -150,7 +172,7 @@ describe("HarnessRuntime", () => {
       "allow",
     );
 
-    await runtime.send("sess-2", "读 hello.txt", "msg_t2");
+    await chatTurn(runtime, "sess-2", "读 hello.txt", "msg_t2");
 
     expect(recorded.asks).toEqual([{ toolName: "Read", answer: "allow" }]);
     const joined = recorded.deltas.join("");
@@ -179,7 +201,7 @@ describe("HarnessRuntime", () => {
       "deny",
     );
 
-    await runtime.send("sess-3", "写 x.txt", "msg_t3");
+    await chatTurn(runtime, "sess-3", "写 x.txt", "msg_t3");
 
     expect(recorded.asks).toHaveLength(1);
     const joined = recorded.deltas.join("");
@@ -216,7 +238,7 @@ describe("HarnessRuntime", () => {
         },
       });
 
-      await runtime.send(`audit-${mode}-${answer}`, "读一下", `m-audit-${mode}-${answer}`);
+      await chatTurn(runtime, `audit-${mode}-${answer}`, "读一下", `m-audit-${mode}-${answer}`);
       await runtime.dispose(`audit-${mode}-${answer}`);
 
       expect(permissionAudits, `${mode}/${answer} 应恰好一次 audit`).toHaveLength(1);
@@ -233,12 +255,12 @@ describe("HarnessRuntime", () => {
       providerFactory: () => createMockProvider({ turns: currentTurns }),
     });
 
-    await runtime.send("sess-4", "一", "msg_t4a");
+    await chatTurn(runtime, "sess-4", "一", "msg_t4a");
     // Same runtime, new settings hash -> cached session rebuilt with the
     // previous conversation carried over, new provider takes effect.
     currentTurns = [{ text: "来自设置B的回复" }];
     settings.permissionMode = "plan";
-    await runtime.send("sess-4", "二", "msg_t4b");
+    await chatTurn(runtime, "sess-4", "二", "msg_t4b");
 
     const joined = recorded.deltas.join("");
     expect(joined).toContain("来自设置A的回复");
@@ -270,7 +292,7 @@ describe("HarnessRuntime", () => {
           ],
         }),
     });
-    await runtime.send("sess-5", "跑一下测试", "msg_t5");
+    await chatTurn(runtime, "sess-5", "跑一下测试", "msg_t5");
     const kinds = onTool.mock.calls.map((c) => (c[2] as { type: string }).type);
     expect(kinds).toContain("toolCall");
     expect(kinds).toContain("toolResult");
@@ -289,7 +311,7 @@ describe("HarnessRuntime", () => {
         }),
     });
 
-    await runtime.send("agent-1", "规划一下", "m-agent-1");
+    await chatTurn(runtime, "agent-1", "规划一下", "m-agent-1");
 
     expect(seenSystems).toEqual([systemPromptFor("plan")]);
     expect(seenSystems[0]).not.toBe(systemPromptFor("default"));
@@ -309,7 +331,7 @@ describe("HarnessRuntime plugin composition", () => {
       }],
     });
 
-    await runtime.send("s1", "hello", "m1");
+    await chatTurn(runtime, "s1", "hello", "m1");
     await runtime.dispose("s1");
     expect(created).toEqual([expect.any(String)]);
     expect(disposed).toEqual(["s1"]);
@@ -325,7 +347,7 @@ describe("HarnessRuntime plugin composition", () => {
       },
     });
 
-    await runtime.send("ctx-1", "你好", "m-ctx");
+    await chatTurn(runtime, "ctx-1", "你好", "m-ctx");
 
     expect(contexts).toHaveLength(1);
     expect(contexts[0].sessionId).toBe("ctx-1");
@@ -333,6 +355,9 @@ describe("HarnessRuntime plugin composition", () => {
     expect(contexts[0].workspaceRoot).toBe(workspace);
     expect(contexts[0].settings).toMatchObject({ workspaceRoot: workspace });
     expect(contexts[0].scope.sessionId).toBe("ctx-1");
+    // Plain chat turns normalize to the main route with no task identity.
+    expect(contexts[0].routeId).toBe("main");
+    expect(contexts[0].taskId).toBeUndefined();
   });
 
   it("settings change rebuild: copies canonical history, then awaits the old session dispose", async () => {
@@ -361,9 +386,9 @@ describe("HarnessRuntime plugin composition", () => {
       }],
     });
 
-    await runtime.send("rb-1", "一", "m-rb1");
+    await chatTurn(runtime, "rb-1", "一", "m-rb1");
     settings.permissionMode = "plan";
-    await runtime.send("rb-1", "二", "m-rb2");
+    await chatTurn(runtime, "rb-1", "二", "m-rb2");
 
     // The rebuilt session carried the canonical history over.
     expect(seenRequests[1]).toEqual(["一", "答", "二"]);
@@ -390,13 +415,13 @@ describe("HarnessRuntime plugin composition", () => {
       }],
     });
 
-    await runtime.send("fresh-1", "一", "m-f1");
+    await chatTurn(runtime, "fresh-1", "一", "m-f1");
     await runtime.dispose("fresh-1");
     // Repeated dispose is a no-op (the cached session is gone).
     await runtime.dispose("fresh-1");
     expect(disposed).toEqual(["fresh-1"]);
 
-    await runtime.send("fresh-1", "二", "m-f2");
+    await chatTurn(runtime, "fresh-1", "二", "m-f2");
     expect(disposed).toEqual(["fresh-1"]); // the new session is still alive
     await runtime.disposeAll();
     expect(disposed).toEqual(["fresh-1", "fresh-1"]);
@@ -413,8 +438,8 @@ describe("HarnessRuntime plugin composition", () => {
       }],
     });
 
-    await runtime.send("all-1", "x", "m-a1");
-    await runtime.send("all-2", "y", "m-a2");
+    await chatTurn(runtime, "all-1", "x", "m-a1");
+    await chatTurn(runtime, "all-2", "y", "m-a2");
     await runtime.disposeAll();
 
     expect([...disposed].sort()).toEqual(["all-1", "all-2"]);
@@ -446,7 +471,7 @@ describe("HarnessRuntime build/dispose races", () => {
       },
     });
 
-    const sending = runtime.send("race-1", "你好", "m-race");
+    const sending = chatTurn(runtime, "race-1", "你好", "m-race");
     // The send is now parked inside the in-flight build (factory gated).
     const disposing = runtime.dispose("race-1");
     releaseFactory();
@@ -476,8 +501,8 @@ describe("HarnessRuntime build/dispose races", () => {
       },
     });
 
-    const first = runtime.send("dup-1", "一", "m-d1");
-    const second = runtime.send("dup-1", "二", "m-d2");
+    const first = chatTurn(runtime, "dup-1", "一", "m-d1");
+    const second = chatTurn(runtime, "dup-1", "二", "m-d2");
     await Promise.all([first, second]);
 
     // One build for both sends — a dropped loser would leak its plugins
@@ -503,7 +528,7 @@ describe("HarnessRuntime build/dispose races", () => {
       }],
     });
 
-    await runtime.send("boom-1", "hi", "m-b1");
+    await chatTurn(runtime, "boom-1", "hi", "m-b1");
     await expect(runtime.dispose("boom-1")).resolves.toBeUndefined();
 
     // The failure reached the host log with the error level intact — the
@@ -538,7 +563,7 @@ describe("HarnessRuntime build/dispose races", () => {
         },
       });
 
-      const sending = runtime.send("stuck-1", "你好", "m-stuck");
+      const sending = chatTurn(runtime, "stuck-1", "你好", "m-stuck");
       // Let dispose() run past its synchronous cache release so the bounded
       // wait's timer is registered before the clock advances.
       const disposing = runtime.dispose("stuck-1");
@@ -551,7 +576,7 @@ describe("HarnessRuntime build/dispose races", () => {
       expect(logs).toContainEqual({
         level: "error",
         msg: "dispose timed out waiting for in-flight build",
-        data: "stuck-1",
+        data: "stuck-1:main", // identified by the route cache key now
       });
 
       // The tombstone OUTLIVES the timeout: the build landing after dispose
@@ -584,7 +609,7 @@ describe("HarnessRuntime build/dispose races", () => {
         },
       });
 
-      void runtime.send("doomed-1", "一", "m-d1"); // parks on the stuck build
+      void chatTurn(runtime, "doomed-1", "一", "m-d1"); // parks on the stuck build
       const disposing = runtime.dispose("doomed-1");
       await Promise.resolve();
       await Promise.resolve();
@@ -593,7 +618,7 @@ describe("HarnessRuntime build/dispose races", () => {
 
       // New send on the same id: it must error IMMEDIATELY (no clock advance
       // needed, no waiting on the never-settling build) via onError.
-      const second = runtime.send("doomed-1", "二", "m-d2");
+      const second = chatTurn(runtime, "doomed-1", "二", "m-d2");
       await expect(second).resolves.toBeUndefined();
       expect(recorded.completed).toBe(0);
       expect(recorded.errors).toHaveLength(1);
@@ -602,5 +627,163 @@ describe("HarnessRuntime build/dispose races", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("HarnessRuntime route cache", () => {
+  it("does not share AgentSession history between routes", async () => {
+    const agentFactory = recordingAgentFactory();
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "答" }], { workspaceRoot: workspace }),
+      pluginsForSession: () => [],
+      agentFactory: agentFactory.factory,
+    });
+
+    await runtime.send({ sessionId: "s1", routeId: "main", taskId: "t1", text: "main", messageId: "m1" });
+    await runtime.send({ sessionId: "s1", routeId: "child", taskId: "t1", text: "child", messageId: "m2" });
+
+    expect(agentFactory.sessions.get("s1:main")?.history).not.toBe(agentFactory.sessions.get("s1:child")?.history);
+    // Both routes really built their own session (not an undefined/undefined pass),
+    // and the child route's agent never saw the main route's conversation.
+    expect(agentFactory.sessions.size).toBe(2);
+    const childHistory = agentFactory.sessions.get("s1:child")!.history;
+    expect(
+      childHistory.some((m) => m.parts.some((p) => p.type === "text" && p.text.includes("main"))),
+    ).toBe(false);
+  });
+
+  it("dispose(sessionId, routeId) releases only that route's agent; dispose(sessionId) releases all", async () => {
+    const disposed: string[] = [];
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }),
+      pluginsForSession: ({ sessionId, routeId }) => [{
+        name: `p-${sessionId}:${routeId}`,
+        activate() {},
+        async dispose() { disposed.push(`${sessionId}:${routeId}`); },
+      }],
+    });
+
+    await runtime.send({ sessionId: "s1", routeId: "main", taskId: "", text: "一", messageId: "m1" });
+    await runtime.send({ sessionId: "s1", routeId: "child", taskId: "", text: "二", messageId: "m2" });
+
+    await runtime.dispose("s1", "child");
+    expect(disposed).toEqual(["s1:child"]);
+    // The main route's agent is still cached: a repeat dispose is a no-op there.
+    await runtime.dispose("s1", "child");
+    expect(disposed).toEqual(["s1:child"]);
+
+    await runtime.dispose("s1");
+    expect([...disposed].sort()).toEqual(["s1:child", "s1:main"]);
+  });
+
+  it("persists non-main route turns as turn-v3 rows that never re-enter the main history", async () => {
+    const recorded: Recorded = emptyRecorded();
+    const seenRequests: string[][] = [];
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([], { workspaceRoot: workspace }, recorded),
+      providerFactory: () =>
+        createMockProvider({
+          turns: [{ text: "答" }],
+          onChat: (req) =>
+            seenRequests.push(
+              req.messages.map((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text).join("")).filter(Boolean),
+            ),
+        },
+      ),
+    });
+
+    await runtime.send({ sessionId: "routes-1", routeId: "main", taskId: "", text: "主轮问题", messageId: "turn-main" });
+    await runtime.send({ sessionId: "routes-1", routeId: "child", taskId: "", text: "子轮问题", messageId: "turn-child" });
+
+    const raw = await fs.readFile(path.join(persistDir, "routes-1.jsonl"), "utf8");
+    const rows = raw.trim().split("\n").map((line) => JSON.parse(line));
+    expect(rows.map((r) => r.type)).toEqual(["turn-v2", "turn-v3"]);
+    expect(rows[1].routeId).toBe("child");
+    expect(rows[1].turnId).toBe("turn-child");
+    // decodeTranscript keeps the child route out of the main history...
+    const decoded = decodeTranscript(raw);
+    expect(
+      decoded.history.some((m) => m.parts.some((p) => p.type === "text" && p.text.includes("子轮"))),
+    ).toBe(false);
+    expect(decoded.routes.get("child")?.turnIds).toEqual(["turn-child"]);
+
+    // ...so a restart seeds only the main route's agent with the main history.
+    const restarted = new HarnessRuntime({
+      ...runtimeOptions([], { workspaceRoot: workspace }, recorded),
+      providerFactory: () =>
+        createMockProvider({
+          turns: [{ text: "再答" }],
+          onChat: (req) =>
+            seenRequests.push(
+              req.messages.map((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text).join("")).filter(Boolean),
+            ),
+        }),
+    });
+    await runtime.disposeAll();
+    await restarted.send({ sessionId: "routes-1", routeId: "main", taskId: "", text: "重启后", messageId: "turn-restart" });
+    expect(seenRequests.at(-1)).toEqual(["主轮问题", "答", "重启后"]);
+  });
+
+  it("skips runtime-side persistence for task-scoped turns (the task commit flow owns them)", async () => {
+    const recorded: Recorded = emptyRecorded();
+    const runtime = makeRuntime([{ text: "答" }], { workspaceRoot: workspace }, recorded);
+
+    await runtime.send({ sessionId: "task-1", routeId: "child", taskId: "t9", text: "任务轮", messageId: "turn-task" });
+
+    await expect(fs.access(path.join(persistDir, "task-1.jsonl"))).rejects.toThrow();
+  });
+
+  it("hands task identity to the plugin factory and stamps it on tool invocation scopes", async () => {
+    const contexts: PluginFactoryContext[] = [];
+    const invocationScopes: Array<{ taskId?: string; routeId?: string }> = [];
+    const toolIndexLookups: Array<unknown> = [];
+    const probe = {
+      name: "Probe",
+      description: "records its invocation scope",
+      readOnly: true,
+      sideEffect: "none" as const,
+      parameters: { type: "object" as const, properties: {} },
+      permissionResource: () => ({ action: "read" as const, kind: "path" as const, scope: "probe.txt" }),
+      persistArgs: (args: Record<string, unknown>) => ({ ...args }),
+      async execute(
+        _args: Record<string, unknown>,
+        ctx: { scope: { taskId?: string; routeId?: string } },
+      ) {
+        invocationScopes.push({ taskId: ctx.scope.taskId, routeId: ctx.scope.routeId });
+        return { content: "probed" };
+      },
+    };
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions(
+        [{ toolCalls: [{ toolName: "Probe", args: {} }] }, { text: "done" }],
+        { workspaceRoot: workspace, permissionMode: "full" },
+        emptyRecorded(),
+      ),
+      pluginsForSession: (context) => {
+        contexts.push(context);
+        return [{
+          name: "probe-tools",
+          activate(ctx) {
+            ctx.registerTool(probe);
+          },
+          // Execution happens after the runtime adopted the session's registry:
+          // the late-bound tool index must resolve tools by name by then.
+          dispose() {
+            toolIndexLookups.push(context.toolIndex.get("Probe")?.name);
+          },
+        }];
+      },
+    });
+
+    await runtime.send({ sessionId: "scope-1", routeId: "child", taskId: "t9", text: "跑探针", messageId: "m-scope" });
+
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0].taskId).toBe("t9");
+    expect(contexts[0].routeId).toBe("child");
+    expect(contexts[0].scope.taskId).toBe("t9");
+    expect(contexts[0].scope.routeId).toBe("child");
+    expect(invocationScopes).toEqual([{ taskId: "t9", routeId: "child" }]);
+    await runtime.disposeAll();
+    expect(toolIndexLookups).toEqual(["Probe"]);
   });
 });

@@ -56,13 +56,61 @@ export interface TurnCommittedEvent extends TaskEventEnvelope {
   routeId: string;
 }
 
+/**
+ * Change-capture and attribution event vocabulary (moved from plugin-task in
+ * Task 6): the task event log is a SINGLE log, so every event type appended
+ * through the TaskRuntimePort lives in this union and {@link reduceTask}
+ * validates it — one log, one recovery. plugin-task owns the INTERPRETATION
+ * (the attribution state machine); task-core persists and validates shapes.
+ */
+
+/** Where a captured change came from (plugin-task's ChangeSource, mirrored). */
+export type TaskChangeSource = "declared" | "unknown" | "delegated";
+
+/** The user's answer to an attribution request (plugin-task's Attribution, mirrored). */
+export type TaskAttribution = "task-owned" | "external";
+
+/** One captured change to a declared write target. */
+export interface ChangeRecordedEvent extends TaskEventEnvelope {
+  type: "changeRecorded";
+  path: string;
+  source: TaskChangeSource;
+  beforeHash: string | null;
+  afterHash: string | null;
+}
+
+/** Unknown-source changes paused for explicit user attribution. */
+export interface AttributionPendingEvent extends TaskEventEnvelope {
+  type: "attributionPending";
+  paths: string[];
+}
+
+/** Unknown-source changes that overlap a declared (expected) task write. */
+export interface AttributionConflictEvent extends TaskEventEnvelope {
+  type: "attributionConflict";
+  paths: string[];
+}
+
+/** The user's attribution answer for one previously paused path. */
+export interface AttributionResolvedEvent extends TaskEventEnvelope {
+  type: "attributionResolved";
+  path: string;
+  attribution: TaskAttribution;
+  status: "pending-review" | "excluded";
+  protectedHash: string | null;
+}
+
 export type TaskEvent =
   | TaskCreatedEvent
   | TaskStatusEvent
   | TurnCheckpointedEvent
   | RouteAttachedEvent
   | TurnPreparedEvent
-  | TurnCommittedEvent;
+  | TurnCommittedEvent
+  | ChangeRecordedEvent
+  | AttributionPendingEvent
+  | AttributionConflictEvent
+  | AttributionResolvedEvent;
 
 const defaultClock = createNodeIdClock();
 

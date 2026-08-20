@@ -66,6 +66,9 @@ const TASK_STATUSES: ReadonlySet<string> = new Set([
 ]);
 const WORKSPACE_KINDS: ReadonlySet<string> = new Set(["git", "snapshot"]);
 const TASK_MODES: ReadonlySet<string> = new Set(["baseline", "isolated"]);
+const CHANGE_SOURCES: ReadonlySet<string> = new Set(["declared", "unknown", "delegated"]);
+const ATTRIBUTIONS: ReadonlySet<string> = new Set(["task-owned", "external"]);
+const ATTRIBUTION_RESOLUTION_STATUSES: ReadonlySet<string> = new Set(["pending-review", "excluded"]);
 
 function incompleteEvent(eventIndex: number, reason: string): TaskRecoveryError {
   return new TaskRecoveryError({ kind: "incomplete-event", eventIndex, reason });
@@ -81,6 +84,15 @@ function requireStringOrNull(value: unknown, field: string, eventIndex: number):
   if (value !== null && typeof value !== "string") {
     throw incompleteEvent(eventIndex, `${field} must be a string or null`);
   }
+}
+
+function requirePathList(value: unknown, field: string, eventIndex: number): void {
+  if (!Array.isArray(value)) {
+    throw incompleteEvent(eventIndex, `${field} must be an array of paths`);
+  }
+  value.forEach((entry, entryIndex) =>
+    requireNonEmptyString(entry, `${field}[${entryIndex}]`, eventIndex),
+  );
 }
 
 function requireEnumValue(
@@ -191,6 +203,31 @@ function validateTaskEvent(raw: unknown, eventIndex: number): TaskEvent {
       validateEnvelope(record, eventIndex);
       return record as unknown as TaskEvent;
     }
+    // Change-capture/attribution events: validated for persistence safety;
+    // their STATE fold (attribution decisions) belongs to plugin-task, so
+    // reduceTask tracks only their envelope (lastCommittedEventId below).
+    case "changeRecorded": {
+      requireNonEmptyString(record.path, "path", eventIndex);
+      requireEnumValue(record.source, "source", CHANGE_SOURCES, eventIndex);
+      requireStringOrNull(record.beforeHash, "beforeHash", eventIndex);
+      requireStringOrNull(record.afterHash, "afterHash", eventIndex);
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
+    case "attributionPending":
+    case "attributionConflict": {
+      requirePathList(record.paths, "paths", eventIndex);
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
+    case "attributionResolved": {
+      requireNonEmptyString(record.path, "path", eventIndex);
+      requireEnumValue(record.attribution, "attribution", ATTRIBUTIONS, eventIndex);
+      requireEnumValue(record.status, "status", ATTRIBUTION_RESOLUTION_STATUSES, eventIndex);
+      requireStringOrNull(record.protectedHash, "protectedHash", eventIndex);
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
     default:
       throw new TaskRecoveryError({
         kind: "unknown-event",
@@ -280,10 +317,13 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
           throw incompleteEvent(eventIndex, "turnCommitted routeId does not match turnPrepared");
         }
         turns = new Map(turns).set(event.turnId, { ...prepared, phase: "committed" });
-      } else {
+      } else if (event.type === "routeAttached") {
         routes = attachRoute(routes, event.route);
         head = withActiveRouteId(head, event.route.routeId);
       }
+      // changeRecorded / attribution* events fold no core state here — their
+      // interpretation is plugin-task's attribution state machine; only the
+      // envelope advances (lastCommittedEventId below).
     }
     if (event.eventId !== undefined) {
       head = withLastCommittedEventId(head, event.eventId);
