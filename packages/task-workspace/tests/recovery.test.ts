@@ -105,8 +105,12 @@ describe("file-backed event log recovery", () => {
   it("surfaces a corrupt mid-file line through list() instead of skipping it", async () => {
     const repository = await openTaskRepository(base, "task_rec2");
     await repository.append([taskCreatedEvent({ taskId: "task_rec2", eventId: "e1" })]);
-    await repository.storage.storage.appendFile("events.jsonl", "{not-json}\n");
-    await repository.append([{ type: "taskStatus", status: "running", eventId: "e2" }]);
+    // The corrupt line and the following record are written RAW: a later
+    // complete record makes the corrupt line NON-final, which must surface.
+    await repository.storage.storage.appendFile(
+      "events.jsonl",
+      "{not-json}\n" + JSON.stringify({ type: "taskStatus", status: "running", eventId: "e2" }) + "\n",
+    );
     await expect(repository.list()).rejects.toThrow(TaskRecoveryError);
     await expect(repository.recoverEventLog()).rejects.toBeInstanceOf(TaskRecoveryError);
   });
@@ -115,5 +119,80 @@ describe("file-backed event log recovery", () => {
     const repository = await openTaskRepository(base, "task_rec3");
     expect(await repository.list()).toEqual([]);
     expect(await repository.recoverEventLog()).toBeNull();
+  });
+
+  it("repairs a torn tail BEFORE appending: no event is silently lost", async () => {
+    const repository = await openTaskRepository(base, "task_rep1");
+    await repository.append([taskCreatedEvent({ taskId: "task_rep1", eventId: "e1" })]);
+    // Crash mid-append: torn fragment without a trailing newline.
+    await repository.storage.storage.appendFile("events.jsonl", '{"type":"taskSta');
+    // Without repair, this append would merge into the torn fragment and be
+    // swallowed as a (tolerated) truncated tail.
+    await repository.append([{ type: "taskStatus", status: "running", eventId: "e2" }]);
+
+    const events = await repository.list();
+    expect(events.map((event) => event.type)).toEqual(["taskCreated", "taskStatus"]);
+    const recovery = await repository.recoverEventLog();
+    expect(recovery!.truncatedTail).toBe(false);
+    expect(recovery!.lastCommittedEventId).toBe("e2");
+  });
+
+  it("keeps the log recoverable across multiple appends after a torn tail", async () => {
+    const repository = await openTaskRepository(base, "task_rep2");
+    await repository.append([taskCreatedEvent({ taskId: "task_rep2", eventId: "e1" })]);
+    await repository.storage.storage.appendFile("events.jsonl", '{"type":"taskSta');
+    await repository.append([{ type: "taskStatus", status: "running", eventId: "e2" }]);
+    // A second append must not turn the (already repaired) log non-final-corrupt.
+    await repository.append([{ type: "taskStatus", status: "paused", eventId: "e3" }]);
+
+    const events = await repository.list();
+    expect(events.map((event) => event.type)).toEqual(["taskCreated", "taskStatus", "taskStatus"]);
+    const recovery = await repository.recoverEventLog();
+    expect(recovery!.truncatedTail).toBe(false);
+    expect(recovery!.lastCommittedEventId).toBe("e3");
+    // The raw file has no stray fragment: every physical line parses.
+    const raw = await repository.storage.storage.readTextFile("events.jsonl");
+    for (const line of raw.split("\n")) {
+      if (line.trim() !== "") {
+        expect(() => JSON.parse(line)).not.toThrow();
+      }
+    }
+    expect(raw.endsWith("\n")).toBe(true);
+  });
+
+  it("terminates a complete final record that lacks its newline before appending", async () => {
+    const repository = await openTaskRepository(base, "task_rep3");
+    await repository.append([taskCreatedEvent({ taskId: "task_rep3", eventId: "e1" })]);
+    // Complete JSON, but no trailing newline: an append would merge two records.
+    await repository.storage.storage.appendFile("events.jsonl", JSON.stringify({ type: "taskStatus", status: "review" }));
+    await repository.append([{ type: "taskStatus", status: "running", eventId: "e2" }]);
+    const events = await repository.list();
+    expect(events.map((event) => event.type)).toEqual(["taskCreated", "taskStatus", "taskStatus"]);
+  });
+
+  it("refuses to append onto a corrupt log (fail closed)", async () => {
+    // (a) newline-terminated corrupt FINAL line: not a plausible torn append
+    //     of this writer, so repair refuses instead of silently cutting it.
+    const repository = await openTaskRepository(base, "task_rep4");
+    await repository.append([taskCreatedEvent({ taskId: "task_rep4", eventId: "e1" })]);
+    await repository.storage.storage.appendFile("events.jsonl", "{not-json}\n");
+    await expect(repository.append([{ type: "taskStatus", status: "running", eventId: "e2" }])).rejects.toBeInstanceOf(
+      TaskRecoveryError,
+    );
+    // The refused append left the file untouched (reads still tolerate the
+    // malformed final line as a truncated tail).
+    expect((await repository.list()).map((event) => event.type)).toEqual(["taskCreated"]);
+
+    // (b) genuinely NON-final corruption (raw write after a complete record).
+    const repository2 = await openTaskRepository(base, "task_rep5");
+    await repository2.append([taskCreatedEvent({ taskId: "task_rep5", eventId: "e1" })]);
+    await repository2.storage.storage.appendFile(
+      "events.jsonl",
+      "{not-json}\n" + JSON.stringify({ type: "taskStatus", status: "running" }) + "\n",
+    );
+    await expect(repository2.append([{ type: "taskStatus", status: "paused" }])).rejects.toBeInstanceOf(
+      TaskRecoveryError,
+    );
+    await expect(repository2.list()).rejects.toBeInstanceOf(TaskRecoveryError);
   });
 });

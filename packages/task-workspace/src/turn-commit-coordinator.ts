@@ -19,14 +19,19 @@
  * Crash recovery (recover) classifies each turn from the replayed event log
  * joined with the transcript sink and the checkpoint store:
  * - prepared, no transcript line            -> discarded (stays invisible; no writes)
- * - transcript line, no committed event     -> checkpoint verified then committed is
- *                                              backfilled, ELSE the transcript line is
- *                                              quarantined and the task enters
+ * - transcript line, no committed event     -> the line must correlate with the
+ *                                              turn's turnPrepared eventId AND the
+ *                                              checkpoint must verify, then committed
+ *                                              is backfilled, ELSE the transcript line
+ *                                              is quarantined and the task enters
  *                                              checkpoint-failed
  * - committed, transcript/checkpoint absent -> checkpoint-failed
- * The task head is always rewritten from the replayed state, healing a crash
- * between the committed event and the head write. The contract types live in
- * turn-commit-ports.ts.
+ * Write ORDER inside recovery is durability-first: backfill/failed-status
+ * events, then the atomic task head, and only then the destructive transcript
+ * quarantine — a crash before the quarantine is retried idempotently by the
+ * next recovery instead of degrading the turn to "discarded". Appends repair
+ * a torn log tail first (see event-log.ts), so no write is ever merged into
+ * a torn fragment. The contract types live in turn-commit-ports.ts.
  */
 import {
   createNodeIdClock,
@@ -87,6 +92,22 @@ function assertCommitInput(input: TurnCommitInput): void {
   if (!Array.isArray(input.messages)) {
     throw new Error("turn commit requires a messages array");
   }
+}
+
+/**
+ * eventId of the turnPrepared event that prepared `turnId` (at most one can
+ * exist — reduceTask rejects duplicates). Null when the raw log record
+ * omitted its envelope eventId, in which case correlation falls back to
+ * turnId + checkpointId matching.
+ */
+function preparedEventIdOf(events: readonly TaskEvent[], turnId: string): string | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event !== undefined && event.type === "turnPrepared" && event.turnId === turnId) {
+      return event.eventId ?? null;
+    }
+  }
+  return null;
 }
 
 export function createTurnCommitCoordinator(deps: {
@@ -185,21 +206,29 @@ export function createTurnCommitCoordinator(deps: {
       };
     },
 
-    async recover(context): Promise<TurnRecoveryReport> {
+    async recover(context, options = {}): Promise<TurnRecoveryReport> {
       assertMutationContext(repository, context);
       const recovery: TaskRecoveryResult | null = await repository.recoverEventLog();
       if (recovery === null) {
         throw new Error("turn recovery: task event log is missing (taskCreated was never persisted)");
       }
+      const beforeWrite = options.beforeWrite;
       const transcriptTurns = await transcript.listTurns();
       const byTurnId = new Map(transcriptTurns.map((turn) => [turn.turnId, turn]));
       const actions: TurnRecoveryAction[] = [];
       const appended: TaskEvent[] = [];
+      // Destructive sink side effects are DEFERRED until every durable write
+      // (event appends + task head) has landed. A crash before a quarantine
+      // leaves the transcript line in place, so the next recovery still sees
+      // prepared + transcript and re-classifies; quarantining first would make
+      // the turn indistinguishable from "discarded" and un-backfillable.
+      const pendingQuarantines: string[] = [];
       // One checkpoint-failed status per recovery pass at most, and none when
       // the replayed log already carries it — repeated recovery appends nothing.
       let failedStatusQueued = recovery.status === "checkpoint-failed";
-      const queueFailedStatus = () => {
+      const queueFailedStatus = async (): Promise<void> => {
         if (!failedStatusQueued) {
+          await beforeWrite?.("failedStatus");
           appended.push(taskStatusEvent({ clock, status: "checkpoint-failed" }));
           failedStatusQueued = true;
         }
@@ -209,8 +238,19 @@ export function createTurnCommitCoordinator(deps: {
         const line = byTurnId.get(turn.turnId);
         if (turn.phase === "prepared") {
           if (line === undefined) {
+            // Discarded: the turnId is burned — reduceTask rejects a second
+            // turnPrepared for the same turnId, so the caller must mint a
+            // fresh turnId for any retry. Never re-prepare this id.
             actions.push({ kind: "discarded", turnId: turn.turnId });
-          } else if (await verifyCheckpoint(turn.checkpointId)) {
+            continue;
+          }
+          // The transcript line must provably reference THIS turn's prepared
+          // event before a backfill may commit it (eventId correlation; a
+          // raw log without envelopes falls back to turnId matching).
+          const expectedEventId = preparedEventIdOf(recovery.recoveredEvents, turn.turnId);
+          const correlates = expectedEventId === null || line.eventId === expectedEventId;
+          if (correlates && (await verifyCheckpoint(turn.checkpointId))) {
+            await beforeWrite?.("backfill");
             const committed = turnCommittedEvent({
               clock,
               turnId: turn.turnId,
@@ -220,8 +260,8 @@ export function createTurnCommitCoordinator(deps: {
             appended.push(committed);
             actions.push({ kind: "backfilled", turnId: turn.turnId, committedEventId: committed.eventId ?? "" });
           } else {
-            await transcript.quarantineTurn(turn.turnId);
-            queueFailedStatus();
+            await queueFailedStatus();
+            pendingQuarantines.push(turn.turnId);
             actions.push({ kind: "quarantined", turnId: turn.turnId });
           }
         } else {
@@ -229,14 +269,23 @@ export function createTurnCommitCoordinator(deps: {
           if (intact) {
             actions.push({ kind: "intact", turnId: turn.turnId });
           } else {
-            queueFailedStatus();
+            await queueFailedStatus();
             actions.push({ kind: "checkpoint-failed", turnId: turn.turnId });
           }
         }
       }
 
+      // Durable writes first: events (the append itself repairs any torn log
+      // tail — see event-log.ts), then the atomic task head rewrite.
       const head = await replayWith(appended);
+      await beforeWrite?.("taskHead");
       await repository.writeTaskHead(head);
+      // Destructive quarantine LAST: a crash here is retried idempotently by
+      // the next recovery (status already durable, nothing re-appended).
+      for (const turnId of pendingQuarantines) {
+        await beforeWrite?.("quarantine");
+        await transcript.quarantineTurn(turnId);
+      }
       return { actions, head };
     },
 

@@ -18,6 +18,7 @@ import {
   type TurnCommitBoundary,
   type TurnCommitInput,
   type TurnMutationContext,
+  type TurnRecoveryBoundary,
 } from "../src/turn-commit-coordinator.ts";
 
 /** In-memory v3-only transcript sink with quarantine bookkeeping. */
@@ -58,6 +59,14 @@ function sequenceClock(): TaskIdClock {
 
 const failAt = (boundary: TurnCommitBoundary) => ({
   beforeWrite: (hit: TurnCommitBoundary) => {
+    if (hit === boundary) {
+      throw new Error(`injected fault at ${hit}`);
+    }
+  },
+});
+
+const failRecoveryAt = (boundary: TurnRecoveryBoundary) => ({
+  beforeWrite: (hit: TurnRecoveryBoundary) => {
     if (hit === boundary) {
       throw new Error(`injected fault at ${hit}`);
     }
@@ -332,6 +341,116 @@ describe("TurnCommitCoordinator recovery classification", () => {
     expect(second.actions.map((action) => action.kind)).toEqual(["checkpoint-failed"]);
     expect(await harness.repository.list()).toHaveLength(eventsAfterFirst);
     expect((await harness.repository.readTaskHead())?.status).toBe("checkpoint-failed");
+  });
+
+  it("a torn turnCommitted append is repaired on backfill and stays visible after restart", async () => {
+    const harness = await setup();
+    await expect(
+      harness.coordinator.commitTurn(harness.context, harness.input(), failAt("turnCommitted")),
+    ).rejects.toThrow("injected fault");
+    // Simulate a torn turnCommitted append: partial JSON, no trailing newline.
+    const torn = JSON.stringify({
+      type: "turnCommitted",
+      eventId: "event-torn",
+      turnId: "turn_1",
+      checkpointId: "cp_turn",
+      routeId: "route_1",
+    }).slice(0, 30);
+    await harness.repository.storage.storage.appendFile("events.jsonl", torn);
+
+    const report = await harness.coordinator.recover(harness.context);
+    expect(report.actions.map((action) => action.kind)).toEqual(["backfilled"]);
+
+    // Fresh-process view of the SAME storage: the backfilled event is durable
+    // and the turn is visible — no unilateral completion.
+    const repository2 = await openTaskRepository(base, harness.taskId);
+    const coordinator2 = createTurnCommitCoordinator({
+      repository: repository2,
+      transcript: harness.transcript,
+      clock: sequenceClock(),
+    });
+    const events = await repository2.list();
+    expect(events.map((event) => event.type)).toEqual(["taskCreated", "turnPrepared", "turnCommitted"]);
+    expect((await coordinator2.committedTurns()).map((turn) => turn.turnId)).toEqual(["turn_1"]);
+
+    // Idempotent: the next recovery does NOT re-append another committed event.
+    const second = await coordinator2.recover(harness.context);
+    expect(second.actions.map((action) => action.kind)).toEqual(["intact"]);
+    expect((await repository2.list()).map((event) => event.type)).toEqual([
+      "taskCreated",
+      "turnPrepared",
+      "turnCommitted",
+    ]);
+  });
+
+  it("refuses to backfill a transcript line whose eventId does not correlate with turnPrepared", async () => {
+    const harness = await setup();
+    await expect(
+      harness.coordinator.commitTurn(harness.context, harness.input(), failAt("turnCommitted")),
+    ).rejects.toThrow("injected fault");
+    // Tamper the transcript line so it no longer references the prepared event.
+    harness.transcript.turns[0] = {
+      ...harness.transcript.turns[0]!,
+      eventId: "event-from-another-attempt",
+    };
+
+    const report = await harness.coordinator.recover(harness.context);
+    expect(report.actions.map((action) => action.kind)).toEqual(["quarantined"]);
+    expect((await harness.repository.readTaskHead())?.status).toBe("checkpoint-failed");
+    expect(harness.transcript.quarantined.map((turn) => turn.turnId)).toEqual(["turn_1"]);
+  });
+
+  it("orders recovery writes: failed status and head are durable BEFORE the destructive quarantine", async () => {
+    const harness = await setup();
+    await expect(
+      harness.coordinator.commitTurn(harness.context, harness.input(), failAt("turnCommitted")),
+    ).rejects.toThrow("injected fault");
+    await harness.repository.storage.storage.deleteFile("checkpoints/cp_turn.json");
+
+    // Crash exactly at the quarantine boundary: durable writes already landed.
+    await expect(harness.coordinator.recover(harness.context, failRecoveryAt("quarantine"))).rejects.toThrow(
+      "injected fault",
+    );
+    const events = await harness.repository.list();
+    expect(events.at(-1)).toMatchObject({ type: "taskStatus", status: "checkpoint-failed" });
+    expect((await harness.repository.readTaskHead())?.status).toBe("checkpoint-failed");
+    // The transcript line is still present, so the next recovery re-classifies
+    // the turn as quarantinable — it can never degrade into "discarded".
+    expect(harness.transcript.turns).toHaveLength(1);
+
+    const report = await harness.coordinator.recover(harness.context);
+    expect(report.actions.map((action) => action.kind)).toEqual(["quarantined"]);
+    expect(harness.transcript.quarantined.map((turn) => turn.turnId)).toEqual(["turn_1"]);
+    // Exactly one checkpoint-failed status across both passes (idempotent).
+    const statuses = (await harness.repository.list()).filter((event) => event.type === "taskStatus");
+    expect(statuses).toHaveLength(1);
+  });
+
+  it.each([
+    { boundary: "backfill" as const, expected: ["backfilled"] },
+    { boundary: "failedStatus" as const, expected: ["quarantined"] },
+  ])("fault injection at recovery's own $boundary write leaves nothing half-done", async ({ boundary, expected }) => {
+    const harness = await setup();
+    await expect(
+      harness.coordinator.commitTurn(harness.context, harness.input(), failAt("turnCommitted")),
+    ).rejects.toThrow("injected fault");
+    if (boundary === "failedStatus") {
+      // Make the checkpoint unverifiable so recovery wants a failed status.
+      await harness.repository.storage.storage.deleteFile("checkpoints/cp_turn.json");
+    }
+
+    await expect(harness.coordinator.recover(harness.context, failRecoveryAt(boundary))).rejects.toThrow(
+      "injected fault",
+    );
+    // The crash left the log untouched (no append, no head flip, no quarantine).
+    expect((await harness.repository.list()).map((event) => event.type)).toEqual(["taskCreated", "turnPrepared"]);
+    expect(harness.transcript.turns).toHaveLength(1);
+    expect(harness.transcript.quarantined).toHaveLength(0);
+    expect((await harness.repository.readTaskHead())?.status).toBe("ready");
+
+    // A clean re-run completes the intended classification.
+    const report = await harness.coordinator.recover(harness.context);
+    expect(report.actions.map((action) => action.kind)).toEqual(expected);
   });
 });
 

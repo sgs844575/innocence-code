@@ -253,6 +253,9 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
         });
         checkpoints = new Map(checkpoints).set(checkpoint.checkpointId, checkpoint);
       } else if (event.type === "turnPrepared") {
+        // A turnId is single-use: a discarded (never committed) turn keeps its
+        // prepared entry forever, so re-preparing the same id is rejected —
+        // callers must mint a fresh turnId for any retry.
         if (turns.has(event.turnId)) {
           throw incompleteEvent(eventIndex, `turn ${event.turnId} is already prepared`);
         }

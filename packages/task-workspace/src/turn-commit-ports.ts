@@ -112,7 +112,26 @@ export interface TurnCommitCoordinator {
   /** Runs the fixed five-boundary sequence; rejects when any boundary write fails. */
   commitTurn(context: TurnMutationContext, input: TurnCommitInput, options?: TurnCommitOptions): Promise<TurnCommitResult>;
   /** Classifies incomplete turns, heals what it can, and rewrites the task head. */
-  recover(context: TurnMutationContext): Promise<TurnRecoveryReport>;
+  recover(context: TurnMutationContext, options?: TurnRecoveryOptions): Promise<TurnRecoveryReport>;
   /** Read-only visibility view: transcript turns whose task event phase is committed. */
   committedTurns(): Promise<readonly CommittedTurnView[]>;
+}
+
+/**
+ * Write boundaries of recovery, in durability order. Durable writes land
+ * first (backfill event, checkpoint-failed status, task head); the
+ * destructive transcript quarantine executes LAST so a crash before it can
+ * never lose the ability to re-classify the turn on the next run.
+ */
+export type TurnRecoveryBoundary = "backfill" | "failedStatus" | "taskHead" | "quarantine";
+
+export interface TurnRecoveryOptions {
+  /**
+   * Invoked before each recovery boundary's write; throwing simulates a crash
+   * AT that boundary (fault injection) and doubles as an observability hook.
+   * The backfill/failedStatus hooks fire when the write is decided (before the
+   * event append); taskHead and quarantine fire immediately before their
+   * physical writes.
+   */
+  beforeWrite?: (boundary: TurnRecoveryBoundary) => void | Promise<void>;
 }
