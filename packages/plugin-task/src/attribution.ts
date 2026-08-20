@@ -20,7 +20,7 @@
  * (single-sourced with the persisted event types — see
  * task-core/src/events.ts).
  */
-import type { TaskAttribution, TaskChangeSource } from "@innocencecode/task-core";
+import type { TaskAttribution, TaskChangeSource, TaskEvent } from "@innocencecode/task-core";
 
 /** Where a captured change came from (task-core's canonical union). */
 export type ChangeSource = TaskChangeSource;
@@ -149,4 +149,47 @@ export function unresolvedPaths(decisions: readonly AttributionDecision[]): stri
  */
 export function excludedPaths(decisions: readonly AttributionDecision[]): string[] {
   return decisions.filter((decision) => decision.status === "excluded").map((decision) => decision.path);
+}
+
+/**
+ * Folds a task event log into the current attribution decisions (Task 13;
+ * moved from the host so every host — Electron bridge and CLI — folds the
+ * SAME way): pending/conflict events track or harden a path, attributionResolved
+ * and conflictResolved land in their terminal status. Hashes stay null when
+ * the persisted event carries none — the gate never reads them.
+ */
+export function foldAttributionDecisions(events: readonly TaskEvent[]): AttributionDecision[] {
+  const decisions = new Map<string, AttributionDecision>();
+  const absorb = (path: string, status: AttributionStatus, protectedHash: string | null): void => {
+    const prev = decisions.get(path);
+    decisions.set(path, {
+      path,
+      status,
+      source: prev?.source ?? "unknown",
+      beforeHash: prev?.beforeHash ?? null,
+      afterHash: prev?.afterHash ?? null,
+      protectedHash,
+    });
+  };
+  for (const event of events) {
+    if (event.type === "attributionPending") {
+      for (const path of event.paths) absorb(path, "attribution-pending", null);
+    } else if (event.type === "attributionConflict") {
+      for (const path of event.paths) absorb(path, "conflict", null);
+    } else if (event.type === "attributionResolved") {
+      absorb(event.path, event.status, event.protectedHash);
+    } else if (event.type === "conflictResolved") {
+      // the explicit conflict-resolution transition (Task 13): same terminal
+      // statuses as attributionResolved — this is what clears the write block
+      const prev = decisions.get(event.path);
+      absorb(
+        event.path,
+        event.attribution === "task-owned" ? "pending-review" : "excluded",
+        event.attribution === "external" ? prev?.afterHash ?? "" : null,
+      );
+    }
+    // changeRecorded events fold no decision: a DECLARED write is the task's
+    // own change (never unresolved); only attribution* events gate writes.
+  }
+  return [...decisions.values()];
 }

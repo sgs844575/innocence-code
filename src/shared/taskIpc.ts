@@ -221,7 +221,11 @@ export type TaskEventKind =
   | "changeRecorded"
   | "attributionPending"
   | "attributionConflict"
-  | "attributionResolved";
+  | "attributionResolved"
+  | "conflictResolved"
+  | "hunkReviewed"
+  | "activeRouteChanged"
+  | "validationOverride";
 
 /** routeAttached payload: route identity only, never absolute paths. */
 export interface TaskRouteEventData {

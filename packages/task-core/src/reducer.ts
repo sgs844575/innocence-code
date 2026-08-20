@@ -235,6 +235,38 @@ function validateTaskEvent(raw: unknown, eventIndex: number): TaskEvent {
       validateEnvelope(record, eventIndex);
       return record as unknown as TaskEvent;
     }
+    case "conflictResolved": {
+      requireNonEmptyString(record.path, "path", eventIndex);
+      requireEnumValue(record.attribution, "attribution", ATTRIBUTIONS, eventIndex);
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
+    case "hunkReviewed": {
+      requireNonEmptyString(record.routeId, "routeId", eventIndex);
+      requireNonEmptyString(record.hunkRef, "hunkRef", eventIndex);
+      requireEnumValue(record.status, "status", new Set(["accepted", "restored"]), eventIndex);
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
+    case "activeRouteChanged": {
+      requireNonEmptyString(record.routeId, "routeId", eventIndex);
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
+    case "validationOverride": {
+      if (typeof record.validationResult !== "object" || record.validationResult === null || Array.isArray(record.validationResult)) {
+        throw incompleteEvent(eventIndex, "validationResult must be an object");
+      }
+      const result = record.validationResult as Record<string, unknown>;
+      if (typeof result.success !== "boolean") {
+        throw incompleteEvent(eventIndex, "validationResult.success must be a boolean");
+      }
+      if (result.message !== undefined && typeof result.message !== "string") {
+        throw incompleteEvent(eventIndex, "validationResult.message must be a string");
+      }
+      validateEnvelope(record, eventIndex);
+      return record as unknown as TaskEvent;
+    }
     default:
       throw new TaskRecoveryError({
         kind: "unknown-event",
@@ -331,10 +363,18 @@ export function reduceTask(events: readonly TaskEvent[]): TaskState {
       } else if (event.type === "routeAttached") {
         routes = attachRoute(routes, event.route);
         head = withActiveRouteId(head, event.route.routeId);
+      } else if (event.type === "activeRouteChanged") {
+        // Switching back to an existing route: the target must already be in
+        // the DAG — an unknown route id is a corrupt log, never a switch.
+        if (!routes.has(event.routeId)) {
+          throw incompleteEvent(eventIndex, `activeRouteChanged references unknown route: ${event.routeId}`);
+        }
+        head = withActiveRouteId(head, event.routeId);
       }
-      // changeRecorded / attribution* events fold no core state here — their
-      // interpretation is plugin-task's attribution state machine; only the
-      // envelope advances (lastCommittedEventId below).
+      // changeRecorded / attribution* / hunkReviewed / validationOverride
+      // events fold no core state here — their interpretation belongs to
+      // plugin-task (attribution) and the command service (review/gates);
+      // only the envelope advances (lastCommittedEventId below).
     }
     if (event.eventId !== undefined) {
       head = withLastCommittedEventId(head, event.eventId);

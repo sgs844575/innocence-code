@@ -105,6 +105,52 @@ export interface AttributionResolvedEvent extends TaskEventEnvelope {
   protectedHash: string | null;
 }
 
+/**
+ * The user's attribution answer for one CONFLICTED path (Task 13): the event
+ * union previously had no explicit conflict-resolution event, so a conflict
+ * could never be cleared through the log. plugin-task folds this into the
+ * attribution state machine exactly like attributionResolved (task-owned →
+ * pending-review, external → excluded), which is what clears the capture
+ * middleware's write block.
+ */
+export interface ConflictResolvedEvent extends TaskEventEnvelope {
+  type: "conflictResolved";
+  path: string;
+  attribution: TaskAttribution;
+}
+
+/**
+ * Review decision for one hunk (Task 13): hunk review statuses persist in the
+ * single log; listHunks re-derives hunks from checkpoints and replays these
+ * decisions (refs are content fingerprints, so same content = same ref).
+ */
+export interface HunkReviewedEvent extends TaskEventEnvelope {
+  type: "hunkReviewed";
+  routeId: string;
+  hunkRef: string;
+  status: "accepted" | "restored";
+}
+
+/**
+ * Persisted active-route transition (Task 13): routeAttached only ever ADDS a
+ * route, so switching BACK to an existing route previously had no event.
+ * The reducer validates the target route exists and folds it into the head.
+ */
+export interface ActiveRouteChangedEvent extends TaskEventEnvelope {
+  type: "activeRouteChanged";
+  routeId: string;
+}
+
+/**
+ * Completion proceeded past a failed validation with the user's explicit
+ * confirmation (Task 13; previously main appended an untyped literal that
+ * could not replay). Envelope-only fold — the recorded result is evidence.
+ */
+export interface ValidationOverrideEvent extends TaskEventEnvelope {
+  type: "validationOverride";
+  validationResult: { success: boolean; message?: string };
+}
+
 export type TaskEvent =
   | TaskCreatedEvent
   | TaskStatusEvent
@@ -115,7 +161,11 @@ export type TaskEvent =
   | ChangeRecordedEvent
   | AttributionPendingEvent
   | AttributionConflictEvent
-  | AttributionResolvedEvent;
+  | AttributionResolvedEvent
+  | ConflictResolvedEvent
+  | HunkReviewedEvent
+  | ActiveRouteChangedEvent
+  | ValidationOverrideEvent;
 
 const defaultClock = createNodeIdClock();
 
@@ -235,6 +285,72 @@ export function turnCommittedEvent(input: TurnLifecycleEventInput): TurnCommitte
     turnId: input.turnId,
     checkpointId: input.checkpointId,
     routeId: input.routeId,
+    eventId: input.eventId ?? clock.newId("event"),
+    at: input.at ?? clock.now(),
+  };
+}
+
+export interface ConflictResolvedEventInput extends TaskEventEnvelope {
+  clock?: TaskIdClock;
+  path: string;
+  attribution: TaskAttribution;
+}
+
+export function conflictResolvedEvent(input: ConflictResolvedEventInput): ConflictResolvedEvent {
+  const clock = clockOf(input);
+  return {
+    type: "conflictResolved",
+    path: input.path,
+    attribution: input.attribution,
+    eventId: input.eventId ?? clock.newId("event"),
+    at: input.at ?? clock.now(),
+  };
+}
+
+export interface HunkReviewedEventInput extends TaskEventEnvelope {
+  clock?: TaskIdClock;
+  routeId: string;
+  hunkRef: string;
+  status: "accepted" | "restored";
+}
+
+export function hunkReviewedEvent(input: HunkReviewedEventInput): HunkReviewedEvent {
+  const clock = clockOf(input);
+  return {
+    type: "hunkReviewed",
+    routeId: input.routeId,
+    hunkRef: input.hunkRef,
+    status: input.status,
+    eventId: input.eventId ?? clock.newId("event"),
+    at: input.at ?? clock.now(),
+  };
+}
+
+export interface ActiveRouteChangedEventInput extends TaskEventEnvelope {
+  clock?: TaskIdClock;
+  routeId: string;
+}
+
+export function activeRouteChangedEvent(input: ActiveRouteChangedEventInput): ActiveRouteChangedEvent {
+  const clock = clockOf(input);
+  return {
+    type: "activeRouteChanged",
+    routeId: input.routeId,
+    eventId: input.eventId ?? clock.newId("event"),
+    at: input.at ?? clock.now(),
+  };
+}
+
+export interface ValidationOverrideEventInput extends TaskEventEnvelope {
+  clock?: TaskIdClock;
+  validationResult: { success: boolean; message?: string };
+}
+
+export function validationOverrideEvent(input: ValidationOverrideEventInput): ValidationOverrideEvent {
+  const clock = clockOf(input);
+  return {
+    type: "validationOverride",
+    validationResult: { ...input.validationResult },
     eventId: input.eventId ?? clock.newId("event"),
     at: input.at ?? clock.now(),
   };

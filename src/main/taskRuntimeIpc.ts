@@ -49,6 +49,8 @@ function routeIdOf(event: CoreTaskEvent, fallback: string): string {
       return event.route.routeId;
     case "turnPrepared":
     case "turnCommitted":
+    case "hunkReviewed":
+    case "activeRouteChanged":
       return event.routeId;
     case "turnCheckpointed":
       return event.routeId ?? fallback;
@@ -88,7 +90,16 @@ export function toTaskUiEvent(
 /** Wires every task-runtime IPC surface. Call once after bridge init. */
 export async function wireTaskRuntimeIpc(deps: TaskRuntimeIpcDeps): Promise<void> {
   const log = deps.log ?? (() => {});
-  const commandService = createTaskCommandService({ bridge: deps.bridge, log });
+  const commandService = createTaskCommandService({
+    bridge: deps.bridge,
+    taskStorageDir: deps.taskStorageDir,
+    log,
+    // service-appended events (review/status/switch/...) reach the renderer
+    // through the same push path the bridge's live ports use
+    onEvent: (taskId, event) => {
+      deps.send("task:event", toTaskUiEvent(deps.bridge, { taskId, event }));
+    },
+  });
 
   const handlers = new TaskIpcHandlers({
     bridge: deps.bridge,

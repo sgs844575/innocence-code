@@ -77,9 +77,12 @@ function fakeHandle(overrides?: Partial<TaskHandle>): TaskHandle {
   };
 }
 
-/** Minimal command port that accepts all mutations. Mutable hunks for review tests. */
+/** Minimal command port; hunks are mutable for review tests and complete()
+ * mirrors the service's gate over the fake bridge state (the REAL gate is
+ * covered by task-core's contract tests and the CLI integration suite). */
 class FakeCommandPort implements TaskCommandPort {
   hunks: Hunk[] = [];
+  constructor(private readonly bridgeState: () => FakeBridgeState) {}
   getHunks = async (_taskId: string, _routeId: string) => this.hunks;
   listRoutes = async (_taskId: string) => [
     { routeId: "main", parentRouteId: null, forkTurnId: null, checkpointId: "ckpt_base", workspaceKind: "git" },
@@ -100,8 +103,9 @@ class FakeCommandPort implements TaskCommandPort {
     workspaceRoot: "/worktrees/fork_1",
     prompt: "resolved fork prompt",
   });
-  reviewHunk = async () => {};
-  applyAccepted = async () => ({ applied: true as const });
+  reviewHunk = async (_taskId: string, _routeId: string, _hunkRef: string, _status: "accepted" | "restored", _expectedVersion?: string) => {};
+  restoreHunk = async () => {};
+  applyAccepted: TaskCommandPort["applyAccepted"] = async () => ({ applied: [], conflicts: [] });
   preflightApply: TaskCommandPort["preflightApply"] = async () => ({ status: "clean" as const });
   resolveConflict = async () => {};
   editUserMessage = async () => ({ turnId: "turn_new" });
@@ -110,7 +114,43 @@ class FakeCommandPort implements TaskCommandPort {
     checkpointId: "ckpt_new",
   });
   changeTaskStatus = async () => {};
-  validate = async () => ({ success: true });
+  complete: TaskCommandPort["complete"] = async (request) => {
+    const events = this.bridgeState().events;
+    const conflicted = new Set<string>();
+    const resolved = new Set<string>();
+    for (const event of events) {
+      if (event.type === "attributionConflict") {
+        for (const path of event.paths) conflicted.add(path);
+      } else if (event.type === "attributionResolved" || event.type === "conflictResolved") {
+        resolved.add(event.path);
+      }
+    }
+    const unresolvedConflicts = [...conflicted].filter((path) => !resolved.has(path)).length;
+    const unstableCalls = events.filter((event) => event.type === "turnPrepared").length;
+    const unreviewedChanges = this.hunks.filter(
+      (hunk) => hunk.status !== "accepted" && hunk.status !== "restored",
+    ).length;
+    const validation = await this.validate(request.taskId, "main");
+    let gateValidation: import("../shared/taskIpc").ValidationResult | null = validation;
+    if (request.confirmValidationFailure && !validation.success) {
+      gateValidation = null;
+      await this.appendEvent(request.taskId, {
+        type: "validationOverride",
+        validationResult: validation,
+      } as unknown as TaskEvent);
+    }
+    if (
+      unresolvedConflicts > 0 ||
+      unstableCalls > 0 ||
+      unreviewedChanges > 0 ||
+      (gateValidation !== null && !gateValidation.success)
+    ) {
+      throw Object.assign(new Error("completion gate"), {
+        gate: { runningTools: 0, unresolvedConflicts, unstableCalls, unreviewedChanges, validation: gateValidation },
+      });
+    }
+  };
+  validate = async (_taskId?: string, _routeId?: string) => ({ success: true });
   recoverTask = async (taskId: string) => ({
     taskId,
     sessionId: "s1",
@@ -140,7 +180,7 @@ describe("TaskIpcHandlers", () => {
   }
 
   beforeEach(() => {
-    commandPort = new FakeCommandPort();
+    commandPort = new FakeCommandPort(() => bridgeState);
     bridgeState = {
       handle: fakeHandle(),
       events: [fakeCreatedEvent()],
@@ -289,9 +329,9 @@ describe("TaskIpcHandlers", () => {
 
   // --- applyAccepted preflight ---
 
-  it("applyAccepted returns ConflictDto on preflight conflict", async () => {
-    commandPort.preflightApply = async () => ({
-      status: "conflict" as const,
+  it("applyAccepted returns ConflictDto on apply conflict", async () => {
+    commandPort.applyAccepted = async () => ({
+      applied: [],
       conflicts: [{ path: "a.ts", reason: "modified" }],
     });
     const result = await handlers.applyAccepted({ taskId: "t1", routeId: "main" });
@@ -299,8 +339,8 @@ describe("TaskIpcHandlers", () => {
     expect(result.conflicts).toBeDefined();
   });
 
-  it("applyAccepted applies when preflight is clean", async () => {
-    commandPort.preflightApply = async () => ({ status: "clean" });
+  it("applyAccepted applies when the service reports no conflicts", async () => {
+    commandPort.applyAccepted = async () => ({ applied: ["a.ts"], conflicts: [] });
     const result = await handlers.applyAccepted({
       taskId: "t1",
       routeId: "main",

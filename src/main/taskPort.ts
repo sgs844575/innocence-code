@@ -12,17 +12,18 @@ import {
   type WorkspaceFileEvent,
   type WorkspaceWriteLock,
 } from "@innocencecode/task-workspace";
-import type {
-  AfterCapture,
-  AttributionDecision,
-  BeforeCapture,
-  CaptureAfterInput,
-  CaptureBeforeInput,
-  TaskEvent,
-  TaskMutationContext,
-  TaskRuntimePort,
-  TaskScope,
-  WorkspaceVersion,
+import {
+  foldAttributionDecisions,
+  type AfterCapture,
+  type AttributionDecision,
+  type BeforeCapture,
+  type CaptureAfterInput,
+  type CaptureBeforeInput,
+  type TaskEvent,
+  type TaskMutationContext,
+  type TaskRuntimePort,
+  type TaskScope,
+  type WorkspaceVersion,
 } from "@innocencecode/plugin-task";
 
 export interface TaskPortDeps {
@@ -226,49 +227,10 @@ export class LiveTaskPort implements TaskRuntimePort {
 }
 
 /**
- * Folds the plugin events of one task log into attribution decisions
- * (plugin-task's state machine transitions, replayed from the single log):
- * pending → conflict may harden a path; resolved transitions land in their
- * terminal status. Hashes stay null when the persisted event carries none —
- * the gate (hasUnresolvedAttribution/unresolvedPaths) never reads them.
+ * Folds the plugin events of one task log into attribution decisions.
+ * Delegates to plugin-task's foldAttributionDecisions (Task 13 moved the fold
+ * into the plugin so every host — bridge, command service, CLI — folds the
+ * same way, including the conflictResolved clearing transition).
  */
-export function foldAttribution(events: readonly TaskEvent[]): AttributionDecision[] {
-  const decisions = new Map<string, AttributionDecision>();
-  for (const event of events) {
-    if (event.type === "attributionPending") {
-      for (const path of event.paths) {
-        decisions.set(path, {
-          path,
-          status: "attribution-pending",
-          source: "unknown",
-          beforeHash: null,
-          afterHash: null,
-          protectedHash: null,
-        });
-      }
-    } else if (event.type === "attributionConflict") {
-      for (const path of event.paths) {
-        const prev = decisions.get(path);
-        decisions.set(path, {
-          path,
-          status: "conflict",
-          source: prev?.source ?? "unknown",
-          beforeHash: prev?.beforeHash ?? null,
-          afterHash: prev?.afterHash ?? null,
-          protectedHash: null,
-        });
-      }
-    } else if (event.type === "attributionResolved") {
-      const prev = decisions.get(event.path);
-      decisions.set(event.path, {
-        path: event.path,
-        status: event.status,
-        source: prev?.source ?? "unknown",
-        beforeHash: prev?.beforeHash ?? null,
-        afterHash: prev?.afterHash ?? null,
-        protectedHash: event.protectedHash,
-      });
-    }
-  }
-  return [...decisions.values()];
-}
+export const foldAttribution = foldAttributionDecisions;
+export type { AttributionDecision };

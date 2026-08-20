@@ -40,8 +40,10 @@ export interface TaskCommandPort {
   listRoutes(taskId: string): Promise<TaskRouteSummary[]>;
   switchRoute(taskId: string, routeId: string): Promise<TaskRouteSummary>;
   forkRoute(request: TaskForkRouteRequest): Promise<TaskForkRouteResponse>;
-  reviewHunk(taskId: string, routeId: string, hunkRef: string, status: "accepted" | "restored"): Promise<void>;
-  applyAccepted(taskId: string, routeId: string): Promise<{ applied: true }>;
+  reviewHunk(taskId: string, routeId: string, hunkRef: string, status: "accepted" | "restored", expectedVersion?: string): Promise<void>;
+  /** Restores one hunk: reverts its file to the checkpoint state (version-guarded). */
+  restoreHunk(taskId: string, routeId: string, hunkRef: string): Promise<void>;
+  applyAccepted(taskId: string, routeId: string): Promise<{ applied: string[]; conflicts: ConflictDetail[] }>;
   preflightApply(taskId: string, routeId: string): Promise<
     | { status: "clean" }
     | { status: "conflict"; conflicts: ConflictDetail[] }
@@ -51,6 +53,8 @@ export interface TaskCommandPort {
   retryAssistant(taskId: string, routeId: string, turnId: string): Promise<{ turnId: string }>;
   createCheckpoint(taskId: string, routeId: string): Promise<TaskCheckpointResponse>;
   changeTaskStatus(taskId: string, status: string): Promise<void>;
+  /** Completion gate (delegates to the task-core service, override included). */
+  complete(request: { taskId: string; confirmValidationFailure: boolean }): Promise<void>;
   validate(taskId: string, routeId: string): Promise<ValidationResult>;
   /** Re-runs runtime recovery (worktree/replay retry entry point). */
   recoverTask(taskId: string): Promise<TaskGetResponse>;
@@ -78,24 +82,6 @@ function assertHunkScope(hunks: Hunk[], hunkRef: string, taskId: string): void {
   if (!hunks.some((h) => h.ref === hunkRef)) {
     throw new Error(`hunk not found: ${hunkRef}`);
   }
-}
-
-function countUnstableTurns(state: TaskState): number {
-  let count = 0;
-  for (const turn of state.turns.values()) {
-    if (turn.phase === "prepared") count += 1;
-  }
-  return count;
-}
-
-function gateBlocks(gate: CompletionGate): boolean {
-  return (
-    gate.runningTools > 0 ||
-    gate.unresolvedConflicts > 0 ||
-    gate.unstableCalls > 0 ||
-    gate.unreviewedChanges > 0 ||
-    (gate.validation !== null && !gate.validation.success)
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -127,15 +113,6 @@ export class TaskIpcHandlers {
     if (!handle) throw new Error(`task not found: ${taskId}`);
     const events = await this.bridge.listEvents(taskId);
     return reduceTask(events);
-  }
-
-  /** Returns both the reduced state AND the raw event list (avoids double fetch). */
-  private async resolveTaskWithEvents(taskId: string): Promise<{ state: TaskState; events: readonly import("@innocencecode/task-core").TaskEvent[] }> {
-    const handle = this.bridge.get(taskId);
-    if (!handle) throw new Error(`task not found: ${taskId}`);
-    const events = await this.bridge.listEvents(taskId);
-    const state = reduceTask(events);
-    return { state, events };
   }
 
   private assertRoute(state: TaskState, routeId: string): void {
@@ -186,6 +163,7 @@ export class TaskIpcHandlers {
       request.routeId,
       request.hunkRef ?? "",
       request.status,
+      request.expectedVersion,
     );
   }
 
@@ -195,7 +173,7 @@ export class TaskIpcHandlers {
     const hunks = await this.commandPort.getHunks(request.taskId, request.routeId);
     assertHunkScope(hunks, request.hunkRef, request.taskId);
     this.assertRoute(state, request.routeId);
-    await this.commandPort.reviewHunk(request.taskId, request.routeId, request.hunkRef, "restored");
+    await this.commandPort.restoreHunk(request.taskId, request.routeId, request.hunkRef);
   }
 
   async listRoutes(request: { taskId: string }): Promise<TaskListRoutesResponse> {
@@ -252,44 +230,24 @@ export class TaskIpcHandlers {
   }
 
   /**
-   * Completion gate: checks in order — running tools, unresolved conflicts,
-   * unstable calls, unreviewed changes, validation.  Throws a structured
-   * CompletionGateResult when any gate blocks.
+   * Completion gate — fully delegated to the command service (task-core):
+   * running tools, unresolved conflicts, unstable calls, unreviewed changes
+   * and validation, including the confirmValidationFailure override (the
+   * service appends the validationOverride event). A blocked gate surfaces
+   * as a structured CompletionGateResult error for the renderer.
    */
   async complete(request: { taskId: string; confirmValidationFailure: boolean }): Promise<void> {
-    const { state, events } = await this.resolveTaskWithEvents(request.taskId);
-    const hunks = await this.commandPort.getHunks(request.taskId, state.activeRouteId);
-
-    // Validation — run it to get the result for the gate.
-    const validation = await this.commandPort.validate(request.taskId, state.activeRouteId);
-
-    // Unresolved conflicts — counted from the same event log (no double fetch).
-    const unresolvedConflicts = this.countUnresolvedConflictsFromEvents(events);
-
-    const gate: CompletionGate = {
-      runningTools: 0, // always zero in P1 (single-turn)
-      unresolvedConflicts,
-      unstableCalls: countUnstableTurns(state),
-      unreviewedChanges: hunks.filter(
-        (h) => h.status !== "accepted" && h.status !== "restored",
-      ).length,
-      validation,
-    };
-
-    // Override: confirmValidationFailure allows proceeding past validation
-    // AND appends a validationOverride event recording the confirmation.
-    if (request.confirmValidationFailure && validation !== null && !validation.success) {
-      gate.validation = null;
-      await this.commandPort.appendEvent(request.taskId, {
-        type: "validationOverride",
-        eventId: `evt_val_override_${Date.now()}`,
-        at: new Date().toISOString(),
-        validationResult: validation,
-      } as unknown as import("@innocencecode/task-core").TaskEvent);
-    }
-
-    if (gateBlocks(gate)) {
-      throw Object.assign(new Error("completion gate"), { gate });
+    await this.resolveTask(request.taskId); // validates existence
+    try {
+      await this.commandPort.complete(request);
+    } catch (error) {
+      const details = (error as { code?: string; details?: { gate?: CompletionGate } }).code === "completion-gate"
+        ? (error as { details?: { gate?: CompletionGate } }).details
+        : undefined;
+      if (details?.gate !== undefined) {
+        throw Object.assign(new Error("completion gate"), { gate: details.gate });
+      }
+      throw error;
     }
   }
 
@@ -297,11 +255,10 @@ export class TaskIpcHandlers {
     const state = await this.resolveTask(request.taskId);
     this.assertRoute(state, request.routeId);
 
-    const preflight = await this.commandPort.preflightApply(request.taskId, request.routeId);
-    if (preflight.status === "conflict") {
-      return { status: "conflict", conflicts: preflight.conflicts };
+    const result = await this.commandPort.applyAccepted(request.taskId, request.routeId);
+    if (result.conflicts.length > 0) {
+      return { status: "conflict", conflicts: result.conflicts };
     }
-    await this.commandPort.applyAccepted(request.taskId, request.routeId);
     return { status: "applied" };
   }
 
@@ -349,29 +306,5 @@ export class TaskIpcHandlers {
       recovered.gitBranch = await this.resolveGitBranch(request.taskId);
     }
     return recovered;
-  }
-
-  // -- Internal helpers ----------------------------------------------------
-
-  /**
-   * Counts attribution conflicts from the raw event log that were never
-   * resolved.  A conflict path is unresolved if a later
-   * attributionResolved event for the same path does not appear.
-   */
-  private countUnresolvedConflictsFromEvents(events: readonly import("@innocencecode/task-core").TaskEvent[]): number {
-    const conflictedPaths = new Set<string>();
-    const resolvedPaths = new Set<string>();
-    for (const event of events) {
-      if (event.type === "attributionConflict") {
-        for (const p of event.paths) conflictedPaths.add(p);
-      } else if (event.type === "attributionResolved") {
-        resolvedPaths.add(event.path);
-      }
-    }
-    let unresolved = 0;
-    for (const p of conflictedPaths) {
-      if (!resolvedPaths.has(p)) unresolved += 1;
-    }
-    return unresolved;
   }
 }
