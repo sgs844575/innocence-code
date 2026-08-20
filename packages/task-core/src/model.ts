@@ -110,14 +110,14 @@ export interface CreateCheckpointInput {
   files?: FileSnapshotRef[];
 }
 
-/** Creates a checkpoint; the file list is copied, never aliased. */
+/** Creates a checkpoint; file entries are deep-copied, never aliased. */
 export function createCheckpoint(input: CreateCheckpointInput): Checkpoint {
   return {
     checkpointId: input.checkpointId,
     taskId: input.taskId ?? "",
     routeId: input.routeId ?? "",
     turnId: input.turnId ?? "",
-    files: input.files ? [...input.files] : [],
+    files: input.files ? input.files.map((file) => ({ ...file })) : [],
   };
 }
 

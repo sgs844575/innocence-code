@@ -158,6 +158,42 @@ describe("structured recovery errors", () => {
     expect(recovery.eventIndex).toBe(1);
     expect(recovery.reason).toContain("checkpointId");
   });
+
+  it("rejects turnCheckpointed with corrupt file entries", () => {
+    const checkpointEvent = (files: unknown): TaskEvent =>
+      ({ type: "turnCheckpointed", checkpointId: "c1", turnId: null, routeId: null, files }) as unknown as TaskEvent;
+    const corruptFiles = [
+      null,
+      [null],
+      [{}],
+      [{ path: "src/a.ts" }],
+      [{ path: "", exists: true, hash: null, mode: null, binary: false }],
+      [{ path: "src/a.ts", exists: "yes", hash: null, mode: null, binary: false }],
+      [{ path: "src/a.ts", exists: true, hash: 7, mode: null, binary: false }],
+      [{ path: "src/a.ts", exists: true, hash: null, mode: "644", binary: false }],
+      [{ path: "src/a.ts", exists: true, hash: null, mode: null, binary: 0 }],
+    ];
+    for (const files of corruptFiles) {
+      const recovery = captureRecovery(() => reduceTask([taskCreatedEvent(), checkpointEvent(files)]));
+      expect(recovery.kind).toBe("incomplete-event");
+      expect(recovery.eventIndex).toBe(1);
+      expect(recovery.reason).toMatch(/files/);
+    }
+  });
+
+  it("accepts fully valid file entries and stores them on the checkpoint", () => {
+    const state = reduceTask([
+      taskCreatedEvent(),
+      {
+        type: "turnCheckpointed",
+        checkpointId: "c1",
+        turnId: null,
+        routeId: null,
+        files: [{ path: "src/a.ts", exists: false, hash: null, mode: null, binary: false }],
+      },
+    ]);
+    expect(state.checkpoints.get("c1")?.files[0]?.path).toBe("src/a.ts");
+  });
 });
 
 describe("event factories", () => {
@@ -172,6 +208,13 @@ describe("event factories", () => {
     expect(checkpointed.turnId).toBeTruthy();
     expect(checkpointed.routeId).toBeNull();
     expect(checkpointed.files).toEqual([]);
+  });
+
+  it("deep-copies file entries instead of aliasing them", () => {
+    const files = [{ path: "src/a.ts", exists: true, hash: "h1", mode: 0o644, binary: false }];
+    const event = turnCheckpointedEvent({ checkpointId: "c1", files });
+    files[0].hash = "mutated";
+    expect(event.files[0]?.hash).toBe("h1");
   });
 
   it("accepts an injected deterministic clock", () => {

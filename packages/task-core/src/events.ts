@@ -92,7 +92,7 @@ export function turnCheckpointedEvent(input: TurnCheckpointedEventInput): TurnCh
     checkpointId: input.checkpointId,
     turnId: input.turnId ?? clock.newId("turn"),
     routeId: input.routeId ?? null,
-    files: input.files ? [...input.files] : [],
+    files: input.files ? input.files.map((file) => ({ ...file })) : [],
   };
 }
 

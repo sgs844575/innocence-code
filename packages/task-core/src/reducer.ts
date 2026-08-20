@@ -112,6 +112,25 @@ function validateRoute(raw: unknown, eventIndex: number): void {
   }
 }
 
+/** Validates one FileSnapshotRef entry of a turnCheckpointed event. */
+function validateFileSnapshot(raw: unknown, fileIndex: number, eventIndex: number): void {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw incompleteEvent(eventIndex, `files[${fileIndex}] must be an object`);
+  }
+  const file = raw as Record<string, unknown>;
+  requireNonEmptyString(file.path, `files[${fileIndex}].path`, eventIndex);
+  if (typeof file.exists !== "boolean") {
+    throw incompleteEvent(eventIndex, `files[${fileIndex}].exists must be a boolean`);
+  }
+  requireStringOrNull(file.hash, `files[${fileIndex}].hash`, eventIndex);
+  if (file.mode !== null && typeof file.mode !== "number") {
+    throw incompleteEvent(eventIndex, `files[${fileIndex}].mode must be a number or null`);
+  }
+  if (typeof file.binary !== "boolean") {
+    throw incompleteEvent(eventIndex, `files[${fileIndex}].binary must be a boolean`);
+  }
+}
+
 /** Validates one raw event (typed or straight from persisted JSON). */
 function validateTaskEvent(raw: unknown, eventIndex: number): TaskEvent {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -142,8 +161,11 @@ function validateTaskEvent(raw: unknown, eventIndex: number): TaskEvent {
       requireNonEmptyString(record.checkpointId, "checkpointId", eventIndex);
       requireStringOrNull(record.turnId, "turnId", eventIndex);
       requireStringOrNull(record.routeId, "routeId", eventIndex);
-      if (record.files !== undefined && !Array.isArray(record.files)) {
-        throw incompleteEvent(eventIndex, "files must be an array");
+      if (record.files !== undefined) {
+        if (!Array.isArray(record.files)) {
+          throw incompleteEvent(eventIndex, "files must be an array");
+        }
+        record.files.forEach((entry, fileIndex) => validateFileSnapshot(entry, fileIndex, eventIndex));
       }
       validateEnvelope(record, eventIndex);
       return record as unknown as TaskEvent;

@@ -43,6 +43,13 @@ describe("checkpoint immutability", () => {
     expect(checkpoint.files).toHaveLength(0);
   });
 
+  it("deep-copies the file objects it stores", () => {
+    const snapshot = file("src/a.ts", "h1");
+    const checkpoint = createCheckpoint({ checkpointId: "c1", files: [snapshot] });
+    snapshot.hash = "mutated";
+    expect(checkpoint.files[0]?.hash).toBe("h1");
+  });
+
   it("replaces the snapshot for an already-recorded path", () => {
     const checkpoint = createCheckpoint({ checkpointId: "c1", files: [file("src/a.ts", "h1")] });
     const next = addFile(checkpoint, file("src/a.ts", "h2"));

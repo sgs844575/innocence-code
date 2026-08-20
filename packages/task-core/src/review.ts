@@ -47,7 +47,9 @@ export function fingerprintHunk(input: HunkFingerprintInput): string {
  * A next hunk inherits its predecessor's status ONLY on an exact
  * fingerprint match (same path, normalized patch and context anchors):
  *
- * - no predecessor (new hunk / changed content / context overlap) -> pending
+ * - no predecessor (new hunk / changed content / context overlap) -> pending,
+ *   except an incoming `conflict` is preserved (migration never downgrades
+ *   a conflict to pending)
  * - predecessor `restored` and the hunk re-appears              -> pending
  * - predecessor `conflict` on exact match                        -> conflict
  *   (migration never leaves `conflict`; only an explicit
@@ -64,7 +66,7 @@ export function migrateReviewStatuses(previous: Hunk[], next: Hunk[]): Hunk[] {
   return next.map((hunk) => {
     const predecessor = previousByFingerprint.get(fingerprintHunk(hunk));
     if (predecessor === undefined) {
-      return { ...hunk, status: "pending" };
+      return { ...hunk, status: hunk.status === "conflict" ? "conflict" : "pending" };
     }
     if (predecessor.status === "restored") {
       return { ...hunk, status: "pending" };

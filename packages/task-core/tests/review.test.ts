@@ -66,6 +66,14 @@ describe("migrateReviewStatuses", () => {
     expect(next[0]?.status).toBe("pending");
   });
 
+  it("preserves an incoming conflict without an exact-match predecessor", () => {
+    const next = migrateReviewStatuses(
+      [hunk({ status: "accepted" })],
+      [hunk({ ref: "h2", path: "src/moved.ts", status: "conflict" })],
+    );
+    expect(next[0]?.status).toBe("conflict");
+  });
+
   it("returns new hunk objects without mutating either side", () => {
     const previous = [hunk({ status: "accepted" })];
     const next = [hunk({ ref: "h2" })];
