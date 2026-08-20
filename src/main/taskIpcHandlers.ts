@@ -50,6 +50,8 @@ export interface TaskCommandPort {
   createCheckpoint(taskId: string, routeId: string): Promise<TaskCheckpointResponse>;
   changeTaskStatus(taskId: string, status: string): Promise<void>;
   validate(taskId: string, routeId: string): Promise<ValidationResult>;
+  /** Append a synthetic event to the task log (used for validationOverride). */
+  appendEvent(taskId: string, event: import("@innocencecode/task-core").TaskEvent): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +121,15 @@ export class TaskIpcHandlers {
     return reduceTask(events);
   }
 
+  /** Returns both the reduced state AND the raw event list (avoids double fetch). */
+  private async resolveTaskWithEvents(taskId: string): Promise<{ state: TaskState; events: readonly import("@innocencecode/task-core").TaskEvent[] }> {
+    const handle = this.bridge.get(taskId);
+    if (!handle) throw new Error(`task not found: ${taskId}`);
+    const events = await this.bridge.listEvents(taskId);
+    const state = reduceTask(events);
+    return { state, events };
+  }
+
   private assertRoute(state: TaskState, routeId: string): void {
     assertRouteExists(state, routeId);
   }
@@ -169,6 +180,9 @@ export class TaskIpcHandlers {
 
   async restore(request: TaskRestoreRequest): Promise<void> {
     const state = await this.resolveTask(request.taskId);
+    // Hunk scope check BEFORE route validation — consistent with review().
+    const hunks = await this.commandPort.getHunks(request.taskId, request.routeId);
+    assertHunkScope(hunks, request.hunkRef, request.taskId);
     this.assertRoute(state, request.routeId);
     await this.commandPort.reviewHunk(request.taskId, request.routeId, request.hunkRef, "restored");
   }
@@ -230,16 +244,14 @@ export class TaskIpcHandlers {
    * CompletionGateResult when any gate blocks.
    */
   async complete(request: { taskId: string; confirmValidationFailure: boolean }): Promise<void> {
-    const state = await this.resolveTask(request.taskId);
+    const { state, events } = await this.resolveTaskWithEvents(request.taskId);
     const hunks = await this.commandPort.getHunks(request.taskId, state.activeRouteId);
 
     // Validation — run it to get the result for the gate.
     const validation = await this.commandPort.validate(request.taskId, state.activeRouteId);
 
-    // Unresolved conflicts — counted from the event log.
-    const unresolvedConflicts = this.countUnresolvedConflictsFromEvents(
-      await this.bridge.listEvents(request.taskId),
-    );
+    // Unresolved conflicts — counted from the same event log (no double fetch).
+    const unresolvedConflicts = this.countUnresolvedConflictsFromEvents(events);
 
     const gate: CompletionGate = {
       runningTools: 0, // always zero in P1 (single-turn)
@@ -251,9 +263,16 @@ export class TaskIpcHandlers {
       validation,
     };
 
-    // Override: confirmValidationFailure allows proceeding past validation.
-    if (request.confirmValidationFailure) {
+    // Override: confirmValidationFailure allows proceeding past validation
+    // AND appends a validationOverride event recording the confirmation.
+    if (request.confirmValidationFailure && validation !== null && !validation.success) {
       gate.validation = null;
+      await this.commandPort.appendEvent(request.taskId, {
+        type: "validationOverride",
+        eventId: `evt_val_override_${Date.now()}`,
+        at: new Date().toISOString(),
+        validationResult: validation,
+      } as unknown as import("@innocencecode/task-core").TaskEvent);
     }
 
     if (gateBlocks(gate)) {

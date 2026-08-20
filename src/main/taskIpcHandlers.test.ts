@@ -105,6 +105,7 @@ class FakeCommandPort implements TaskCommandPort {
   });
   changeTaskStatus = async () => {};
   validate = async () => ({ success: true });
+  appendEvent = async (_taskId: string, _event: TaskEvent) => {};
 }
 
 // ---------------------------------------------------------------------------
@@ -307,10 +308,37 @@ describe("TaskIpcHandlers", () => {
     ).rejects.toThrow("git");
   });
 
+  // --- restore hunk scope ---
+
+  it("restore rejects hunk from another task", async () => {
+    commandPort.hunks = [
+      { ref: "t1:h1", path: "a.ts", before: "", after: "x", context: [], status: "pending" },
+    ];
+    await expect(
+      handlers.restore({ taskId: "t1", routeId: "main", hunkRef: "t2:h1", expectedVersion: "v1" }),
+    ).rejects.toThrow("hunk scope");
+  });
+
   // --- recoveryWarnings ---
 
   it("recoveryWarnings returns empty array for clean task", async () => {
     const result = await handlers.recoveryWarnings({ taskId: "t1" });
     expect(result.warnings).toEqual([]);
+  });
+
+  // --- validationOverride event ---
+
+  it("complete appends validationOverride event when confirmValidationFailure is true", async () => {
+    commandPort.validate = async () => ({
+      success: false,
+      message: "lint errors",
+    });
+    const appendedEvents: TaskEvent[] = [];
+    commandPort.appendEvent = async (_taskId: string, event: TaskEvent) => {
+      appendedEvents.push(event);
+    };
+    await handlers.complete({ taskId: "t1", confirmValidationFailure: true });
+    expect(appendedEvents.length).toBe(1);
+    expect(appendedEvents[0].type).toBe("validationOverride");
   });
 });
