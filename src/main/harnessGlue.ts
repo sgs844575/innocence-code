@@ -310,8 +310,21 @@ export function respondPermission(requestId: string, choice: PermissionChoice): 
 let nextMsg = 0;
 const messageId = () => `msg_${Date.now().toString(36)}_${(nextMsg++).toString(36)}`;
 
+/**
+ * Session -> task-route binding (task:start / switchRoute / restart recovery
+ * keep it current): a bound session's chat sends run task-scoped, so tool
+ * effects are captured, checkpointed and reviewable — the P1 loop.
+ */
+const sessionTaskRoutes = new Map<string, { taskId: string; routeId: string }>();
+
+/** Host-side binding port the task command service calls on task activation. */
+export function bindSessionTaskRoute(sessionId: string, taskId: string, routeId: string): void {
+  sessionTaskRoutes.set(sessionId, { taskId, routeId });
+}
+
 /** Starts an agent turn; returns the assistant message id immediately. Plain
- *  chat turns run on the main route without task identity. */
+ * chat turns run on the main route without task identity; a session with a
+ * live task binding sends on the task's active route. */
 export function sendChatTurn(sessionId: string, text: string): string {
   const id = messageId();
   sessions.appendMessage(sessionId, {
@@ -322,7 +335,14 @@ export function sendChatTurn(sessionId: string, text: string): string {
     streaming: true,
   });
   broadcastSessions();
-  void runtime.send({ sessionId, taskId: "", routeId: DEFAULT_ROUTE_ID, text, messageId: id });
+  const binding = sessionTaskRoutes.get(sessionId);
+  void runtime.send({
+    sessionId,
+    taskId: binding?.taskId ?? "",
+    routeId: binding?.routeId ?? DEFAULT_ROUTE_ID,
+    text,
+    messageId: id,
+  });
   return id;
 }
 
@@ -331,8 +351,9 @@ export function stopChatTurn(sessionId: string): void {
 }
 
 /** Releases one chat session's agent resources (aborts runs, disposes its
- *  plugins). Never rejects — failures surface through the harness log. */
+ * plugins). Never rejects — failures surface through the harness log. */
 export async function disposeSession(sessionId: string): Promise<void> {
+  sessionTaskRoutes.delete(sessionId);
   await runtime.dispose(sessionId);
 }
 

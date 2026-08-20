@@ -66,13 +66,13 @@ async function createGitFixture(files: Record<string, string>): Promise<string> 
 /**
  * service  — the task-core TaskCommandService method.
  * electron — the TaskCommandPort method(s) it maps onto (empty = intentionally
- *            host-side: start flows through session glue; get/recoveryWarnings
- *            are read-only handler computations; delete is the bridge's).
+ *            host-side: get/recoveryWarnings are read-only handler
+ *            computations; delete is the bridge's).
  * cli      — the CLI adapter method(s) (empty = host escape hatch the CLI
  *            surface does not expose).
  */
 const PARITY_MAP = [
-  { service: "start", electron: [], cli: ["start"], note: "Electron starts tasks through session glue (bridge.start)" },
+  { service: "start", electron: ["startTask"], cli: ["start"], note: "Electron start = bridge-backed find-or-start bound to the session" },
   { service: "get", electron: [], cli: ["getTask"], note: "Electron getTask is a read-only handler computation" },
   { service: "getChanges", electron: [], cli: ["getChanges"], note: "change cards are renderer-derived in Electron today" },
   { service: "getCheckpoint", electron: [], cli: ["getCheckpoint"], note: "checkpoint reads are host-side in Electron" },
@@ -140,7 +140,7 @@ describe("Electron ↔ CLI command adapter parity", () => {
     const storageDir = await tempDir("ic-parity-surface-");
     const bridge = createTaskRuntimeBridge({ taskStorageDir: storageDir, onTaskEvent: () => {} });
     cleanups.push(() => bridge.disposeAll());
-    const electron = createTaskCommandService({ bridge, taskStorageDir: storageDir, onEvent: () => {} });
+    const electron = createTaskCommandService({ bridge, taskStorageDir: storageDir, resolveSessionRoot: async () => undefined, onEvent: () => {} });
     const cli = createTaskCliAdapter({
       taskRuntime: await createTaskCliRuntime({ storageDir }),
       output: collectStructuredOutput(),
@@ -166,7 +166,7 @@ describe("Electron ↔ CLI command adapter parity", () => {
       onTaskEvent: () => {},
     });
     cleanups.push(() => bridge.disposeAll());
-    const electron = createTaskCommandService({ bridge, taskStorageDir: storageDir, onEvent: () => {} });
+    const electron = createTaskCommandService({ bridge, taskStorageDir: storageDir, resolveSessionRoot: async () => undefined, onEvent: () => {} });
 
     const task = await cli.start({ workspaceRoot: repo, mode: "baseline" });
     const hunks = await cli.listHunks(task.taskId, task.activeRouteId);

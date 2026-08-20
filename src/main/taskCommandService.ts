@@ -6,6 +6,7 @@
 // workspace order), expectedVersion CAS, review/apply/completion gates —
 // live INSIDE the task-core service; this module contains only host glue.
 import path from "node:path";
+import fs from "node:fs/promises";
 import {
   createTaskCommandService as createCoreService,
   TaskCommandError,
@@ -36,7 +37,7 @@ import {
 } from "@innocencecode/task-workspace";
 import type { TaskRuntimeBridge } from "./taskRuntimeBridge";
 import type { TaskCommandPort } from "./taskIpcHandlers";
-import type { TaskApplyResponse, TaskGetResponse, TaskRouteSummary } from "../shared/taskIpc";
+import type { TaskApplyResponse, TaskGetResponse, TaskStartResponse, TaskRouteSummary } from "../shared/taskIpc";
 
 export { TaskCommandError };
 
@@ -45,6 +46,14 @@ export interface TaskCommandServiceDeps {
   /** Private task storage base (userData/tasks in the host). */
   taskStorageDir: string;
   git?: GitAdapter;
+  /** Resolves the session's authoritative workspace root (""/undefined = none). */
+  resolveSessionRoot(sessionId: string): Promise<string | undefined>;
+  /**
+   * Session -> task-route binding port: called whenever a task becomes the
+   * session's active context (start, find, switchRoute, restart recovery) so
+   * the host can scope that session's chat sends to the task route.
+   */
+  onSessionTaskRoute?(sessionId: string, taskId: string, routeId: string): void;
   /** Forwards service-appended events to the renderer push port. */
   onEvent?: (taskId: string, event: TaskEvent) => void;
   log?: (level: "info" | "warn" | "error", msg: string, data?: unknown) => void;
@@ -183,10 +192,85 @@ export function createTaskCommandService(deps: TaskCommandServiceDeps): TaskComm
 
   const service: CoreTaskCommandService = createCoreService(ports);
 
+  const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+  /**
+   * The session's existing task, live first, then persisted-but-not-live
+   * (restart recovery may not have re-livened it yet). One task per session
+   * is the domain rule; first match wins.
+   */
+  const findTaskOfSession = async (sessionId: string): Promise<string | null> => {
+    for (const taskId of deps.bridge.listTasks()) {
+      const view = await service.get(taskId).catch(() => null);
+      if (view?.sessionId === sessionId) return taskId;
+    }
+    const tasksRoot = path.join(storageDir, "tasks");
+    const entries = await fs.readdir(tasksRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !TASK_ID_PATTERN.test(entry.name)) continue;
+      if (deps.bridge.get(entry.name)) continue;
+      const repository = await openTaskRepository(storageDir, entry.name).catch(() => null);
+      if (repository === null) continue;
+      const created = (await repository.list().catch(() => [])).find((event) => event.type === "taskCreated");
+      if (created?.type === "taskCreated" && created.sessionId === sessionId) return entry.name;
+    }
+    return null;
+  };
+
+  /** The task view + live route binding for the session's active task. */
+  const startResponseOf = async (taskId: string): Promise<TaskStartResponse> => {
+    const view = await service.get(taskId);
+    const routeId = deps.bridge.get(taskId)?.routeId ?? view.activeRouteId;
+    deps.onSessionTaskRoute?.(view.sessionId, taskId, routeId);
+    return { ...view, routeId, gitBranch: null };
+  };
+
   return {
+    startTask: async (request) => {
+      const existing = await findTaskOfSession(request.sessionId);
+      if (existing !== null) {
+        if (!deps.bridge.get(existing)) {
+          // Not live (restart recovery has not covered it): recover Git tasks
+          // now so sends re-enter the P1 loop. The bridge cannot re-live
+          // snapshot tasks (baseline.json is Git-only) — their views still
+          // read from disk, only live capture stays off (known limitation).
+          await service.recover(existing).catch((error) =>
+            log("warn", "session task recovery on start failed", { taskId: existing, error: String(error) }),
+          );
+        }
+        return startResponseOf(existing);
+      }
+      if (request.create === false) return null;
+      const workspaceRoot = await deps.resolveSessionRoot(request.sessionId);
+      if (!workspaceRoot) {
+        throw new TaskCommandError(
+          "invalid-request",
+          `session ${request.sessionId} has no workspace root to start a task from`,
+        );
+      }
+      try {
+        const handle = await deps.bridge.start({
+          sessionId: request.sessionId,
+          workspaceRoot,
+          mode: request.mode ?? "baseline",
+        });
+        return startResponseOf(handle.taskId);
+      } catch (error) {
+        // Lost a concurrent start race: the winner's task is on disk now.
+        const raced = await findTaskOfSession(request.sessionId);
+        if (raced !== null) return startResponseOf(raced);
+        throw error;
+      }
+    },
     getHunks: (taskId, routeId) => service.listHunks(taskId, routeId),
     listRoutes: async (taskId) => (await service.listRoutes(taskId)).map(toRouteSummary),
-    switchRoute: async (taskId, routeId) => toRouteSummary(await service.switchRoute(taskId, routeId)),
+    switchRoute: async (taskId, routeId) => {
+      const summary = toRouteSummary(await service.switchRoute(taskId, routeId));
+      // Route switches re-bind the session's sends to the new route.
+      const handle = deps.bridge.get(taskId);
+      if (handle) deps.onSessionTaskRoute?.(handle.sessionId, taskId, routeId);
+      return summary;
+    },
     forkRoute: async (request) => {
       const result = request.mode === "edit-user"
         ? await service.forkFromUser({ ...request, editedText: request.editedText ?? "" })

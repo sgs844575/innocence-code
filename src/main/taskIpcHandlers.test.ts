@@ -151,6 +151,23 @@ class FakeCommandPort implements TaskCommandPort {
     }
   };
   validate = async (_taskId?: string, _routeId?: string) => ({ success: true });
+  startTaskCalls: Array<{ sessionId: string; mode?: "baseline" | "isolated"; create?: boolean }> = [];
+  startTask: TaskCommandPort["startTask"] = async (request) => {
+    this.startTaskCalls.push(request);
+    return request.create !== false && request.sessionId === "s1"
+      ? {
+          taskId: "t1",
+          sessionId: "s1",
+          status: "ready",
+          activeRouteId: "main",
+          mode: request.mode ?? "baseline",
+          workspaceKind: "git",
+          version: "evt_1",
+          gitBranch: null,
+          routeId: "main",
+        }
+      : null;
+  };
   recoverTask = async (taskId: string) => ({
     taskId,
     sessionId: "s1",
@@ -215,6 +232,24 @@ describe("TaskIpcHandlers", () => {
   });
 
   // --- Task/route resolution ---
+
+  it("start delegates to the command port's find-or-start (task:start channel)", async () => {
+    const created = await handlers.start({ sessionId: "s1" });
+    expect(created).toMatchObject({ taskId: "t1", sessionId: "s1", routeId: "main" });
+    expect(commandPort.startTaskCalls).toEqual([{ sessionId: "s1", mode: "baseline", create: true }]);
+
+    const probe = await handlers.start({ sessionId: "other", mode: "isolated", create: false });
+    expect(probe).toBeNull();
+    expect(commandPort.startTaskCalls.at(-1)).toEqual({
+      sessionId: "other",
+      mode: "isolated",
+      create: false,
+    });
+  });
+
+  it("start rejects an empty sessionId", async () => {
+    await expect(handlers.start({ sessionId: "" })).rejects.toThrow("start requires a sessionId");
+  });
 
   it("getTask returns task state DTO for existing task", async () => {
     const result = await handlers.getTask({ taskId: "t1" });

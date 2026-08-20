@@ -33,6 +33,13 @@ export interface TaskRuntimeIpcDeps {
   taskStorageDir: string;
   /** Authoritative route root from the bridge's route handle. */
   resolveRouteRoot(taskId: string, routeId: string): string | undefined;
+  /** Authoritative per-session workspace root (task:start resolves it). */
+  resolveSessionRoot(sessionId: string): Promise<string | undefined>;
+  /**
+   * Session -> task-route binding port (task-scoped sends): invoked when a
+   * task becomes the session's active context (start/find/switch/recovery).
+   */
+  onSessionTaskRoute?(sessionId: string, taskId: string, routeId: string): void;
   /** User-configured external editor command ("" = not configured). */
   getEditorCommand(): string;
   /** Renderer push port (webContents.send wrapper for the main window). */
@@ -93,6 +100,8 @@ export async function wireTaskRuntimeIpc(deps: TaskRuntimeIpcDeps): Promise<void
   const commandService = createTaskCommandService({
     bridge: deps.bridge,
     taskStorageDir: deps.taskStorageDir,
+    resolveSessionRoot: deps.resolveSessionRoot,
+    onSessionTaskRoute: deps.onSessionTaskRoute,
     log,
     // service-appended events (review/status/switch/...) reach the renderer
     // through the same push path the bridge's live ports use
@@ -196,6 +205,9 @@ export async function recoverPersistedTaskRuntimes(deps: TaskRuntimeIpcDeps): Pr
     if (!recovered || recovered.workspaceKind !== "git") continue; // snapshot tasks have no worktree to recover
     try {
       const state = await deps.bridge.recoverTask(taskId);
+      // The recovered task becomes the session's active task context again:
+      // subsequent chat sends re-enter the P1 loop on the active route.
+      deps.onSessionTaskRoute?.(state.sessionId, taskId, state.activeRouteId);
       const warnings: string[] = [];
       for (const turn of state.turns.values()) {
         if (turn.phase === "prepared") warnings.push(`turn ${turn.turnId} is prepared but not committed`);

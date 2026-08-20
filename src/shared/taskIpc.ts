@@ -13,6 +13,8 @@
 // ---------------------------------------------------------------------------
 
 export const TaskIpcChannels = {
+  /** Find-or-create the session's task (the P1 loop entry point). */
+  taskStart: "task:start",
   taskGet: "task:get",
   taskChange: "task:change",
   taskCheckpoint: "task:checkpoint",
@@ -94,6 +96,21 @@ export interface CompletionGateResult {
 export interface TaskGetRequest {
   taskId: string;
 }
+
+export interface TaskStartRequest {
+  /** Chat session the task belongs to (main resolves the workspace root). */
+  sessionId: string;
+  /** Task mode; baseline works in any workspace, isolated requires Git. */
+  mode?: "baseline" | "isolated";
+  /**
+   * Create when the session has no task yet (default true). create:false is
+   * the session-activation probe: it returns null instead of starting one.
+   */
+  create?: boolean;
+}
+
+/** task:start response: the full task view plus the bound route. */
+export type TaskStartResponse = TaskGetResponse & { routeId: string };
 
 export interface TaskGetResponse {
   taskId: string;
@@ -317,6 +334,11 @@ export interface TaskRecoverRequest {
 // ---------------------------------------------------------------------------
 
 export interface TaskIpcApi {
+  /**
+   * Find-or-create the session's task (the P1 loop entry). With
+   * create:false, resolves the session's existing task or null.
+   */
+  start(request: TaskStartRequest): Promise<TaskStartResponse | null>;
   getTask(request: TaskGetRequest): Promise<TaskGetResponse>;
   changeTask(request: TaskChangeRequest): Promise<void>;
   checkpoint(request: TaskCheckpointRequest): Promise<TaskCheckpointResponse>;

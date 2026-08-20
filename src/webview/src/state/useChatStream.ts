@@ -15,6 +15,11 @@ export interface ChatStreamDeps {
   activeId: string | null;
   /** 落地态首条消息的建会入口（sessionController.ensureSessionForSend）。 */
   ensureSession: () => Promise<string | null>;
+  /**
+   * 发送前的任务入口（workbench.ensureTask）：会话首条消息时创建任务，
+   * 使该回合进入任务作用域（变更捕获/检查点/审查）。
+   */
+  ensureTask?: (sessionId: string) => Promise<void>;
   /** 错误提示。 */
   showError: (message: string) => void;
   /** i18n。 */
@@ -33,7 +38,7 @@ export interface ChatStream {
 }
 
 export function useChatStream(deps: ChatStreamDeps): ChatStream {
-  const { activeId, ensureSession, showError, t, sendGate } = deps;
+  const { activeId, ensureSession, ensureTask, showError, t, sendGate } = deps;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [permission, setPermission] = useState<ChatPermissionEvent | null>(null);
@@ -127,6 +132,8 @@ export function useChatStream(deps: ChatStreamDeps): ChatStream {
       }
       const sessionId = activeId ?? (await ensureSession());
       if (!sessionId) return;
+      // 任务先于发送落地：本回合即进入任务作用域（P1 循环入口）。
+      await ensureTask?.(sessionId);
 
       let messageId: string;
       try {
@@ -153,7 +160,7 @@ export function useChatStream(deps: ChatStreamDeps): ChatStream {
       };
       setMessages((prev) => [...prev, optimisticUser, pendingAssistant]);
     },
-    [activeId, ensureSession, sendGate, showError, t],
+    [activeId, ensureSession, ensureTask, sendGate, showError, t],
   );
 
   const stop = useCallback(() => {

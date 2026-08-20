@@ -56,6 +56,7 @@ const api: InnocenceCodeApi = {
 
 /** Task review/route/complete API — narrow subset exposed to the renderer. */
 const taskApi: TaskIpcApi = {
+  start: (req) => ipcRenderer.invoke(TaskIpcChannels.taskStart, req),
   getTask: (req) => ipcRenderer.invoke(TaskIpcChannels.taskGet, req),
   changeTask: (req) => ipcRenderer.invoke(TaskIpcChannels.taskChange, req),
   checkpoint: (req) => ipcRenderer.invoke(TaskIpcChannels.taskCheckpoint, req),

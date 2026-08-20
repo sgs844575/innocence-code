@@ -133,6 +133,7 @@ export function registerIpcHandlers(): void {
   // Each handler delegates to TaskIpcHandlers which validates the calling
   // session, resolves task/route ownership, and delegates mutations to the
   // TaskCommandPort.  The handlers are wired after bridge composition.
+  ipcMain.handle(TaskIpcChannels.taskStart, (_e, req) => requireTaskHandlers().start(req));
   ipcMain.handle(TaskIpcChannels.taskGet, (_e, req) => requireTaskHandlers().getTask(req));
   ipcMain.handle(TaskIpcChannels.taskChange, (_e, req) => requireTaskHandlers().changeTask(req));
   ipcMain.handle(TaskIpcChannels.taskCheckpoint, (_e, req) => requireTaskHandlers().checkpoint(req));

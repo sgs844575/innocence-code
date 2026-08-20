@@ -81,6 +81,12 @@ export function App(): React.JSX.Element {
   const workbench = useWorkbenchState({ sessionId: sessions.activeId });
   const task = workbench.state.task;
 
+  // 会话激活 → 探测该会话的任务并装载工作台（create=false：仅打开会话不
+  // 新建任务；任务在首条消息发送时创建，见 useChatStream.ensureTask）。
+  useEffect(() => {
+    if (sessions.activeId !== null) void workbench.ensureTask(sessions.activeId, false);
+  }, [sessions.activeId, workbench.ensureTask]);
+
   // 恢复门禁：事件回放/worktree 失败未解决前禁止新的写回合。
   const sendGate = useCallback(
     () => (writeToolsBlocked(workbench.state) ? t("workbench.sendBlocked") : null),
@@ -90,6 +96,7 @@ export function App(): React.JSX.Element {
   const chat = useChatStream({
     activeId: sessions.activeId,
     ensureSession: sessions.ensureSessionForSend,
+    ensureTask: workbench.ensureTask,
     showError,
     t,
     sendGate,

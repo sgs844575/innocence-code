@@ -5,6 +5,7 @@ import { handleAppScheme, registerAppScheme } from "./protocol";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
 import {
+  bindSessionTaskRoute,
   getHarnessSettings,
   getTaskBridge,
   getTaskStorageDir,
@@ -14,7 +15,7 @@ import {
   rejectPendingPermissionAsks,
   resolveRouteWorkspaceRoot,
 } from "./harnessGlue";
-import { initSessionStore } from "./sessions";
+import { initSessionStore, getSession } from "./sessions";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
 import { logger } from "./logger";
@@ -56,10 +57,18 @@ if (!gotLock) {
       // Task runtime IPC composition (Task 12): task handlers over the real
       // bridge-backed command service, route-scoped code surfaces, and the
       // task-event broadcast feeding the renderer's workbench state.
+      // task:start resolves the session's workspace root host-side and binds
+      // the session's chat sends to the task route (the P1 loop entry).
       const taskRuntimeDeps = {
         bridge: getTaskBridge(),
         taskStorageDir: getTaskStorageDir(),
         resolveRouteRoot: resolveRouteWorkspaceRoot,
+        resolveSessionRoot: async (sessionId: string) => {
+          const root =
+            getSession(sessionId)?.workspaceRoot || getHarnessSettings().workspaceRoot;
+          return root === "" ? undefined : root;
+        },
+        onSessionTaskRoute: bindSessionTaskRoute,
         getEditorCommand: () => getHarnessSettings().externalEditorCommand ?? "",
         send: broadcast,
         log: (level: "info" | "warn" | "error", msg: string, data?: unknown) =>

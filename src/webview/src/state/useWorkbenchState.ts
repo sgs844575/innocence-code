@@ -27,6 +27,11 @@ export interface WorkbenchStateController {
   retryRecovery: (taskId: string) => Promise<boolean>;
   /** 拉取任务全量视图（getTask + listRoutes，真实 forkTurnId/workspaceKind）。 */
   loadTask: (taskId: string) => Promise<void>;
+  /**
+   * task:start → loadTask（会话激活/首条消息入口）。create=false 只探测
+   * （会话无任务返回 null，不创建）；成功后工作台获得完整任务上下文。
+   */
+  ensureTask: (sessionId: string, create?: boolean) => Promise<void>;
   dismissRestartWarning: () => void;
   review: (dto: TaskReviewDto) => Promise<void>;
   restore: (request: TaskRestoreRequest) => Promise<void>;
@@ -125,6 +130,24 @@ export function useWorkbenchState(deps: { sessionId: string | null }): Workbench
 
   const dismissRestartWarning = useCallback(() => dispatch({ type: "recovery/dismissRestart" }), []);
 
+  /**
+   * task:start → loadTask（最终审查 C1）。会话激活用 create=false 探测；首
+   * 条消息发送前 create=true 创建。已装载同会话任务时短路（切换会话由
+   * reducer 清空后自然重入）。
+   */
+  const ensureTask = useCallback(
+    async (sessionId: string, create = true) => {
+      if (state.task !== null && state.task.sessionId === sessionId) return;
+      try {
+        const started = await taskApi.start({ sessionId, create });
+        if (started) await loadTask(started.taskId);
+      } catch (cause) {
+        console.error("task start failed", cause);
+      }
+    },
+    [state.task, loadTask],
+  );
+
   const review = useCallback(async (dto: TaskReviewDto) => {
     await taskApi.review(dto);
   }, []);
@@ -141,6 +164,7 @@ export function useWorkbenchState(deps: { sessionId: string | null }): Workbench
     switchRoute,
     retryRecovery,
     loadTask,
+    ensureTask,
     dismissRestartWarning,
     review,
     restore,

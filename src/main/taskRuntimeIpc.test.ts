@@ -69,6 +69,7 @@ async function makeHarness(bridge: TaskRuntimeBridge, storageDir: string): Promi
     bridge,
     taskStorageDir: storageDir,
     resolveRouteRoot: () => undefined,
+    resolveSessionRoot: async () => undefined,
     getEditorCommand: () => "",
     send: (channel, payload) => {
       if (channel === "task:notice") notices.push(payload as TaskUiNotice);

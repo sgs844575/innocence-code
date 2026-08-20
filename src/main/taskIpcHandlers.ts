@@ -26,6 +26,8 @@ import type {
   TaskRestoreRequest,
   TaskReviewDto,
   TaskRouteSummary,
+  TaskStartRequest,
+  TaskStartResponse,
   ValidationResult,
 } from "../shared/taskIpc";
 
@@ -36,6 +38,16 @@ import type {
 // ---------------------------------------------------------------------------
 
 export interface TaskCommandPort {
+  /**
+   * Find-or-create the session's task (the P1 loop entry). Resolves the
+   * session's workspace root host-side; create:false returns null when the
+   * session has no task. Binds the session's sends to the task route.
+   */
+  startTask(request: {
+    sessionId: string;
+    mode?: "baseline" | "isolated";
+    create?: boolean;
+  }): Promise<import("../shared/taskIpc").TaskStartResponse | null>;
   getHunks(taskId: string, routeId: string): Promise<Hunk[]>;
   listRoutes(taskId: string): Promise<TaskRouteSummary[]>;
   switchRoute(taskId: string, routeId: string): Promise<TaskRouteSummary>;
@@ -120,6 +132,22 @@ export class TaskIpcHandlers {
   }
 
   // -- Handlers ------------------------------------------------------------
+
+  /**
+   * task:start — find-or-create the session's task. Design choice (final
+   * review C1): the EXPLICIT channel composes with session glue — main
+   * resolves the workspace root and binds the session's sends to the task
+   * route, so the next chat turn enters the P1 loop (task-scoped sends)
+   * without a second renderer surface.
+   */
+  async start(request: TaskStartRequest): Promise<TaskStartResponse | null> {
+    if (!request.sessionId) throw new Error("start requires a sessionId");
+    return this.commandPort.startTask({
+      sessionId: request.sessionId,
+      mode: request.mode ?? "baseline",
+      create: request.create !== false,
+    });
+  }
 
   async getTask(request: { taskId: string }): Promise<TaskGetResponse> {
     const state = await this.resolveTask(request.taskId);
