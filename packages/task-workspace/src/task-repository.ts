@@ -18,6 +18,7 @@ import { createContentStore, type ContentStore } from "./content-store.ts";
 import { createCheckpointStore, type CheckpointStore } from "./checkpoint-store.ts";
 import { createFileEventLog, type FileEventLog } from "./event-log.ts";
 import { openPrivateTaskStorage, assertSafeTaskId, type PrivateTaskStorage } from "./private-task-storage.ts";
+import { recoverApplyJournals, type RecoveryReport } from "./apply-journal.ts";
 
 export interface TaskRepository {
   readonly storage: PrivateTaskStorage;
@@ -34,6 +35,13 @@ export interface TaskRepository {
   list(): Promise<TaskEvent[]>;
   /** Recovery view over events.jsonl; null when the log does not exist yet. */
   recoverEventLog(): Promise<TaskRecoveryResult | null>;
+  /**
+   * Recovers interrupted multi-file apply transactions journalled into this
+   * task's apply-journal/ directory (task-git's journaled write loop): proves
+   * finished commits or rolls every applied file back to pre-apply bytes.
+   * Call on restart recovery BEFORE any new mutation of the task.
+   */
+  recoverApplyJournals(): Promise<RecoveryReport>;
 }
 
 export async function openTaskRepository(baseDir: string, taskId: string): Promise<TaskRepository> {
@@ -82,6 +90,10 @@ export async function openTaskRepository(baseDir: string, taskId: string): Promi
 
     async recoverEventLog(): Promise<TaskRecoveryResult | null> {
       return eventLog.recover();
+    },
+
+    async recoverApplyJournals(): Promise<RecoveryReport> {
+      return recoverApplyJournals(storage.storage, objects);
     },
   };
 }

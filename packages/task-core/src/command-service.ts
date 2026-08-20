@@ -41,6 +41,7 @@ import {
 } from "./model";
 import type {
   TaskApplyConflict,
+  TaskApplyJournalHook,
   TaskAttributionPort,
   TaskCommandGit,
   TaskCommandLocks,
@@ -60,6 +61,24 @@ import type {
 import { TaskCommandError } from "./command-ports";
 
 export { TaskCommandError } from "./command-ports";
+
+/**
+ * Store-backed durable apply-journal hook: journals land in the task's
+ * private apply-journal/ directory (writeArtifact writes storage-relative),
+ * pre-transaction bytes back up into the task CAS — exactly what
+ * task-workspace's recoverApplyJournals engine reads on restart recovery.
+ * Exported so hosts and tests construct the identical hook.
+ */
+export function storeBackedApplyJournal(
+  store: Pick<TaskCommandStore, "writeArtifact" | "putObject">,
+  taskId: string,
+): TaskApplyJournalHook {
+  return {
+    write: (journal) =>
+      store.writeArtifact(taskId, `apply-journal/${journal.transactionId}.json`, JSON.stringify(journal)),
+    backup: (_path, bytes) => store.putObject(taskId, bytes),
+  };
+}
 
 /** The plan-fixed method set every TaskCommandService exposes. */
 export const TASK_COMMAND_METHODS = [
@@ -580,6 +599,9 @@ export function createTaskCommandService(deps: TaskCommandDeps): TaskCommandServ
             restoreHash: patch.before.hash,
           }],
           readContent: (hash) => deps.store.getObject(request.taskId, hash),
+          // Journaled: restore reverts user-workspace bytes; a mid-batch death
+          // must leave a rollback record the recovery engine can replay.
+          journal: storeBackedApplyJournal(deps.store, request.taskId),
         });
         if (result.conflicts.length > 0) {
           throw new TaskCommandError("apply-conflict", `restore conflict at ${result.conflicts[0]!.path}`, result.conflicts);
@@ -736,6 +758,10 @@ export function createTaskCommandService(deps: TaskCommandDeps): TaskCommandServ
             if (bytes === null) throw new Error(`apply content unreadable: ${relativePath}`);
             return bytes;
           },
+          // Journaled: the isolated apply writes into the ORIGINAL user
+          // workspace; a mid-batch death must leave a rollback record instead
+          // of a partially applied workspace with no trace (see apply-journal).
+          journal: storeBackedApplyJournal(deps.store, taskId),
         };
         if (options?.dryRun) {
           const report = await deps.git.preflightApply(input);

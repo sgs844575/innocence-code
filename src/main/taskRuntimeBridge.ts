@@ -443,6 +443,19 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
       const existing = live.get(taskId);
       if (existing) return reduceTask(await existing.repository.list());
       const repository = await openTaskRepository(options.taskStorageDir, taskId);
+      // Interrupted multi-file applies (journaled write loop in task-git) are
+      // recovered FIRST: a partially applied user workspace must be rolled
+      // back to pre-apply bytes before any worktree/checkpoint replay looks
+      // at disk state. Committed journals are cleaned; proven-complete ones
+      // are backfilled (see task-workspace apply-journal.ts).
+      const journalReport = await repository.recoverApplyJournals();
+      if (journalReport.rolledBack.length > 0) {
+        log("warn", "task interrupted apply rolled back", {
+          taskId,
+          transactionIds: journalReport.completed,
+          paths: journalReport.rolledBack,
+        });
+      }
       const state = reduceTask(await repository.list());
       // baseline.json hard-fails here by design: fork recovery is Git-only —
       // snapshot tasks have no worktree/baseline to recover (see fork.ts).

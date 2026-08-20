@@ -126,9 +126,51 @@ export interface TaskIsolatedApplyFile {
   incomingHash: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Durable apply-journal hook (structural mirror of task-git's ApplyJournalHook
+// / task-workspace's ApplyJournal JSON — the recovery engine lives in
+// task-workspace and reads exactly this shape from apply-journal/).
+// ---------------------------------------------------------------------------
+
+export interface TaskApplyJournalEntry {
+  /** Workspace-relative path. */
+  path: string;
+  beforeHash: string | null;
+  backupRef: string | null;
+  desiredHash: string | null;
+  applied: boolean;
+}
+
+export interface TaskApplyJournalRecord {
+  transactionId: string;
+  createdAt: string;
+  root: string;
+  committed: boolean;
+  entries: TaskApplyJournalEntry[];
+}
+
+export interface TaskApplyJournalHook {
+  /** Persists the journal atomically (task storage apply-journal/ directory). */
+  write(journal: TaskApplyJournalRecord): Promise<void>;
+  /** Backs up pre-transaction bytes into the task CAS; returns the ref. */
+  backup(path: string, bytes: Uint8Array): Promise<string>;
+}
+
 export type TaskApplyInput =
-  | { mode: "baseline"; root: string; files: readonly TaskApplyFile[]; readContent: (hash: string) => Promise<Uint8Array> }
-  | { mode: "isolated"; root: string; files: readonly TaskIsolatedApplyFile[]; readContent: (hash: string) => Promise<Uint8Array> };
+  | {
+      mode: "baseline";
+      root: string;
+      files: readonly TaskApplyFile[];
+      readContent: (hash: string) => Promise<Uint8Array>;
+      journal?: TaskApplyJournalHook;
+    }
+  | {
+      mode: "isolated";
+      root: string;
+      files: readonly TaskIsolatedApplyFile[];
+      readContent: (hash: string) => Promise<Uint8Array>;
+      journal?: TaskApplyJournalHook;
+    };
 
 export interface TaskApplyConflict {
   path: string;

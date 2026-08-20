@@ -269,6 +269,17 @@ export async function createTaskCliRuntime(options: TaskCliRuntimeOptions): Prom
     recover: {
       recoverTask: async (taskId) => {
         const repository = await repoOf(taskId);
+        // Interrupted multi-file applies first (same ordering as the Electron
+        // bridge): roll back a partially applied user workspace before any
+        // worktree replay reads disk state.
+        const journalReport = await repository.recoverApplyJournals();
+        if (journalReport.rolledBack.length > 0) {
+          log("warn", "task interrupted apply rolled back", {
+            taskId,
+            transactionIds: journalReport.completed,
+            paths: journalReport.rolledBack,
+          });
+        }
         const state = reduceTask(await repository.list());
         const baseline = await baselineOf(taskId);
         if (baseline === null) return state; // snapshot task: nothing to replay
