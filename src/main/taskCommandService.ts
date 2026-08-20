@@ -263,6 +263,7 @@ export function createTaskCommandService(deps: TaskCommandServiceDeps): TaskComm
       }
     },
     getHunks: (taskId, routeId) => service.listHunks(taskId, routeId),
+    getChanges: async (taskId, routeId) => await service.getChanges(taskId, routeId),
     listRoutes: async (taskId) => (await service.listRoutes(taskId)).map(toRouteSummary),
     switchRoute: async (taskId, routeId) => {
       const summary = toRouteSummary(await service.switchRoute(taskId, routeId));

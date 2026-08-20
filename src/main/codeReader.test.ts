@@ -7,7 +7,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { createCodeReader, MAX_CODE_READ_BYTES } from "./codeReader";
+import { createCodeReader, MAX_CODE_LIST_FILES, MAX_CODE_READ_BYTES } from "./codeReader";
 
 let storage: string;
 
@@ -166,5 +166,19 @@ describe("codeReader reads", () => {
     const { files } = await reader.listFiles({ taskId: "t1", routeId: "r1" });
     expect(files).toEqual(expect.arrayContaining(["src/a.ts", "notes.md", "blob.bin"]));
     expect(files.some((f) => f.startsWith(".git"))).toBe(false);
+  });
+
+  it("caps the listing at MAX_CODE_LIST_FILES entries (unbounded worktrees)", async () => {
+    // 列表上限（最终审查 C3）：超大 worktree 至多 MAX_CODE_LIST_FILES 条，
+    // 排序后结果确定；渲染层文件树永不接收无界载荷。
+    for (let i = 0; i < MAX_CODE_LIST_FILES + 50; i += 1) {
+      await fs.writeFile(path.join(storage, "route", `f${String(i).padStart(4, "0")}.ts`), "x\n");
+    }
+    const { reader } = makeReader();
+    const { files } = await reader.listFiles({ taskId: "t1", routeId: "r1" });
+    expect(files).toHaveLength(MAX_CODE_LIST_FILES);
+    // Sorted and contiguous from the deterministic lexicographic prefix.
+    expect(files[0]).toBe("blob.bin");
+    expect(new Set(files).size).toBe(MAX_CODE_LIST_FILES);
   });
 });

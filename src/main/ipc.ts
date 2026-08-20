@@ -135,6 +135,7 @@ export function registerIpcHandlers(): void {
   // TaskCommandPort.  The handlers are wired after bridge composition.
   ipcMain.handle(TaskIpcChannels.taskStart, (_e, req) => requireTaskHandlers().start(req));
   ipcMain.handle(TaskIpcChannels.taskGet, (_e, req) => requireTaskHandlers().getTask(req));
+  ipcMain.handle(TaskIpcChannels.taskChanges, (_e, req) => requireTaskHandlers().changes(req));
   ipcMain.handle(TaskIpcChannels.taskChange, (_e, req) => requireTaskHandlers().changeTask(req));
   ipcMain.handle(TaskIpcChannels.taskCheckpoint, (_e, req) => requireTaskHandlers().checkpoint(req));
   ipcMain.handle(TaskIpcChannels.taskReview, (_e, req) => requireTaskHandlers().review(req));

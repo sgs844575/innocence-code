@@ -16,6 +16,8 @@ export const TaskIpcChannels = {
   /** Find-or-create the session's task (the P1 loop entry point). */
   taskStart: "task:start",
   taskGet: "task:get",
+  /** Review-surface view model: statused hunks + changed file paths. */
+  taskChanges: "task:changes",
   taskChange: "task:change",
   taskCheckpoint: "task:checkpoint",
   taskReview: "task:review",
@@ -129,6 +131,31 @@ export interface TaskGetResponse {
 export interface TaskChangeRequest {
   taskId: string;
   status?: string;
+}
+
+/** One review hunk (mirror of task-core's Hunk with statuses applied). */
+export interface TaskHunkDto {
+  ref: string;
+  path: string;
+  before: string;
+  after: string;
+  context: string[];
+  status: "pending" | "accepted" | "restored" | "conflict";
+}
+
+export interface TaskChangesRequest {
+  taskId: string;
+  routeId: string;
+}
+
+/**
+ * task:changes view model: the statused hunks feeding ReviewPanel/change
+ * cards, plus every changed path (binary/file-level patches carry no hunks
+ * but still count as changed files).
+ */
+export interface TaskChangesResponse {
+  hunks: TaskHunkDto[];
+  changedFiles: string[];
 }
 
 export interface TaskCheckpointRequest {
@@ -340,6 +367,8 @@ export interface TaskIpcApi {
    */
   start(request: TaskStartRequest): Promise<TaskStartResponse | null>;
   getTask(request: TaskGetRequest): Promise<TaskGetResponse>;
+  /** Review-surface view model (statused hunks + changed paths). */
+  changes(request: TaskChangesRequest): Promise<TaskChangesResponse>;
   changeTask(request: TaskChangeRequest): Promise<void>;
   checkpoint(request: TaskCheckpointRequest): Promise<TaskCheckpointResponse>;
   review(request: TaskReviewDto): Promise<void>;

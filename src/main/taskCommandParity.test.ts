@@ -74,7 +74,7 @@ async function createGitFixture(files: Record<string, string>): Promise<string> 
 const PARITY_MAP = [
   { service: "start", electron: ["startTask"], cli: ["start"], note: "Electron start = bridge-backed find-or-start bound to the session" },
   { service: "get", electron: [], cli: ["getTask"], note: "Electron getTask is a read-only handler computation" },
-  { service: "getChanges", electron: [], cli: ["getChanges"], note: "change cards are renderer-derived in Electron today" },
+  { service: "getChanges", electron: ["getChanges"], cli: ["getChanges"], note: "renderer task:changes view model source" },
   { service: "getCheckpoint", electron: [], cli: ["getCheckpoint"], note: "checkpoint reads are host-side in Electron" },
   { service: "listRoutes", electron: ["listRoutes"], cli: ["listRoutes"], note: "" },
   { service: "switchRoute", electron: ["switchRoute"], cli: ["switchRoute"], note: "" },

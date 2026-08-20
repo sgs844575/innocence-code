@@ -28,6 +28,7 @@ import type {
   TaskRouteSummary,
   TaskStartRequest,
   TaskStartResponse,
+  TaskChangesResponse,
   ValidationResult,
 } from "../shared/taskIpc";
 
@@ -49,6 +50,10 @@ export interface TaskCommandPort {
     create?: boolean;
   }): Promise<import("../shared/taskIpc").TaskStartResponse | null>;
   getHunks(taskId: string, routeId: string): Promise<Hunk[]>;
+  /** Changed files with hunks (task-core FilePatch shape, statuses NOT applied). */
+  getChanges(taskId: string, routeId: string): Promise<
+    Array<{ path: string; binary: boolean; hunks: Hunk[] }>
+  >;
   listRoutes(taskId: string): Promise<TaskRouteSummary[]>;
   switchRoute(taskId: string, routeId: string): Promise<TaskRouteSummary>;
   forkRoute(request: TaskForkRouteRequest): Promise<TaskForkRouteResponse>;
@@ -160,6 +165,25 @@ export class TaskIpcHandlers {
       workspaceKind: state.workspaceKind,
       version: state.lastCommittedEventId ?? undefined,
       gitBranch: this.resolveGitBranch ? await this.resolveGitBranch(request.taskId) : null,
+    };
+  }
+
+  /**
+   * task:changes — the review view model (final review C3): statused hunks
+   * (ReviewPanel/change cards) plus changed paths from getChanges (binary and
+   * file-level patches carry no hunks but still count). Ownership-validated
+   * like every other handler (task exists + route belongs to the task).
+   */
+  async changes(request: { taskId: string; routeId: string }): Promise<TaskChangesResponse> {
+    const state = await this.resolveTask(request.taskId);
+    this.assertRoute(state, request.routeId);
+    const [hunks, patches] = await Promise.all([
+      this.commandPort.getHunks(request.taskId, request.routeId),
+      this.commandPort.getChanges(request.taskId, request.routeId),
+    ]);
+    return {
+      hunks: hunks.map((hunk) => ({ ...hunk, status: hunk.status })),
+      changedFiles: patches.map((patch) => patch.path),
     };
   }
 

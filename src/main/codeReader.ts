@@ -46,6 +46,12 @@ export const MAX_CODE_CONTENT_BYTES = 1_000_000;
  * also only ever examines the first 8000 bytes of an already-bounded read.)
  */
 export const MAX_CODE_READ_BYTES = 2_000_000;
+/**
+ * File-tree listing cap (final review C3): huge worktrees list at most this
+ * many files — the walk stops, sorted results stay deterministic, and the
+ * renderer tree never receives an unbounded payload.
+ */
+export const MAX_CODE_LIST_FILES = 500;
 /** NUL byte within the first 8000 bytes marks content as binary (git heuristic). */
 const BINARY_SNIFF_BYTES = 8000;
 
@@ -106,13 +112,16 @@ export async function assertRouteFile(
   return { absolute, size: stat.size };
 }
 
-/** Walks the route root; ".git" internals never appear in the listing. */
+/** Walks the route root; ".git" internals never appear in the listing.
+ * The walk stops at MAX_CODE_LIST_FILES entries (deterministic after sort). */
 async function listRelativeFiles(root: string, dir = "", out: string[] = []): Promise<string[]> {
+  if (out.length >= MAX_CODE_LIST_FILES) return out;
   const entries = await fs.readdir(dir ? path.join(root, ...dir.split("/")) : root, {
     withFileTypes: true,
   });
   for (const entry of entries) {
     if (entry.name === ".git") continue;
+    if (out.length >= MAX_CODE_LIST_FILES) break;
     const rel = dir ? `${dir}/${entry.name}` : entry.name;
     if (entry.isDirectory()) await listRelativeFiles(root, rel, out);
     else if (entry.isFile()) out.push(rel);

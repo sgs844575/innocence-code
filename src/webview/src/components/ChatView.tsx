@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatPermissionEvent, HarnessSettings, PermissionChoice } from "../../../shared/ipc";
-import { MessageItem, type TaskChangeCardCommand } from "./MessageItem";
+import { MessageItem, type ForkMessageCommand, type TaskChangeCardCommand } from "./MessageItem";
 import { Composer } from "./Composer";
 import { PermissionCard } from "./PermissionCard";
 import { ProjectPicker, type RecentProject } from "./composer/ProjectPicker";
@@ -28,6 +28,8 @@ interface Props {
   taskChanges?: Record<string, TaskChangeCardCommand>;
   /** 「审查」动作——打开任务审查面板；缺省为 no-op（按钮禁用）。 */
   onOpenTaskReview?: (messageId: string) => void;
+  /** 消息级分叉入口（编辑并创建路线 / 重试并创建路线）；缺省不渲染按钮。 */
+  onForkMessage?: (command: ForkMessageCommand) => void;
 }
 
 export function ChatView({
@@ -48,6 +50,7 @@ export function ChatView({
   onOpenProjectDir,
   taskChanges,
   onOpenTaskReview,
+  onForkMessage,
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -122,6 +125,7 @@ export function ChatView({
                 message={m}
                 isLatest={m.id === messages[messages.length - 1]?.id}
                 onQuote={setQuoteDraft}
+                onForkMessage={onForkMessage}
                 taskChange={taskChanges?.[m.id]}
                 onOpenTaskReview={onOpenTaskReview ? () => onOpenTaskReview(m.id) : undefined}
               />

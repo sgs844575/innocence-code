@@ -13,7 +13,8 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import type { AppInfo, HarnessSettings } from "../../shared/ipc";
-import { api, codeApi } from "./lib/ipc";
+import type { TaskForkRouteRequest } from "../../shared/taskIpc";
+import { api, codeApi, taskApi } from "./lib/ipc";
 import { createT } from "./lib/i18n";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
@@ -25,10 +26,14 @@ import { AppShell, type AppShellNav } from "./components/AppShell";
 import { RecoveryBanner } from "./components/RecoveryBanner";
 import { ReviewPanel } from "./components/task/ReviewPanel";
 import { RoutePanel } from "./components/task/RoutePanel";
+import { ForkRouteDialog } from "./components/task/ForkRouteDialog";
 import { CodePanel } from "./components/code/CodePanel";
+import type { ForkMessageCommand, TaskChangeCardCommand } from "./components/MessageItem";
+import { groupHunksByFile, summarizeChanges } from "./components/task/taskViewModel";
 import { useSessionController } from "./state/useSessionController";
 import { useChatStream } from "./state/useChatStream";
 import { useWorkbenchState } from "./state/useWorkbenchState";
+import { useTaskReviewData } from "./state/useTaskReviewData";
 import { restartWarningVisible, writeToolsBlocked } from "./state/workbenchState";
 
 const APP_NAME = "InnocenceCode";
@@ -93,6 +98,57 @@ export function App(): React.JSX.Element {
     [workbench.state, t],
   );
 
+  // 审查面数据源（C3）：task:changes 状态化 hunks + code:list-files 文件树。
+  const reviewData = useTaskReviewData({
+    taskId: task?.taskId ?? "",
+    routeId: workbench.state.activeRouteId,
+  });
+  const reviewFiles = useMemo(() => groupHunksByFile(reviewData.hunks), [reviewData.hunks]);
+
+  // 审查/回写命令完成后对账审查面（状态化 hunk 状态随之刷新）。
+  const reviewAndRefresh = useCallback(
+    async (dto: Parameters<typeof workbench.review>[0]) => {
+      await workbench.review(dto);
+      await reviewData.refresh();
+    },
+    [workbench.review, reviewData],
+  );
+  const restoreAndRefresh = useCallback(
+    async (request: Parameters<typeof workbench.restore>[0]) => {
+      await workbench.restore(request);
+      await reviewData.refresh();
+    },
+    [workbench.restore, reviewData],
+  );
+
+  const openReviewPanel = useCallback(() => {
+    shellNav.current?.workbench.setTab("review");
+    shellNav.current?.workbench.setOpen(true);
+  }, []);
+
+  // 分叉入口（C3）：消息操作 → ForkRouteDialog → task:fork-route；创建成功
+  // 后切换路线并把分叉 prompt 发到新路线（send 走 main 侧会话绑定）。
+  const [forkDialog, setForkDialog] = useState<{ request: TaskForkRouteRequest; checkpointId: string } | null>(null);
+  const handleForkMessage = useCallback(
+    (command: ForkMessageCommand) => {
+      if (!task) return;
+      const sourceRouteId = workbench.state.activeRouteId;
+      setForkDialog({
+        request: {
+          sessionId: task.sessionId,
+          taskId: task.taskId,
+          sourceRouteId,
+          sourceTurnId: command.turnId,
+          mode: command.mode,
+          ...(command.mode === "edit-user" ? { editedText: command.text } : {}),
+          routeName: command.mode === "edit-user" ? `Edit ${command.turnId}` : `Retry ${command.turnId}`,
+        },
+        checkpointId: task.routes.find((route) => route.routeId === sourceRouteId)?.checkpointId ?? "",
+      });
+    },
+    [task, workbench.state.activeRouteId],
+  );
+
   const chat = useChatStream({
     activeId: sessions.activeId,
     ensureSession: sessions.ensureSessionForSend,
@@ -101,6 +157,32 @@ export function App(): React.JSX.Element {
     t,
     sendGate,
   });
+
+  // 消息内变更卡（C3）：任务的变更摘要挂在最后一条助手消息上；点击
+  // 「审查」打开工作台审查页签。
+  const taskChanges = useMemo<Record<string, TaskChangeCardCommand> | undefined>(() => {
+    const lastAssistant = [...chat.messages].reverse().find((m) => m.role === "assistant");
+    if (!task || !lastAssistant || reviewData.hunks.length === 0) return undefined;
+    const checkpointId =
+      task.routes.find((route) => route.routeId === workbench.state.activeRouteId)?.checkpointId ?? "";
+    return {
+      [lastAssistant.id]: {
+        summary: summarizeChanges(reviewData.hunks),
+        checkpointId,
+        validation: null,
+      },
+    };
+  }, [task, chat.messages, reviewData.hunks, workbench.state.activeRouteId]);
+
+  const handleForkSwitched = useCallback(
+    async (routeId: string, prompt: string) => {
+      if (!task) return;
+      await workbench.switchRoute({ taskId: task.taskId, routeId });
+      await reviewData.refresh();
+      await chat.send(prompt);
+    },
+    [task, workbench, reviewData, chat],
+  );
 
   // Native menu "New Session" shortcut — leaves settings, dismisses the
   // overlay drawer, and returns to the landing chat state.
@@ -127,13 +209,13 @@ export function App(): React.JSX.Element {
     () => ({
       review: (
         <ReviewPanel
-          files={[]}
+          files={reviewFiles}
           taskId={task?.taskId ?? ""}
           routeId={workbench.state.activeRouteId}
           expectedVersion={task?.expectedVersion ?? ""}
           t={t}
-          onReview={(dto) => void workbench.review(dto)}
-          onRestore={(request) => void workbench.restore(request)}
+          onReview={(dto) => void reviewAndRefresh(dto)}
+          onRestore={(request) => void restoreAndRefresh(request)}
         />
       ),
       routes: (
@@ -149,13 +231,13 @@ export function App(): React.JSX.Element {
         <CodePanel
           taskId={task?.taskId ?? ""}
           routeId={workbench.state.activeRouteId}
-          files={[]}
+          files={reviewData.files}
           t={t}
           api={codeApi}
         />
       ),
     }),
-    [t, task, workbench.state.activeRouteId, workbench],
+    [t, task, workbench.state.activeRouteId, reviewFiles, reviewData.files, reviewAndRefresh, restoreAndRefresh, workbench.switchRoute],
   );
 
   // 恢复横幅：恢复状态 → 可见告警（重试/关闭），与写工具门禁同源。
@@ -254,52 +336,67 @@ export function App(): React.JSX.Element {
   );
 
   return (
-    <AppShell
-      t={t}
-      bindNav={(nav) => {
-        shellNav.current = nav;
-      }}
-      titleBar={(nav) => (
-        <TitleBar
-          sidebarOpen={nav.sidebarOpen}
-          onToggleSidebar={nav.toggleSidebar}
-          workbench={{
-            project: projectName,
-            routeId: task ? workbench.state.activeRouteId : null,
-            gitBranch: task?.gitBranch ?? null,
-          }}
-          panelOpen={nav.workbench.open}
-          onTogglePanel={nav.workbench.togglePanel}
-          terminalOpen={nav.workbench.open && nav.workbench.tab === "terminal"}
-          onToggleTerminal={nav.workbench.openTerminal}
-          t={t}
+    <>
+      <AppShell
+        t={t}
+        bindNav={(nav) => {
+          shellNav.current = nav;
+        }}
+        titleBar={(nav) => (
+          <TitleBar
+            sidebarOpen={nav.sidebarOpen}
+            onToggleSidebar={nav.toggleSidebar}
+            workbench={{
+              project: projectName,
+              routeId: task ? workbench.state.activeRouteId : null,
+              gitBranch: task?.gitBranch ?? null,
+            }}
+            panelOpen={nav.workbench.open}
+            onTogglePanel={nav.workbench.togglePanel}
+            terminalOpen={nav.workbench.open && nav.workbench.tab === "terminal"}
+            onToggleTerminal={nav.workbench.openTerminal}
+            t={t}
+          />
+        )}
+        sidebar={sidebar}
+        rail={rail}
+        banner={banner}
+        toast={error}
+        panels={workbenchPanels}
+        chat={
+          <ChatView
+            t={t}
+            appName={APP_NAME}
+            messages={chat.messages}
+            streaming={chat.streaming}
+            settings={settings}
+            permission={chat.permission}
+            onSettingsChange={applySettingsPatch}
+            onPermissionRespond={chat.respondPermission}
+            onSend={(text) => void chat.send(text)}
+            onStop={chat.stop}
+            landing={sessions.activeId === null}
+            pendingProject={sessions.pendingProject}
+            onPickProject={sessions.setPendingProject}
+            recentProjects={sessions.recentProjects}
+            onOpenProjectDir={() => void sessions.pickProjectDir()}
+            taskChanges={taskChanges}
+            onOpenTaskReview={openReviewPanel}
+            onForkMessage={handleForkMessage}
+          />
+        }
+        settings={settingsView}
+      />
+      {forkDialog && (
+        <ForkRouteDialog
+          open
+          request={forkDialog.request}
+          checkpointId={forkDialog.checkpointId}
+          onClose={() => setForkDialog(null)}
+          createRoute={(request) => taskApi.forkRoute(request)}
+          onSwitchRoute={(routeId, prompt) => void handleForkSwitched(routeId, prompt)}
         />
       )}
-      sidebar={sidebar}
-      rail={rail}
-      banner={banner}
-      toast={error}
-      panels={workbenchPanels}
-      chat={
-        <ChatView
-          t={t}
-          appName={APP_NAME}
-          messages={chat.messages}
-          streaming={chat.streaming}
-          settings={settings}
-          permission={chat.permission}
-          onSettingsChange={applySettingsPatch}
-          onPermissionRespond={chat.respondPermission}
-          onSend={(text) => void chat.send(text)}
-          onStop={chat.stop}
-          landing={sessions.activeId === null}
-          pendingProject={sessions.pendingProject}
-          onPickProject={sessions.setPendingProject}
-          recentProjects={sessions.recentProjects}
-          onOpenProjectDir={() => void sessions.pickProjectDir()}
-        />
-      }
-      settings={settingsView}
-    />
+    </>
   );
 }

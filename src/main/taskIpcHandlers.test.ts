@@ -84,6 +84,13 @@ class FakeCommandPort implements TaskCommandPort {
   hunks: Hunk[] = [];
   constructor(private readonly bridgeState: () => FakeBridgeState) {}
   getHunks = async (_taskId: string, _routeId: string) => this.hunks;
+  getChanges: TaskCommandPort["getChanges"] = async () => [
+    ...(this.hunks.length > 0
+      ? [{ path: this.hunks[0]!.path, binary: false, hunks: [...this.hunks] }]
+      : []),
+    // Binary/file-level patch: carries no hunks but still counts as changed.
+    { path: "binary.png", binary: true, hunks: [] },
+  ];
   listRoutes = async (_taskId: string) => [
     { routeId: "main", parentRouteId: null, forkTurnId: null, checkpointId: "ckpt_base", workspaceKind: "git" },
   ];
@@ -249,6 +256,25 @@ describe("TaskIpcHandlers", () => {
 
   it("start rejects an empty sessionId", async () => {
     await expect(handlers.start({ sessionId: "" })).rejects.toThrow("start requires a sessionId");
+  });
+
+  it("changes returns the review view model (statused hunks + changed paths)", async () => {
+    commandPort.hunks = [
+      { ref: "t1:0", path: "src/a.ts", before: "a\n", after: "b\n", context: [], status: "pending" },
+    ];
+    const result = await handlers.changes({ taskId: "t1", routeId: "main" });
+    expect(result.hunks).toEqual([
+      { ref: "t1:0", path: "src/a.ts", before: "a\n", after: "b\n", context: [], status: "pending" },
+    ]);
+    // Binary/file-level patches carry no hunks but still count as changed.
+    expect(result.changedFiles).toEqual(["src/a.ts", "binary.png"]);
+  });
+
+  it("changes validates route ownership like the other handlers", async () => {
+    await expect(handlers.changes({ taskId: "t1", routeId: "ghost" })).rejects.toThrow("route");
+    bridgeState.handle = undefined;
+    handlers = buildHandlers();
+    await expect(handlers.changes({ taskId: "t1", routeId: "main" })).rejects.toThrow("task not found");
   });
 
   it("getTask returns task state DTO for existing task", async () => {
