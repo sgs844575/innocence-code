@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ChatPermissionEvent, HarnessSettings, PermissionChoice } from "../../../shared/ipc";
-import { MessageItem } from "./MessageItem";
+import { MessageItem, type TaskChangeCardCommand } from "./MessageItem";
 import { Composer } from "./Composer";
 import { PermissionCard } from "./PermissionCard";
 import { ProjectPicker, type RecentProject } from "./composer/ProjectPicker";
@@ -24,6 +24,10 @@ interface Props {
   recentProjects: RecentProject[];
   /** 「打开项目…」系统目录选择器（结果进落地态选择，不直接改全局）。 */
   onOpenProjectDir: () => void;
+  /** 消息内任务变更卡（按消息 id 索引）；Task 12 接 IPC view model，缺省不渲染。 */
+  taskChanges?: Record<string, TaskChangeCardCommand>;
+  /** 「审查」动作——打开任务审查面板；缺省为 no-op（按钮禁用）。 */
+  onOpenTaskReview?: (messageId: string) => void;
 }
 
 export function ChatView({
@@ -42,6 +46,8 @@ export function ChatView({
   onPickProject,
   recentProjects,
   onOpenProjectDir,
+  taskChanges,
+  onOpenTaskReview,
 }: Props): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -116,6 +122,8 @@ export function ChatView({
                 message={m}
                 isLatest={m.id === messages[messages.length - 1]?.id}
                 onQuote={setQuoteDraft}
+                taskChange={taskChanges?.[m.id]}
+                onOpenTaskReview={onOpenTaskReview ? () => onOpenTaskReview(m.id) : undefined}
               />
             ))}
           </div>
