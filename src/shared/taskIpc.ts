@@ -127,6 +127,11 @@ export interface TaskSwitchRouteRequest {
   routeId: string;
 }
 
+export interface TaskForkRouteResponse extends TaskRouteSummary {
+  /** Prompt to send on the new route (edited or the original retry prompt). */
+  prompt: string;
+}
+
 export interface TaskForkRouteRequest {
   sessionId: string;
   taskId: string;
@@ -197,7 +202,7 @@ export interface TaskIpcApi {
   restore(request: TaskRestoreRequest): Promise<void>;
   listRoutes(request: TaskListRoutesRequest): Promise<TaskListRoutesResponse>;
   switchRoute(request: TaskSwitchRouteRequest): Promise<void>;
-  forkRoute(request: TaskForkRouteRequest): Promise<TaskRouteSummary>;
+  forkRoute(request: TaskForkRouteRequest): Promise<TaskForkRouteResponse>;
   editUserMessage(request: TaskEditUserMessageRequest): Promise<{ turnId: string }>;
   retryAssistant(request: TaskRetryAssistantRequest): Promise<{ turnId: string }>;
   complete(request: TaskCompleteRequest): Promise<void>;

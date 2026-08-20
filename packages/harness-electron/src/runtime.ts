@@ -7,12 +7,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Route } from "@innocencecode/task-core";
-import {
-  AgentSession,
-  createExecutionScope,
-  type ExecutionScopeIdentity,
-  type PermissionDecider,
-} from "@innocencecode/harness-core";
+import { AgentSession, createExecutionScope, type ExecutionScopeIdentity, type PermissionDecider } from "@innocencecode/harness-core";
 import { decodeTranscript } from "./transcript";
 import { systemPromptFor } from "./agents";
 import { buildProviderFromSettings } from "./provider-builder";
@@ -116,11 +111,11 @@ export class HarnessRuntime {
     }
   }
 
-  async forkRoute(input: RuntimeForkRouteInput): Promise<Route> {
+  /** Delegates durable isolated route creation to the host task adapter. */
+  async forkRoute(input: RuntimeForkRouteInput): Promise<Route & { prompt: string }> {
     if (!this.options.forkRoute) throw new Error("forkRoute host port is not configured");
     return this.options.forkRoute(input);
   }
-
   /** Stops the active run of one route (empty routeId = the main route,
    *  like send; omitted route = every route of the chat session). */
   stop(sessionId: string, routeId?: string): void {

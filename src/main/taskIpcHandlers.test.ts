@@ -94,6 +94,7 @@ class FakeCommandPort implements TaskCommandPort {
     parentRouteId: request.sourceRouteId,
     checkpointId: "ckpt_fork",
     workspaceRoot: "/worktrees/fork_1",
+    prompt: "resolved fork prompt",
   });
   reviewHunk = async () => {};
   applyAccepted = async () => ({ applied: true as const });
@@ -305,9 +306,13 @@ describe("TaskIpcHandlers", () => {
     routeName: "Retry a2",
   });
 
-  it("forkRoute returns the isolated route DTO", async () => {
+  it("forkRoute returns the isolated route DTO with the resolved prompt for the renderer", async () => {
     const result = await handlers.forkRoute(forkRequest());
-    expect(result).toMatchObject({ routeId: "fork_1", workspaceRoot: "/worktrees/fork_1" });
+    expect(result).toMatchObject({
+      routeId: "fork_1",
+      workspaceRoot: "/worktrees/fork_1",
+      prompt: "resolved fork prompt",
+    });
   });
 
   it("forkRoute rejects when task workspace is not git", async () => {

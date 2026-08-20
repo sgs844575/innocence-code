@@ -110,7 +110,7 @@ export interface TaskRuntimeBridge {
   listTasks(): string[];
   /** Event log of one task (the single log: core + plugin events). */
   listEvents(taskId: string): Promise<readonly CoreTaskEvent[]>;
-  forkRoute(input: ForkRouteInput): Promise<Route>;
+  forkRoute(input: ForkRouteInput): Promise<Route & { prompt: string }>;
   /** Restores persisted route worktrees after process restart. */
   recoverTask(taskId: string): Promise<TaskState>;
   /** Subscribes to task events (complements the injected emitter). */
@@ -437,13 +437,15 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
         },
       }, input);
       emit(input.taskId, result.event);
-      return result.route;
+      return { ...result.route, prompt: result.prompt };
     },
     async recoverTask(taskId) {
       const existing = live.get(taskId);
       if (existing) return reduceTask(await existing.repository.list());
       const repository = await openTaskRepository(options.taskStorageDir, taskId);
       const state = reduceTask(await repository.list());
+      // baseline.json hard-fails here by design: fork recovery is Git-only —
+      // snapshot tasks have no worktree/baseline to recover (see fork.ts).
       const raw = await repository.storage.storage.readTextFile("baseline.json");
       const baseline = JSON.parse(raw) as GitBaseline;
       const locks = options.locks ?? {

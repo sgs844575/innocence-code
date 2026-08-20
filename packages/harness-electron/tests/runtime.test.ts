@@ -648,13 +648,13 @@ describe("HarnessRuntime route forks", () => {
       workspaceRoot: "D:/wt/child",
       readonly: false,
     };
-    const forkRoute = vi.fn(async () => route);
+    const forkRoute = vi.fn(async () => ({ ...route, prompt: "original prompt" }));
     const runtime = new HarnessRuntime({
       ...runtimeOptions([], { workspaceRoot: workspace }),
       forkRoute,
     });
 
-    await expect(runtime.forkRoute(input)).resolves.toEqual(route);
+    await expect(runtime.forkRoute(input)).resolves.toEqual({ ...route, prompt: "original prompt" });
     expect(forkRoute).toHaveBeenCalledWith(input);
   });
 });

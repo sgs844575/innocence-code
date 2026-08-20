@@ -1,4 +1,4 @@
-import { GitBranch, Pencil, RotateCcw } from "lucide-react";
+import { Pencil, RotateCcw } from "lucide-react";
 import type { ChatMessage } from "../../../shared/ipc";
 import { messageText } from "../../../shared/ipc";
 import { MessageFrame } from "./chat/MessageFrame";
@@ -51,14 +51,6 @@ export function MessageItem({
             className="flex h-7 items-center gap-1 px-2 text-[11px] text-(--color-app-muted) hover:bg-(--color-app-bubble)"
           >
             <RotateCcw size={13} /> 重试并创建路线
-          </button>
-          <button
-            type="button"
-            title="从此处分叉"
-            onClick={() => onForkMessage({ turnId: message.id, mode: "retry-assistant", text })}
-            className="grid size-7 place-items-center text-(--color-app-muted) hover:bg-(--color-app-bubble)"
-          >
-            <GitBranch size={13} />
           </button>
         </div>
       )}

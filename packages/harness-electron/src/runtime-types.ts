@@ -143,7 +143,7 @@ export interface RuntimeOptions {
     context: RouteWorkspaceContext,
   ): string | undefined | Promise<string | undefined>;
   /** Host port that owns Git/task storage orchestration for route creation. */
-  forkRoute?(input: RuntimeForkRouteInput): Promise<Route>;
+  forkRoute?(input: RuntimeForkRouteInput): Promise<Route & { prompt: string }>;
   /** Directory for JSONL session transcripts; omitted = no persistence. */
   persistDir?: string;
   /** Replaces the settings-based provider construction (test seam). */

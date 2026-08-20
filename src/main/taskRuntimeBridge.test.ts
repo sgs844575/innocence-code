@@ -426,6 +426,8 @@ describe("taskRuntimeBridge.forkRoute", () => {
       routeName: "Retry a2",
     });
 
+    expect(child.prompt).toBe("original prompt");
+
     expect(child.parentRouteId).toBe("main");
     expect(child.checkpointId).toBe("c1");
     expect(child.baseCommit).toBe(sourceBase);

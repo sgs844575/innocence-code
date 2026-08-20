@@ -20,6 +20,7 @@ import type {
   TaskCheckpointResponse,
   TaskGetResponse,
   TaskForkRouteRequest,
+  TaskForkRouteResponse,
   TaskListRoutesResponse,
   TaskRecoveryWarningsResponse,
   TaskRestoreRequest,
@@ -38,7 +39,7 @@ export interface TaskCommandPort {
   getHunks(taskId: string, routeId: string): Promise<Hunk[]>;
   listRoutes(taskId: string): Promise<TaskRouteSummary[]>;
   switchRoute(taskId: string, routeId: string): Promise<TaskRouteSummary>;
-  forkRoute(request: TaskForkRouteRequest): Promise<TaskRouteSummary>;
+  forkRoute(request: TaskForkRouteRequest): Promise<TaskForkRouteResponse>;
   reviewHunk(taskId: string, routeId: string, hunkRef: string, status: "accepted" | "restored"): Promise<void>;
   applyAccepted(taskId: string, routeId: string): Promise<{ applied: true }>;
   preflightApply(taskId: string, routeId: string): Promise<
@@ -200,7 +201,7 @@ export class TaskIpcHandlers {
     await this.commandPort.switchRoute(request.taskId, request.routeId);
   }
 
-  async forkRoute(request: TaskForkRouteRequest): Promise<TaskRouteSummary> {
+  async forkRoute(request: TaskForkRouteRequest): Promise<TaskForkRouteResponse> {
     const handle = this.bridge.get(request.taskId);
     if (!handle) throw new Error(`task not found: ${request.taskId}`);
     const state = await this.resolveTask(request.taskId);

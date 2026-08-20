@@ -7,8 +7,8 @@ interface Props {
   request: TaskForkRouteRequest;
   checkpointId: string;
   onClose: () => void;
-  createRoute: (request: TaskForkRouteRequest) => Promise<TaskRouteSummary>;
-  onSwitchRoute: (routeId: string) => void;
+  createRoute: (request: TaskForkRouteRequest) => Promise<TaskRouteSummary & { prompt: string }>;
+  onSwitchRoute: (routeId: string, prompt: string) => void;
 }
 
 export function ForkRouteDialog({
@@ -21,10 +21,14 @@ export function ForkRouteDialog({
 }: Props): React.JSX.Element {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [editedText, setEditedText] = useState(request.editedText ?? "");
 
   useEffect(() => {
-    if (open) setError("");
-  }, [open, request.sourceTurnId]);
+    if (open) {
+      setError("");
+      setEditedText(request.editedText ?? "");
+    }
+  }, [open, request.sourceTurnId, request.editedText]);
 
   if (!open) return <></>;
 
@@ -32,8 +36,10 @@ export function ForkRouteDialog({
     setPending(true);
     setError("");
     try {
-      const route = await createRoute(request);
-      onSwitchRoute(route.routeId);
+      const route = await createRoute(
+        request.mode === "edit-user" ? { ...request, editedText } : request,
+      );
+      onSwitchRoute(route.routeId, route.prompt);
       onClose();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -79,6 +85,18 @@ export function ForkRouteDialog({
           <dt className="text-(--color-app-muted)">原路线</dt>
           <dd>原路线保持不变</dd>
         </dl>
+        {request.mode === "edit-user" && (
+          <label className="flex flex-col gap-1 border-t border-(--color-app-hairline) px-4 py-3 text-[12.5px]">
+            修改后的消息
+            <textarea
+              value={editedText}
+              onChange={(event) => setEditedText(event.target.value)}
+              rows={4}
+              disabled={pending}
+              className="scrollbar-thin resize-none rounded-lg border border-(--color-app-hairline) bg-(--color-app-bg) p-2 outline-none"
+            />
+          </label>
+        )}
         {error && <p role="alert" className="border-t border-(--color-app-hairline) px-4 py-2 text-[12px] text-red-600">{error}</p>}
         <footer className="flex justify-end gap-2 border-t border-(--color-app-hairline) px-4 py-3">
           <button type="button" onClick={onClose} disabled={pending} className="h-8 border border-(--color-app-border) px-3 text-[12px]">取消</button>
