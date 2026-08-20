@@ -1,5 +1,6 @@
 // Shared IPC contract — imported by both main and preload (bundled into each)
 // so both processes rely on the same channel names and types.
+import { TaskIpcChannels } from "./taskIpc";
 
 export const IPC = {
   appInfo: "app:info",
@@ -28,6 +29,8 @@ export const IPC = {
   settingsSet: "settings:set",
   settingsModelsList: "settings:models-list",
   settingsEnrichModels: "settings:enrich-models",
+  // Task review/route/complete channels (Task 7).
+  ...TaskIpcChannels,
 } as const;
 
 export type ThemeMode = "system" | "dark" | "light";

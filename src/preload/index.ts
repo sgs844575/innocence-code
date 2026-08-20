@@ -3,6 +3,10 @@
 // sandbox + contextIsolation and no Node in the renderer.
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC, type InnocenceCodeApi, type ThemeMode } from "../shared/ipc";
+import {
+  TaskIpcChannels,
+  type TaskIpcApi,
+} from "../shared/taskIpc";
 
 function subscribe(channel: string, listener: (...args: never[]) => void): () => void {
   const wrapped = (_e: unknown, ...args: unknown[]) => (listener as (...a: unknown[]) => void)(...args);
@@ -41,4 +45,24 @@ const api: InnocenceCodeApi = {
   popupMenu: (id) => ipcRenderer.invoke(IPC.menuPopup, id),
 };
 
+/** Task review/route/complete API — narrow subset exposed to the renderer. */
+const taskApi: TaskIpcApi = {
+  getTask: (req) => ipcRenderer.invoke(TaskIpcChannels.taskGet, req),
+  changeTask: (req) => ipcRenderer.invoke(TaskIpcChannels.taskChange, req),
+  checkpoint: (req) => ipcRenderer.invoke(TaskIpcChannels.taskCheckpoint, req),
+  review: (req) => ipcRenderer.invoke(TaskIpcChannels.taskReview, req),
+  restore: (req) => ipcRenderer.invoke(TaskIpcChannels.taskRestore, req),
+  listRoutes: (req) => ipcRenderer.invoke(TaskIpcChannels.taskListRoutes, req),
+  switchRoute: (req) => ipcRenderer.invoke(TaskIpcChannels.taskSwitchRoute, req),
+  forkRoute: (req) => ipcRenderer.invoke(TaskIpcChannels.taskForkRoute, req),
+  editUserMessage: (req) => ipcRenderer.invoke(TaskIpcChannels.taskEditUserMessage, req),
+  retryAssistant: (req) => ipcRenderer.invoke(TaskIpcChannels.taskRetryAssistant, req),
+  complete: (req) => ipcRenderer.invoke(TaskIpcChannels.taskComplete, req),
+  applyAccepted: (req) => ipcRenderer.invoke(TaskIpcChannels.taskApply, req),
+  resolveConflict: (req) => ipcRenderer.invoke(TaskIpcChannels.taskResolveConflict, req),
+  validate: (req) => ipcRenderer.invoke(TaskIpcChannels.taskValidate, req),
+  recoveryWarnings: (req) => ipcRenderer.invoke(TaskIpcChannels.taskRecoveryWarnings, req),
+};
+
 contextBridge.exposeInMainWorld("innocencecode", api);
+contextBridge.exposeInMainWorld("innocencecodeTask", taskApi);

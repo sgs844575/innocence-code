@@ -1,6 +1,7 @@
 // IPC surface — one handler per channel defined in src/shared/ipc.ts.
 import { app, ipcMain } from "electron";
 import { IPC, type MenuId } from "../shared/ipc";
+import { TaskIpcChannels } from "../shared/taskIpc";
 import { broadcastTheme, getTheme, setTheme } from "./theme";
 import * as sessions from "./sessions";
 import {
@@ -19,6 +20,23 @@ import { getMainWindow } from "./appWindow";
 import { popupMenu } from "./menu";
 import { logger } from "./logger";
 import { broadcastSessions } from "./sessionEvents";
+import { TaskIpcHandlers } from "./taskIpcHandlers";
+
+/** Task IPC handlers — wired by registerTaskIpcHandlers after bridge composition. */
+let taskHandlers: TaskIpcHandlers | undefined;
+
+/**
+ * Wires task IPC handlers after the TaskRuntimeBridge is created.
+ * Called from the host composition root (harnessGlue / index.ts).
+ */
+export function registerTaskIpcHandlers(handlers: TaskIpcHandlers): void {
+  taskHandlers = handlers;
+}
+
+function requireTaskHandlers(): TaskIpcHandlers {
+  if (!taskHandlers) throw new Error("task bridge not wired yet");
+  return taskHandlers;
+}
 
 export function registerIpcHandlers(): void {
   const needWindow = () => {
@@ -110,4 +128,24 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.menuPopup, (_e, id: MenuId) => {
     popupMenu(needWindow(), id);
   });
+
+  // -- Task review/route/complete channels (Task 7) ------------------------
+  // Each handler delegates to TaskIpcHandlers which validates the calling
+  // session, resolves task/route ownership, and delegates mutations to the
+  // TaskCommandPort.  The handlers are wired after bridge composition.
+  ipcMain.handle(TaskIpcChannels.taskGet, (_e, req) => requireTaskHandlers().getTask(req));
+  ipcMain.handle(TaskIpcChannels.taskChange, (_e, req) => requireTaskHandlers().changeTask(req));
+  ipcMain.handle(TaskIpcChannels.taskCheckpoint, (_e, req) => requireTaskHandlers().checkpoint(req));
+  ipcMain.handle(TaskIpcChannels.taskReview, (_e, req) => requireTaskHandlers().review(req));
+  ipcMain.handle(TaskIpcChannels.taskRestore, (_e, req) => requireTaskHandlers().restore(req));
+  ipcMain.handle(TaskIpcChannels.taskListRoutes, (_e, req) => requireTaskHandlers().listRoutes(req));
+  ipcMain.handle(TaskIpcChannels.taskSwitchRoute, (_e, req) => requireTaskHandlers().switchRoute(req));
+  ipcMain.handle(TaskIpcChannels.taskForkRoute, (_e, req) => requireTaskHandlers().forkRoute(req));
+  ipcMain.handle(TaskIpcChannels.taskEditUserMessage, (_e, req) => requireTaskHandlers().editUserMessage(req));
+  ipcMain.handle(TaskIpcChannels.taskRetryAssistant, (_e, req) => requireTaskHandlers().retryAssistant(req));
+  ipcMain.handle(TaskIpcChannels.taskComplete, (_e, req) => requireTaskHandlers().complete(req));
+  ipcMain.handle(TaskIpcChannels.taskApply, (_e, req) => requireTaskHandlers().applyAccepted(req));
+  ipcMain.handle(TaskIpcChannels.taskResolveConflict, (_e, req) => requireTaskHandlers().resolveConflict(req));
+  ipcMain.handle(TaskIpcChannels.taskValidate, (_e, req) => requireTaskHandlers().validate(req));
+  ipcMain.handle(TaskIpcChannels.taskRecoveryWarnings, (_e, req) => requireTaskHandlers().recoveryWarnings(req));
 }
