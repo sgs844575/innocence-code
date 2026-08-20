@@ -1,0 +1,20 @@
+{
+  "name": "@innocencecode/task-workspace",
+  "version": "0.1.0",
+  "description": "Task workspace snapshots, content objects, patch engine, apply journal and cross-process locks",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@innocencecode/secure-storage-node": "*",
+    "@innocencecode/task-core": "*",
+    "chokidar": "^5.0.0",
+    "diff": "^9.0.0"
+  }
+}
