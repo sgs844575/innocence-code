@@ -78,11 +78,11 @@ describe("ReviewPanel", () => {
     });
   });
 
-  it("file accept reviews every hunk in that file individually", () => {
+  it("file accept reviews every non-conflict hunk and never a conflicted one", () => {
     const onReview = vi.fn();
     render(
       <ReviewPanel
-        files={[fileWithHunks("pending", "pending", "accepted")]}
+        files={[fileWithHunks("pending", "pending", "conflict", "accepted")]}
         taskId="t1"
         routeId="r1"
         expectedVersion="v3"
@@ -91,9 +91,37 @@ describe("ReviewPanel", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "接受此文件" }));
     expect(onReview).toHaveBeenCalledTimes(3);
-    expect(onReview).toHaveBeenCalledWith(expect.objectContaining({ hunkRef: "t1:0" }));
-    expect(onReview).toHaveBeenCalledWith(expect.objectContaining({ hunkRef: "t1:1" }));
-    expect(onReview).toHaveBeenCalledWith(expect.objectContaining({ hunkRef: "t1:2" }));
+    const refs = onReview.mock.calls.map((call) => call[0].hunkRef);
+    expect(refs).toEqual(["t1:0", "t1:1", "t1:3"]); // t1:2（conflict）被跳过
+  });
+
+  it("batch accept stays disabled while any hunk is in conflict", () => {
+    const onReview = vi.fn();
+    const { rerender } = render(
+      <ReviewPanel
+        files={[fileWithHunks("pending")]}
+        taskId="t1"
+        routeId="r1"
+        expectedVersion="v3"
+        onReview={onReview}
+      />,
+    );
+    // 无冲突：整批接受可用（单条 hunkRef=null 的 ledger command）
+    fireEvent.click(screen.getByRole("button", { name: "全部接受" }));
+    expect(onReview).toHaveBeenCalledTimes(1);
+    expect(onReview).toHaveBeenCalledWith(expect.objectContaining({ hunkRef: null }));
+
+    rerender(
+      <ReviewPanel
+        files={[fileWithHunks("pending", "conflict")]}
+        taskId="t1"
+        routeId="r1"
+        expectedVersion="v3"
+        onReview={onReview}
+      />,
+    );
+    const batch = screen.getByRole("button", { name: "全部接受" }) as HTMLButtonElement;
+    expect(batch.disabled).toBe(true);
   });
 
   it("hunk accept emits one command scoped to that hunk", () => {

@@ -41,10 +41,17 @@ export function ReviewPanel({
     expectedVersion,
   });
 
-  // 文件级接受：DTO 无文件作用域，逐 hunk 发 ledger command。
+  // 文件级接受：DTO 无文件作用域，逐 hunk 发 ledger command。冲突 hunk 必须
+  // 在冲突视图显式裁决（保留当前/采用 Agent/让 Agent 重做），绝不随文件级
+  // 或整批操作被静默接受——否则会凿穿完成门槛（conflict 计入 unreviewed）。
   const acceptFile = (group: FileReviewGroup) => {
-    for (const hunk of group.hunks) onReview?.(acceptCommand(hunk.ref));
+    for (const hunk of group.hunks) {
+      if (hunk.status !== "conflict") onReview?.(acceptCommand(hunk.ref));
+    }
   };
+
+  // 整批接受在存在任何冲突 hunk 时禁用（按钮 title 说明原因）。
+  const hasConflict = files.some((group) => group.hunks.some((h) => h.status === "conflict"));
 
   return (
     <section
@@ -55,7 +62,8 @@ export function ReviewPanel({
         <span className="text-[12.5px] font-semibold">{t("task.review.title")}</span>
         <button
           type="button"
-          disabled={!onReview || files.length === 0}
+          disabled={!onReview || files.length === 0 || hasConflict}
+          title={hasConflict ? t("task.review.blockedByConflict") : undefined}
           onClick={() => onReview?.(acceptCommand(null))}
           className="ml-auto flex h-7 items-center gap-1.5 rounded bg-(--color-app-accent) px-2.5 text-[12px] font-medium text-(--color-app-accent-fg) disabled:opacity-50"
         >
