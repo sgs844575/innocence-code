@@ -13,6 +13,7 @@ import type { RoutePanelModel } from "../components/task/RoutePanel";
 import {
   emptyWorkbenchState,
   reduceWorkbenchState,
+  shouldLoadTaskAfterRetry,
   type WorkbenchState,
 } from "./workbenchState";
 
@@ -112,13 +113,15 @@ export function useWorkbenchState(deps: { sessionId: string | null }): Workbench
   const retryRecovery = useCallback(async (taskId: string) => {
     try {
       await taskApi.recoverTask({ taskId });
-      await loadTask(taskId);
+      // 重试期间上下文可能已切换：恢复运行时可以，安装任务视图只允许
+      // 当前上下文自身（外部任务不得因重试被 loadTask 接管）。
+      if (shouldLoadTaskAfterRetry(state, taskId)) await loadTask(taskId);
       return true;
     } catch (cause) {
       console.error("task recovery retry failed", cause);
       return false;
     }
-  }, [loadTask]);
+  }, [state, loadTask]);
 
   const dismissRestartWarning = useCallback(() => dispatch({ type: "recovery/dismissRestart" }), []);
 

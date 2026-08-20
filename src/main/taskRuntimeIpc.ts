@@ -16,7 +16,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { TaskEvent as CoreTaskEvent } from "@innocencecode/task-core";
-import { openTaskRepository } from "@innocencecode/task-workspace";
+import { openTaskRepository, type TaskRepository } from "@innocencecode/task-workspace";
 import type { TaskRuntimeBridge } from "./taskRuntimeBridge";
 import { TaskIpcHandlers } from "./taskIpcHandlers";
 import { createTaskCommandService } from "./taskCommandService";
@@ -139,11 +139,12 @@ export async function recoverPersistedTaskRuntimes(deps: TaskRuntimeIpcDeps): Pr
     const taskId = entry.name;
 
     let truncatedTail = false;
+    let repository: TaskRepository | null = null;
     let recovered:
       | { sessionId: string; activeRouteId: string; lastCommittedEventId: string | null; workspaceKind: string }
       | null = null;
     try {
-      const repository = await openTaskRepository(deps.taskStorageDir, taskId);
+      repository = await openTaskRepository(deps.taskStorageDir, taskId);
       const result = await repository.recoverEventLog();
       if (result === null) continue; // log does not exist yet: never started
       truncatedTail = result.truncatedTail;
@@ -166,11 +167,16 @@ export async function recoverPersistedTaskRuntimes(deps: TaskRuntimeIpcDeps): Pr
       }
     } catch (error) {
       log("error", "task event recovery failed", { taskId, error: String(error) });
+      // The log itself is unreadable — attribute the notice through the
+      // persisted head when possible so the OWNING session's workbench can
+      // consume it ("" = unattributable; the renderer's session filter then
+      // ignores it instead of leaking it into an unrelated session).
+      const head = repository !== null ? await repository.readTaskHead().catch(() => null) : null;
       deps.send("task:notice", {
         type: "eventRecoveryFailed",
         taskId,
-        sessionId: "",
-        routeId: "main",
+        sessionId: head?.sessionId ?? "",
+        routeId: head?.activeRouteId ?? "main",
         message: String(error),
       } satisfies TaskUiNotice);
       continue;

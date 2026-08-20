@@ -113,7 +113,7 @@ describe("recoverPersistedTaskRuntimes", () => {
     expect(notice !== undefined && notice.type === "inconsistencyRecovered" && notice.recoveredFromEventId).toBeTruthy();
   });
 
-  it("reports mid-file corruption as eventRecoveryFailed", async () => {
+  it("reports mid-file corruption as eventRecoveryFailed, attributed via the persisted head", async () => {
     const storageDir = await tempDir("ic-rtipc-");
     const repository = await openTaskRepository(storageDir, "t1");
     // Corrupt NON-final line: valid, corrupt, valid (a final bad line would
@@ -124,11 +124,26 @@ describe("recoverPersistedTaskRuntimes", () => {
         turnPreparedEvent({ turnId: "turn_1", checkpointId: "ckpt_1", routeId: "main" }),
       )}\n`,
     );
+    // The unreadable log cannot yield a session — the persisted head can, and
+    // the notice must carry it so the owning session's renderer consumes it.
+    await repository.writeTaskHead({
+      schemaVersion: 1,
+      taskId: "t1",
+      sessionId: "s1",
+      workspaceRoot: "/workspace",
+      workspaceKind: "git",
+      mode: "baseline",
+      activeRouteId: "main",
+      status: "ready",
+      lastCommittedEventId: null,
+    });
 
     const { deps, notices } = await makeHarness(fakeBridge(), storageDir);
     await recoverPersistedTaskRuntimes(deps);
 
-    expect(notices.some((n) => n.type === "eventRecoveryFailed")).toBe(true);
+    const notice = notices.find((n) => n.type === "eventRecoveryFailed");
+    expect(notice).toBeDefined();
+    expect(notice !== undefined && notice.type === "eventRecoveryFailed" && notice.sessionId).toBe("s1");
     expect(notices.some((n) => n.type === "worktreeFailed")).toBe(false);
   });
 

@@ -6,12 +6,15 @@ import { describe, expect, it } from "vitest";
 import {
   completeBlocked,
   createWorkbenchState,
+  emptyWorkbenchState,
   initialState,
   reduceWorkbenchState,
   restartWarningVisible,
+  shouldLoadTaskAfterRetry,
   taskChanged,
   writeToolsBlocked,
   type TaskUiNotice,
+  type WorkbenchTask,
 } from "./workbenchState";
 
 const notice = (partial: Partial<TaskUiNotice> & { type: TaskUiNotice["type"] }): TaskUiNotice =>
@@ -21,6 +24,22 @@ const notice = (partial: Partial<TaskUiNotice> & { type: TaskUiNotice["type"] })
     routeId: "r1",
     ...partial,
   }) as TaskUiNotice;
+
+/** 与 initialState 相同的任务种子（task/loaded 回装用）。 */
+function seedTask(): WorkbenchTask {
+  return {
+    taskId: "task",
+    sessionId: "session",
+    status: "running",
+    mode: "isolated",
+    workspaceKind: "git",
+    gitBranch: null,
+    routes: [
+      { routeId: "r1", parentRouteId: null, forkTurnId: null, checkpointId: "ckpt_r1", workspaceKind: "git" },
+    ],
+    expectedVersion: "evt_0",
+  };
+}
 
 describe("reduceWorkbenchState: task event routing", () => {
   it("does not apply a task event for an inactive route", () => {
@@ -79,8 +98,9 @@ describe("reduceWorkbenchState: restart warning", () => {
   it("dismisses the restart warning", () => {
     const warned = reduceWorkbenchState(
       initialState,
-      { type: "task/notice", notice: notice({ type: "restartRecovered", warnings: [] }) },
+      { type: "task/notice", notice: notice({ type: "restartRecovered", warnings: ["turn t prepared"] }) },
     );
+    expect(restartWarningVisible(warned)).toBe(true);
     expect(restartWarningVisible(reduceWorkbenchState(warned, { type: "recovery/dismissRestart" }))).toBe(false);
   });
 });
@@ -149,11 +169,107 @@ describe("reduceWorkbenchState: error and recovery states", () => {
   });
 });
 
+describe("reduceWorkbenchState: session-scoped recovery notices (review fix)", () => {
+  it("ignores a foreign-session notice when no task is loaded (no app-wide send block)", () => {
+    // Landing state (no session, no task): startup notices of OLD tasks must
+    // not leak in — writeToolsBlocked would reject every send app-wide.
+    let state = reduceWorkbenchState(emptyWorkbenchState, {
+      type: "task/notice",
+      notice: notice({ type: "eventRecoveryFailed", sessionId: "session_old", message: "corrupt" }),
+    });
+    expect(writeToolsBlocked(state)).toBe(false);
+    expect(restartWarningVisible(state)).toBe(false);
+
+    // Active session but still no task loaded: a foreign session's notice is
+    // equally ignored.
+    const withSession = reduceWorkbenchState(emptyWorkbenchState, {
+      type: "session/switched",
+      sessionId: "session",
+    });
+    state = reduceWorkbenchState(withSession, {
+      type: "task/notice",
+      notice: notice({
+        type: "worktreeFailed",
+        sessionId: "session_other",
+        message: "boom",
+        retry: { taskId: "task_old", sessionId: "session_other", routeId: "r1", mode: "isolated" },
+      }),
+    });
+    expect(writeToolsBlocked(state)).toBe(false);
+    expect(state.recovery.worktreeFailure).toBeNull();
+    expect(restartWarningVisible(state)).toBe(false);
+  });
+
+  it("consumes a notice that belongs to the active session even without a loaded task", () => {
+    const withSession = reduceWorkbenchState(emptyWorkbenchState, {
+      type: "session/switched",
+      sessionId: "session",
+    });
+    const state = reduceWorkbenchState(withSession, {
+      type: "task/notice",
+      notice: notice({ type: "checkpointFailed", message: "write failed" }),
+    });
+    expect(completeBlocked(state)).toBe(true);
+    expect(restartWarningVisible(state)).toBe(true);
+  });
+
+  it("a zero-warning restartRecovered does not clear another failure's warning", () => {
+    const warned = reduceWorkbenchState(initialState, {
+      type: "task/notice",
+      notice: notice({ type: "eventRecoveryFailed", message: "corrupt" }),
+    });
+    expect(restartWarningVisible(warned)).toBe(true);
+    const after = reduceWorkbenchState(warned, {
+      type: "task/notice",
+      notice: notice({ type: "restartRecovered", warnings: [] }),
+    });
+    expect(restartWarningVisible(after)).toBe(true);
+  });
+
+  it("a foreign restartRecovered cannot clear an existing warning", () => {
+    const warned = reduceWorkbenchState(initialState, {
+      type: "task/notice",
+      notice: notice({ type: "eventRecoveryFailed", message: "corrupt" }),
+    });
+    const after = reduceWorkbenchState(warned, {
+      type: "task/notice",
+      notice: notice({ type: "restartRecovered", sessionId: "session_other", warnings: [] }),
+    });
+    expect(restartWarningVisible(after)).toBe(true);
+  });
+
+  it("only loads the retried task when it is the active context (retry guard)", () => {
+    expect(shouldLoadTaskAfterRetry(initialState, "task")).toBe(true);
+    expect(shouldLoadTaskAfterRetry(initialState, "task_foreign")).toBe(false);
+    expect(shouldLoadTaskAfterRetry({ ...emptyWorkbenchState, sessionId: "session" }, "task")).toBe(true);
+  });
+
+  it("a successful reload clears disproven recovery failures and their gate", () => {
+    const failed = reduceWorkbenchState(initialState, {
+      type: "task/notice",
+      notice: notice({
+        type: "worktreeFailed",
+        message: "boom",
+        retry: { taskId: "task", sessionId: "session", routeId: "r1", mode: "isolated" },
+      }),
+    });
+    expect(writeToolsBlocked(failed)).toBe(true);
+    const reloaded = reduceWorkbenchState(failed, {
+      type: "task/loaded",
+      task: seedTask(),
+      activeRouteId: "r1",
+    });
+    expect(reloaded.recovery.worktreeFailure).toBeNull();
+    expect(writeToolsBlocked(reloaded)).toBe(false);
+  });
+});
+
 describe("reduceWorkbenchState: session and route switching", () => {
   it("clears the task context when another session becomes active", () => {
     const state = reduceWorkbenchState(initialState, { type: "session/switched", sessionId: "session_other" });
     expect(state.task).toBeNull();
     expect(state.activeRouteId).toBe("");
+    expect(state.sessionId).toBe("session_other");
   });
 
   it("keeps the task context when its own session stays active", () => {

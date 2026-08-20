@@ -66,6 +66,8 @@ export interface PendingForeignEvent {
 }
 
 export interface WorkbenchState {
+  /** 活动会话 id；null = 无会话（落地态）。恢复通知按它做会话过滤。 */
+  sessionId: string | null;
   /** null = 当前会话没有任务上下文（落地态/纯聊天）。 */
   task: WorkbenchTask | null;
   /** 活动路线 id；无任务时为 ""。 */
@@ -91,6 +93,7 @@ export type WorkbenchAction =
 
 /** 未附着任务时的空状态（hook 的初始值）。 */
 export const emptyWorkbenchState: WorkbenchState = {
+  sessionId: null,
   task: null,
   activeRouteId: "",
   pendingForeignEvents: [],
@@ -104,10 +107,13 @@ export const emptyWorkbenchState: WorkbenchState = {
   },
 };
 
-export function createWorkbenchState(seed: { task: WorkbenchTask; activeRouteId?: string }): WorkbenchState {
+export function createWorkbenchState(
+  seed: { task: WorkbenchTask; activeRouteId?: string; sessionId?: string },
+): WorkbenchState {
   return {
     ...emptyWorkbenchState,
     recovery: emptyRecovery(),
+    sessionId: seed.sessionId ?? seed.task.sessionId,
     task: seed.task,
     activeRouteId: seed.activeRouteId ?? seed.task.routes[0]?.routeId ?? "",
   };
@@ -159,10 +165,14 @@ function applyTaskEvent(task: WorkbenchTask, event: TaskUiEvent): WorkbenchTask 
 }
 
 function applyNotice(state: WorkbenchState, notice: TaskUiNotice): WorkbenchState {
-  const task = state.task;
-  if (task && (notice.taskId !== task.taskId || notice.sessionId !== task.sessionId)) {
-    return state; // 别的任务/会话的恢复通知：不消耗
+  // 会话过滤（review 修复）：恢复通知只属于活动会话。无活动会话（落地
+  // 态）时一律不消费——旧任务/其他会话的通知绝不能把恢复状态或门禁漏进
+  // 当前工作台（否则 eventRecoveryFailed 会全局封死发送）。
+  if (state.sessionId === null || notice.sessionId !== state.sessionId) {
+    return state;
   }
+  const task = state.task;
+  if (task && notice.taskId !== task.taskId) return state; // 同会话他任务：不消耗
   const recovery = { ...state.recovery };
   let restartWarning = state.restartWarning;
   let nextTask = task;
@@ -186,7 +196,8 @@ function applyNotice(state: WorkbenchState, notice: TaskUiNotice): WorkbenchStat
       if (nextTask) nextTask = { ...nextTask, expectedVersion: notice.recoveredFromEventId };
       break;
     case "restartRecovered":
-      restartWarning = notice.warnings.length > 0;
+      // 只升不降：零警告的 restartRecovered 不得抹掉其他来源的告警。
+      if (notice.warnings.length > 0) restartWarning = true;
       break;
   }
   return { ...state, task: nextTask, recovery, restartWarning };
@@ -194,8 +205,30 @@ function applyNotice(state: WorkbenchState, notice: TaskUiNotice): WorkbenchStat
 
 export function reduceWorkbenchState(state: WorkbenchState, action: WorkbenchAction): WorkbenchState {
   switch (action.type) {
-    case "task/loaded":
-      return { ...state, task: action.task, activeRouteId: action.activeRouteId, pendingForeignEvents: [] };
+    case "task/loaded": {
+      // 成功的全量装载证明事件日志可回放、运行时已恢复：清掉已被证伪的
+      // 失败门禁（eventRecoveryFailed/worktreeFailure）。checkpoint 门禁
+      // 由装载回的 task.status 派生，不受影响。
+      const recovery =
+        state.recovery.eventRecoveryFailed !== null || state.recovery.worktreeFailure !== null
+          ? {
+              ...state.recovery,
+              eventRecoveryFailed: null,
+              worktreeFailure: null,
+              restartWarning:
+                state.recovery.checkpointFailed !== null || state.recovery.recoveredFromInconsistent !== null
+                  ? state.restartWarning
+                  : false,
+            }
+          : state.recovery;
+      return {
+        ...state,
+        recovery,
+        task: action.task,
+        activeRouteId: action.activeRouteId,
+        pendingForeignEvents: [],
+      };
+    }
     case "task/event": {
       const task = state.task;
       if (!task) return park(state, action.event);
@@ -231,9 +264,15 @@ export function reduceWorkbenchState(state: WorkbenchState, action: WorkbenchAct
     case "task/conflictsResolved":
       return { ...state, conflicts: [] };
     case "session/switched": {
-      const task = state.task;
-      if (task && action.sessionId !== null && task.sessionId === action.sessionId) return state;
-      return { ...emptyWorkbenchState, recovery: emptyRecovery(), pendingForeignEvents: [] };
+      if (action.sessionId === state.sessionId) return state; // 同一会话：全部保留
+      // 会话切换：任务上下文/恢复状态/foreign 队列整体重置，并记录新会话
+      // （后续恢复通知按它过滤）。
+      return {
+        ...emptyWorkbenchState,
+        sessionId: action.sessionId,
+        recovery: emptyRecovery(),
+        pendingForeignEvents: [],
+      };
     }
     case "recovery/dismissRestart":
       return { ...state, restartWarning: false };
@@ -287,6 +326,15 @@ export function completeBlocked(state: WorkbenchState): boolean {
 /** restart/恢复告警可见。 */
 export function restartWarningVisible(state: WorkbenchState): boolean {
   return state.restartWarning;
+}
+
+/**
+ * retryRecovery 成功后的装载判定（review 修复）：只有当前任务上下文自身
+ * （或尚未装载任务的会话）才允许把重试结果 loadTask 成活动上下文——外部
+ * 会话/任务的任务视图绝不因重试被安装。
+ */
+export function shouldLoadTaskAfterRetry(state: WorkbenchState, taskId: string): boolean {
+  return state.task === null || state.task.taskId === taskId;
 }
 
 // ---------------------------------------------------------------------------

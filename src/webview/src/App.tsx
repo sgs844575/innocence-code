@@ -95,9 +95,11 @@ export function App(): React.JSX.Element {
     sendGate,
   });
 
-  // Native menu "New Session" shortcut — also dismisses the overlay drawer.
+  // Native menu "New Session" shortcut — leaves settings, dismisses the
+  // overlay drawer, and returns to the landing chat state.
   useEffect(() => {
     const off = api.onMenuNewSession(() => {
+      shellNav.current?.backToChat();
       shellNav.current?.closeDrawerOnNavigate();
       sessions.newSession();
     });
