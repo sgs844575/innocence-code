@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sha256Hex, type ToolExecutionInvocation } from "@innocencecode/harness-core";
+import { sha256Hex, type Tool, type ToolExecutionInvocation } from "@innocencecode/harness-core";
 import {
   ATTRIBUTION_BLOCKED,
   attributionBlockedResult,
@@ -308,5 +308,114 @@ describe("task change-capture middleware", () => {
       // @ts-expect-error append requires a TaskMutationContext; there is no contextless overload
       task.append({ type: "attributionPending", paths: ["src/a.ts"] }),
     ).rejects.toThrow();
+  });
+
+  // sideEffect is OPTIONAL on the P0 Tool interface; readOnly is the
+  // authoritative write signal. A readOnly:false tool that omits the field
+  // must fail CLOSED (default "unknown", like the permission engine) — it
+  // goes through capture AND the attribution write-block.
+  describe("tools omitting the optional sideEffect field", () => {
+    const undeclaredWriteTool = (runtime: ReturnType<typeof fakeTaskRuntime>, options?: Parameters<typeof fakeWriteTool>[1]): Tool => ({
+      ...fakeWriteTool(runtime, options),
+      description: "write tool omitting the optional sideEffect field",
+      sideEffect: undefined,
+    });
+
+    it("is captured like any other write tool", async () => {
+      const task = fakeTaskRuntime();
+      const tools = [undeclaredWriteTool(task)];
+      const plugin = taskPlugin({
+        port: task,
+        lookupTool: toolLookup(tools),
+        workspaceRoot: TEST_WORKSPACE_ROOT,
+      });
+      const session = await createSessionWith(
+        plugin,
+        tools,
+        scriptedProvider([
+          [{ type: "toolCall", id: "t1", toolName: "Write", args: { path: "src/a.ts", content: "x" } }],
+          [{ type: "text", text: "done" }],
+        ]),
+      );
+
+      await session.run("write it", undefined, { taskId: "task-1" });
+
+      expect(task.changeEvents).toHaveLength(1);
+      expect(task.changeEvents[0]).toMatchObject({ path: "src/a.ts", source: "declared" });
+      expect(task.calls).toEqual([
+        "acquireMutationContext",
+        "readExpectedVersion",
+        "requireAttribution",
+        "captureBefore",
+        "captureAfter",
+        "append",
+        "dispose",
+      ]);
+    });
+
+    it("is blocked while attribution is pending", async () => {
+      const task = fakeTaskRuntime();
+      await seedPendingAttribution(task, ["src/a.ts"]);
+      let executed = 0;
+      const tools = [undeclaredWriteTool(task, { onExecute: () => { executed += 1; } })];
+      const plugin = taskPlugin({
+        port: task,
+        lookupTool: toolLookup(tools),
+        workspaceRoot: TEST_WORKSPACE_ROOT,
+      });
+      const session = await createSessionWith(
+        plugin,
+        tools,
+        scriptedProvider([
+          [{ type: "toolCall", id: "t1", toolName: "Write", args: { path: "src/b.ts", content: "x" } }],
+          [{ type: "text", text: "done" }],
+        ]),
+      );
+
+      await session.run("write it", undefined, { taskId: "task-1" });
+
+      expect(executed).toBe(0);
+      const blockedResult = session.history
+        .flatMap((message) => message.parts)
+        .find((part) => part.type === "toolResult" && part.content.includes("未归属"));
+      expect(blockedResult).toMatchObject({ type: "toolResult", isError: true });
+      // Seed (acquire/append/dispose) then the blocked invocation — which
+      // acquired a context, checked attribution and disposed, but never captured.
+      expect(task.calls).toEqual([
+        "acquireMutationContext",
+        "append",
+        "dispose",
+        "acquireMutationContext",
+        "readExpectedVersion",
+        "requireAttribution",
+        "dispose",
+      ]);
+    });
+
+    it("is still skipped when readOnly is authoritative", async () => {
+      const task = fakeTaskRuntime();
+      let executed = 0;
+      const tools: Tool[] = [
+        { ...fakeReadTool({ onExecute: () => { executed += 1; } }), sideEffect: undefined },
+      ];
+      const plugin = taskPlugin({
+        port: task,
+        lookupTool: toolLookup(tools),
+        workspaceRoot: TEST_WORKSPACE_ROOT,
+      });
+      const session = await createSessionWith(
+        plugin,
+        tools,
+        scriptedProvider([
+          [{ type: "toolCall", id: "t1", toolName: "Read", args: {} }],
+          [{ type: "text", text: "done" }],
+        ]),
+      );
+
+      await session.run("read it", undefined, { taskId: "task-1" });
+
+      expect(executed).toBe(1);
+      expect(task.calls).toHaveLength(0);
+    });
   });
 });

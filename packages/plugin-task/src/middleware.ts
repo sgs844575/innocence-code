@@ -155,7 +155,12 @@ export function createTaskCaptureMiddleware(options: TaskCaptureOptions): ToolEx
       const scope = asTaskScope(invocation.scope);
       if (scope === undefined) return next();
       if (tool.sideEffect === "delegated") return next();
-      if (!CAPTURED_SIDE_EFFECTS.includes(tool.sideEffect ?? "none")) return next();
+      // readOnly is the authoritative write signal; an OMITTED sideEffect
+      // defaults to "unknown" — fail closed exactly like the permission
+      // engine — so a readOnly:false tool without the optional field is
+      // still captured and blocked, never silently side-effect free.
+      const sideEffect: ToolSideEffect = tool.readOnly ? "none" : (tool.sideEffect ?? "unknown");
+      if (!CAPTURED_SIDE_EFFECTS.includes(sideEffect)) return next();
 
       const context = await options.port.acquireMutationContext(scope, invocation.signal);
       try {
@@ -172,6 +177,9 @@ export function createTaskCaptureMiddleware(options: TaskCaptureOptions): ToolEx
           const result = await next();
           return result;
         } finally {
+          // Runs even when the tool threw: real effects must still be captured
+          // and recorded. NOTE: a failure here masks the tool's original error
+          // (fail closed) — the port's error surfaces instead.
           const after = await options.port.captureAfter(context, {
             paths: declaredPaths,
             expectedVersion: before.version,
