@@ -82,17 +82,21 @@ class FakeCommandPort implements TaskCommandPort {
   hunks: Hunk[] = [];
   getHunks = async (_taskId: string, _routeId: string) => this.hunks;
   listRoutes = async (_taskId: string) => [
-    { routeId: "main", parentRouteId: null, checkpointId: "ckpt_base" },
+    { routeId: "main", parentRouteId: null, forkTurnId: null, checkpointId: "ckpt_base", workspaceKind: "git" },
   ];
   switchRoute = async (_taskId: string, routeId: string) => ({
     routeId,
     parentRouteId: null,
+    forkTurnId: null,
     checkpointId: "ckpt",
+    workspaceKind: "git",
   });
   forkRoute: TaskCommandPort["forkRoute"] = async (request) => ({
     routeId: "fork_1",
     parentRouteId: request.sourceRouteId,
+    forkTurnId: request.sourceTurnId,
     checkpointId: "ckpt_fork",
+    workspaceKind: "git",
     workspaceRoot: "/worktrees/fork_1",
     prompt: "resolved fork prompt",
   });
@@ -107,6 +111,15 @@ class FakeCommandPort implements TaskCommandPort {
   });
   changeTaskStatus = async () => {};
   validate = async () => ({ success: true });
+  recoverTask = async (taskId: string) => ({
+    taskId,
+    sessionId: "s1",
+    status: "ready",
+    activeRouteId: "main",
+    mode: "baseline",
+    workspaceKind: "git",
+    gitBranch: null,
+  });
   appendEvent = async (_taskId: string, _event: TaskEvent) => {};
 }
 

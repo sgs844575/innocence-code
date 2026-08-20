@@ -5,6 +5,9 @@ import { handleAppScheme, registerAppScheme } from "./protocol";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
 import {
+  getHarnessSettings,
+  getTaskBridge,
+  getTaskStorageDir,
   initHarness,
   disposeAllRuntime,
   disposeTaskRuntime,
@@ -17,12 +20,19 @@ import { watchTheme } from "./theme";
 import { logger } from "./logger";
 import { ShutdownGate } from "./shutdown";
 import { createTerminalIpcService, registerTerminalIpc, type TerminalIpcService } from "./terminalIpc";
+import { recoverPersistedTaskRuntimes, wireTaskRuntimeIpc } from "./taskRuntimeIpc";
 
 // Custom schemes must be registered before app ready.
 registerAppScheme();
 
 /** Terminal IPC service — disposed on quit so no shell trees survive exit. */
 let terminalService: TerminalIpcService | undefined;
+
+/** Renderer push port shared by every task-runtime surface. */
+const broadcast = (channel: string, payload: unknown): void => {
+  const win = getMainWindow();
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+};
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -43,15 +53,26 @@ if (!gotLock) {
       registerIpcHandlers();
       await initHarness();
 
+      // Task runtime IPC composition (Task 12): task handlers over the real
+      // bridge-backed command service, route-scoped code surfaces, and the
+      // task-event broadcast feeding the renderer's workbench state.
+      const taskRuntimeDeps = {
+        bridge: getTaskBridge(),
+        taskStorageDir: getTaskStorageDir(),
+        resolveRouteRoot: resolveRouteWorkspaceRoot,
+        getEditorCommand: () => getHarnessSettings().externalEditorCommand ?? "",
+        send: broadcast,
+        log: (level: "info" | "warn" | "error", msg: string, data?: unknown) =>
+          logger[level](msg, data),
+      };
+      await wireTaskRuntimeIpc(taskRuntimeDeps);
+
       // Route-bound terminals (Task 9): the service resolves each terminal's
       // cwd from the task bridge's route handle; output/exit events are
       // pushed to the main window through the standard broadcast pattern.
       terminalService = createTerminalIpcService({
         resolveRouteCwd: resolveRouteWorkspaceRoot,
-        send: (channel, payload) => {
-          const win = getMainWindow();
-          if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
-        },
+        send: broadcast,
       });
       await registerTerminalIpc(terminalService);
 
@@ -60,6 +81,14 @@ if (!gotLock) {
       // menus on demand (see src/main/menu.ts popupMenu), so no menu bar.
       Menu.setApplicationMenu(buildAppMenu(win));
       watchTheme(win);
+
+      // Restart recovery runs once the renderer mounted its task-event
+      // subscriptions — notices pushed before that would be lost.
+      win.webContents.once("did-finish-load", () => {
+        void recoverPersistedTaskRuntimes(taskRuntimeDeps).catch((err) => {
+          logger.error("task restart recovery failed", { error: String(err) });
+        });
+      });
 
       logger.info("app ready", { version: app.getVersion(), platform: process.platform });
     })

@@ -24,7 +24,7 @@ afterEach(cleanup);
 
 describe("ForkRouteDialog", () => {
   it("shows fork target details and switches only after route creation resolves", async () => {
-    let resolve!: (route: { routeId: string; parentRouteId: string; checkpointId: string; workspaceRoot: string; prompt: string }) => void;
+    let resolve!: (route: { routeId: string; parentRouteId: string; forkTurnId: string | null; checkpointId: string; workspaceKind: string; workspaceRoot: string; prompt: string }) => void;
     const createRoute = vi.fn(() => new Promise<Parameters<typeof resolve>[0]>((done) => { resolve = done; }));
     const onSwitchRoute = vi.fn();
     render(
@@ -45,7 +45,7 @@ describe("ForkRouteDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "创建路线" }));
     expect(onSwitchRoute).not.toHaveBeenCalled();
 
-    resolve({ routeId: "child", parentRouteId: "main", checkpointId: "c1", workspaceRoot: "D:/wt/child", prompt: "original prompt" });
+    resolve({ routeId: "child", parentRouteId: "main", forkTurnId: "a2", checkpointId: "c1", workspaceKind: "git", workspaceRoot: "D:/wt/child", prompt: "original prompt" });
     await waitFor(() => expect(onSwitchRoute).toHaveBeenCalledWith("child", "original prompt"));
   });
 
@@ -53,7 +53,9 @@ describe("ForkRouteDialog", () => {
     const createRoute = vi.fn(async () => ({
       routeId: "child",
       parentRouteId: "main",
+      forkTurnId: "u2",
       checkpointId: "c1",
+      workspaceKind: "git",
       workspaceRoot: "D:/wt/child",
       prompt: "revised prompt",
     }));

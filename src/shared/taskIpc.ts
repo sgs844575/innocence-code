@@ -28,6 +28,12 @@ export const TaskIpcChannels = {
   taskResolveConflict: "task:resolve-conflict",
   taskValidate: "task:validate",
   taskRecoveryWarnings: "task:recovery-warnings",
+  // Main -> renderer push channels (Task 12): live task events and
+  // recovery/resource-failure notices.
+  taskEvent: "task:event",
+  taskNotice: "task:notice",
+  // Renderer-initiated recovery retry (worktree/replay failure retry entry).
+  taskRecover: "task:recover",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -37,8 +43,12 @@ export const TaskIpcChannels = {
 export interface TaskRouteSummary {
   routeId: string;
   parentRouteId: string | null;
+  /** Turn the route forked from; null for the task's first route. */
+  forkTurnId: string | null;
   checkpointId: string;
   workspaceRoot?: string;
+  /** Task workspace class ("git" | "snapshot") — real value from main. */
+  workspaceKind: string;
 }
 
 export interface ValidationResult {
@@ -87,10 +97,16 @@ export interface TaskGetRequest {
 
 export interface TaskGetResponse {
   taskId: string;
+  /** Chat session the task belongs to (session-scoped renderer filtering). */
+  sessionId: string;
   status: string;
   activeRouteId: string;
   mode: string;
   workspaceKind: string;
+  /** Opaque version token (lastCommittedEventId) for CAS-flavored commands. */
+  version?: string;
+  /** Current Git branch of the task workspace; null when unknown/detached (chip hidden). */
+  gitBranch?: string | null;
 }
 
 export interface TaskChangeRequest {
@@ -191,6 +207,108 @@ export interface TaskRecoveryWarningsResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Main -> renderer push DTOs (Task 12)
+// ---------------------------------------------------------------------------
+
+/** The task event vocabulary task-core appends to the single event log. */
+export type TaskEventKind =
+  | "taskCreated"
+  | "taskStatus"
+  | "turnCheckpointed"
+  | "routeAttached"
+  | "turnPrepared"
+  | "turnCommitted"
+  | "changeRecorded"
+  | "attributionPending"
+  | "attributionConflict"
+  | "attributionResolved";
+
+/** routeAttached payload: route identity only, never absolute paths. */
+export interface TaskRouteEventData {
+  routeId: string;
+  parentRouteId: string | null;
+  forkTurnId: string | null;
+  checkpointId: string;
+  workspaceKind: string;
+}
+
+/** One live task event, forwarded from the bridge to the renderer. */
+export interface TaskUiEvent {
+  taskId: string;
+  sessionId: string;
+  /** Route the event belongs to (task-level events carry the active route). */
+  routeId: string;
+  kind: TaskEventKind;
+  /** Opaque version token after this event (lastCommittedEventId). */
+  version?: string;
+  /** taskStatus payload. */
+  status?: string;
+  /** routeAttached payload. */
+  route?: TaskRouteEventData;
+}
+
+/** How to retry a failed isolated-worktree start/recovery (never baseline). */
+export interface TaskWorktreeRetry {
+  taskId: string;
+  sessionId: string;
+  routeId: string;
+  mode: "isolated";
+}
+
+/**
+ * Recovery / resource-failure notices. Each maps to a visible renderer
+ * warning plus a gate (see workbenchState.ts):
+ *   - eventRecoveryFailed  -> write tools blocked
+ *   - worktreeFailed       -> error + retry command retained (no baseline fallback)
+ *   - checkpointFailed     -> checkpoint-failed shown, completion blocked
+ *   - inconsistencyRecovered -> recovered from the last complete event + notify
+ *   - restartRecovered     -> restart warning visible
+ */
+export type TaskUiNotice =
+  | {
+      type: "eventRecoveryFailed";
+      taskId: string;
+      sessionId: string;
+      routeId: string;
+      message: string;
+    }
+  | {
+      type: "worktreeFailed";
+      taskId: string;
+      sessionId: string;
+      routeId: string;
+      message: string;
+      retry: TaskWorktreeRetry;
+    }
+  | {
+      type: "checkpointFailed";
+      taskId: string;
+      sessionId: string;
+      routeId: string;
+      message: string;
+    }
+  | {
+      type: "inconsistencyRecovered";
+      taskId: string;
+      sessionId: string;
+      routeId: string;
+      message: string;
+      /** Last complete event the state was recovered from. */
+      recoveredFromEventId: string;
+    }
+  | {
+      type: "restartRecovered";
+      taskId: string;
+      sessionId: string;
+      routeId: string;
+      warnings: readonly string[];
+    };
+
+export interface TaskRecoverRequest {
+  taskId: string;
+}
+
+// ---------------------------------------------------------------------------
 // Renderer-callable API surface (typed like InnocenceCodeApi)
 // ---------------------------------------------------------------------------
 
@@ -210,4 +328,10 @@ export interface TaskIpcApi {
   resolveConflict(request: TaskResolveConflictRequest): Promise<void>;
   validate(request: TaskValidateRequest): Promise<ValidationResult>;
   recoveryWarnings(request: TaskRecoveryWarningsRequest): Promise<TaskRecoveryWarningsResponse>;
+  /** Re-runs runtime recovery (worktree/replay retry entry point). */
+  recoverTask(request: TaskRecoverRequest): Promise<TaskGetResponse>;
+  /** Live task event push (bridge -> renderer). */
+  onTaskEvent(cb: (event: TaskUiEvent) => void): () => void;
+  /** Recovery / resource-failure notices (main -> renderer). */
+  onTaskNotice(cb: (notice: TaskUiNotice) => void): () => void;
 }

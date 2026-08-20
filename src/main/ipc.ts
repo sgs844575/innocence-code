@@ -148,4 +148,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(TaskIpcChannels.taskResolveConflict, (_e, req) => requireTaskHandlers().resolveConflict(req));
   ipcMain.handle(TaskIpcChannels.taskValidate, (_e, req) => requireTaskHandlers().validate(req));
   ipcMain.handle(TaskIpcChannels.taskRecoveryWarnings, (_e, req) => requireTaskHandlers().recoveryWarnings(req));
+  // Recovery retry (Task 12): renderer re-runs worktree/replay recovery.
+  ipcMain.handle(TaskIpcChannels.taskRecover, (_e, req) => requireTaskHandlers().recover(req));
 }

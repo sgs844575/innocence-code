@@ -6,6 +6,8 @@ import { IPC, type InnocenceCodeApi, type ThemeMode } from "../shared/ipc";
 import {
   TaskIpcChannels,
   type TaskIpcApi,
+  type TaskUiEvent,
+  type TaskUiNotice,
 } from "../shared/taskIpc";
 import {
   CodeIpcChannels,
@@ -17,6 +19,9 @@ function subscribe(channel: string, listener: (...args: never[]) => void): () =>
   ipcRenderer.on(channel, wrapped as never);
   return () => ipcRenderer.removeListener(channel, wrapped as never);
 }
+
+const subscribeTask = <T>(channel: string, cb: (payload: T) => void): (() => void) =>
+  subscribe(channel, cb as never);
 
 const api: InnocenceCodeApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo),
@@ -66,6 +71,9 @@ const taskApi: TaskIpcApi = {
   resolveConflict: (req) => ipcRenderer.invoke(TaskIpcChannels.taskResolveConflict, req),
   validate: (req) => ipcRenderer.invoke(TaskIpcChannels.taskValidate, req),
   recoveryWarnings: (req) => ipcRenderer.invoke(TaskIpcChannels.taskRecoveryWarnings, req),
+  recoverTask: (req) => ipcRenderer.invoke(TaskIpcChannels.taskRecover, req),
+  onTaskEvent: (cb) => subscribeTask<TaskUiEvent>(TaskIpcChannels.taskEvent, cb),
+  onTaskNotice: (cb) => subscribeTask<TaskUiNotice>(TaskIpcChannels.taskNotice, cb),
 };
 
 /** Read-only code panel API — route-scoped reads/search/external editor. */

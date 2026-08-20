@@ -1,3 +1,10 @@
+// App — 组装层（Task 12 拆分后）。状态责任全部下沉：
+//   useSessionController  会话选择/创建/删除与落地态项目
+//   useChatStream         delta/tool/thinking/permission 流
+//   useWorkbenchState     任务/路线/审查/冲突/恢复（纯 reducer + IPC 订阅）
+//   AppShell              响应式导航与三态工作台布局
+// 这里只保留跨切片的装配：settings/appInfo、语言、错误 toast、恢复横幅
+// 与各面板的 props 接线。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -5,55 +12,33 @@ import {
   PanelLeftOpen,
   Settings as SettingsIcon,
 } from "lucide-react";
-import {
-  appendText,
-  type AppInfo,
-  type ChatMessage,
-  type ChatPermissionEvent,
-  type HarnessSettings,
-  type PermissionChoice,
-  type Session,
-} from "../../shared/ipc";
-import { api, codeApi, taskApi } from "./lib/ipc";
+import type { AppInfo, HarnessSettings } from "../../shared/ipc";
+import { api, codeApi } from "./lib/ipc";
 import { createT } from "./lib/i18n";
-import { useMediaQuery } from "./lib/useMediaQuery";
 import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SettingsView } from "./components/SettingsView";
-import { SETTINGS_SECTIONS, SettingsNav, type SettingsSection } from "./components/SettingsNav";
+import { SETTINGS_SECTIONS, SettingsNav } from "./components/SettingsNav";
 import { NavRail } from "./components/NavRail";
-import { WorkbenchShell, useWorkbenchLayout } from "./components/workbench/WorkbenchShell";
+import { AppShell, type AppShellNav } from "./components/AppShell";
+import { RecoveryBanner } from "./components/RecoveryBanner";
 import { ReviewPanel } from "./components/task/ReviewPanel";
-import { RoutePanel, type RoutePanelModel } from "./components/task/RoutePanel";
+import { RoutePanel } from "./components/task/RoutePanel";
 import { CodePanel } from "./components/code/CodePanel";
-import type { TaskSwitchRouteRequest } from "../../shared/taskIpc";
+import { useSessionController } from "./state/useSessionController";
+import { useChatStream } from "./state/useChatStream";
+import { useWorkbenchState } from "./state/useWorkbenchState";
+import { restartWarningVisible, writeToolsBlocked } from "./state/workbenchState";
 
 const APP_NAME = "InnocenceCode";
 
 export function App(): React.JSX.Element {
-  const [view, setView] = useState<"chat" | "settings">("chat");
-  const [section, setSection] = useState<SettingsSection>("models");
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [streamingId, setStreamingId] = useState<string | null>(null);
   const [settings, setSettings] = useState<HarnessSettings | null>(null);
-  const [permission, setPermission] = useState<ChatPermissionEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Three-step responsive nav: wide windows dock the full sidebar (or a
-  // manual icon rail), medium windows always show the rail plus an overlay
-  // drawer, narrow windows are drawer-only.
-  const isWide = useMediaQuery("(min-width: 1024px)");
-  const isMedium = useMediaQuery("(min-width: 640px)") && !isWide;
-  const [railMode, setRailMode] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  // 可停靠辅助面板（Task 11）：布局逻辑归 WorkbenchShell，这里只持开关与页签。
-  const workbench = useWorkbenchLayout();
+  const shellNav = useRef<AppShellNav | null>(null);
 
   // Persisted locale wins; fall back to the system locale, then zh-CN.
   const lang = settings?.locale || appInfo?.locale || "zh-CN";
@@ -65,75 +50,22 @@ export function App(): React.JSX.Element {
     errorTimer.current = setTimeout(() => setError(null), 4000);
   }, []);
 
-  const refreshSessions = useCallback(async () => {
-    const list = await api.listSessions();
-    setSessions(list);
-    return list;
-  }, []);
-
   useEffect(() => {
     void api.getAppInfo().then(setAppInfo);
-    void refreshSessions();
     void api.getHarnessSettings().then(setSettings);
-  }, [refreshSessions]);
-
-  // The main process pushes the session list after every store mutation, so
-  // the sidebar stays in sync no matter which path created/changed a session.
-  useEffect(() => {
-    const off = api.onSessionsChanged((list) => setSessions(list));
-    return off;
   }, []);
 
-  // The overlay drawer only exists below the wide breakpoint.
-  useEffect(() => {
-    if (isWide) setDrawerOpen(false);
-  }, [isWide]);
-
-  // Permission asks arrive mid-stream; only one card at a time (the loop
-  // resolves asks sequentially).
-  useEffect(() => {
-    const off = api.onChatPermission((e) => {
-      if (e.sessionId !== activeId) return;
-      setPermission(e);
+  /** 设置补丁（合并持久化 + 本地乐观更新）。 */
+  const applySettingsPatch = useCallback((patch: Partial<HarnessSettings>) => {
+    setSettings((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      void api.setHarnessSettings(next);
+      return next;
     });
-    return off;
-  }, [activeId]);
+  }, []);
 
-  const handlePermissionRespond = useCallback(
-    (requestId: string, choice: PermissionChoice) => {
-      setPermission(null);
-      void api.respondChatPermission(requestId, choice);
-    },
-    [],
-  );
-
-  const handleSettingsChange = useCallback(
-    (patch: Partial<HarnessSettings>) => {
-      setSettings((prev) => {
-        if (!prev) return prev;
-        const next = { ...prev, ...patch };
-        void api.setHarnessSettings(next);
-        return next;
-      });
-    },
-    [],
-  );
-
-  // 会话切换携带项目：agent 的工作区（settings.workspaceRoot）跟随所选
-  // 会话的绑定项目——侧栏分组与实际执行目录永远一致。
-  const handleSelectSession = useCallback(
-    (id: string) => {
-      setActiveId(id);
-      if (!isWide) setDrawerOpen(false); // Drawer mode: selection dismisses it.
-      const ws = sessions.find((s) => s.id === id)?.workspaceRoot ?? "";
-      if (settings && ws !== settings.workspaceRoot) {
-        handleSettingsChange({ workspaceRoot: ws });
-      }
-    },
-    [isWide, sessions, settings, handleSettingsChange],
-  );
-
-  /** Full-settings replacement (settings page edits whole profiles). */
+  /** 全量设置替换（设置页整体编辑 profile）。 */
   const handleSettingsSet = useCallback((next: HarnessSettings) => {
     setSettings(next);
     void api.setHarnessSettings(next);
@@ -141,365 +73,224 @@ export function App(): React.JSX.Element {
 
   const handlePickWorkspace = useCallback(async () => {
     const dir = await api.pickWorkspace();
-    if (dir) handleSettingsChange({ workspaceRoot: dir });
-  }, [handleSettingsChange]);
+    if (dir) applySettingsPatch({ workspaceRoot: dir });
+  }, [applySettingsPatch]);
 
-  /** 落地态「打开项目…」：结果只进选择器，不直接改全局（发送时才生效）。 */
-  const handleOpenProjectDir = useCallback(async () => {
-    const dir = await api.pickWorkspace();
-    if (dir) setPendingProject(dir);
-  }, []);
+  const sessions = useSessionController({ settings, onSettingsChange: applySettingsPatch, showError, t });
 
-  /** 近期聊天的项目：从会话历史聚合（最近使用优先，最多 5 个）。 */
-  const recentProjects = useMemo(() => {
-    const byPath = new Map<string, { path: string; count: number; last: number }>();
-    for (const s of sessions) {
-      const p = s.workspaceRoot ?? "";
-      if (!p) continue;
-      const cur = byPath.get(p);
-      byPath.set(p, { path: p, count: (cur?.count ?? 0) + 1, last: Math.max(cur?.last ?? 0, s.updatedAt) });
-    }
-    return [...byPath.values()]
-      .sort((a, b) => b.last - a.last)
-      .slice(0, 5)
-      .map(({ path, count }) => ({ path, count }));
-  }, [sessions]);
+  const workbench = useWorkbenchState({ sessionId: sessions.activeId });
+  const task = workbench.state.task;
 
-  useEffect(() => {
-    if (!activeId) {
-      setMessages([]);
-      return;
-    }
-    void api.listMessages(activeId).then(setMessages);
-  }, [activeId]);
-
-  // Streaming events — apply deltas only to the active session.
-  useEffect(() => {
-    const offDelta = api.onChatDelta((e) => {
-      if (e.sessionId !== activeId) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === e.messageId ? { ...m, parts: appendText(m.parts, e.delta) } : m,
-        ),
-      );
-    });
-    const offDone = api.onChatDone((e) => {
-      if (e.sessionId !== activeId) return;
-      setStreamingId(null);
-      setPermission(null);
-      setMessages((prev) =>
-        prev.map((m) => (m.id === e.messageId ? { ...m, streaming: false } : m)),
-      );
-    });
-    const offError = api.onChatError((e) => {
-      if (e.sessionId !== activeId) return;
-      setStreamingId(null);
-      setPermission(null);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === e.messageId
-            ? { ...m, streaming: false, parts: appendText(appendText(m.parts, "\n\n> ⚠️ "), e.error) }
-            : m,
-        ),
-      );
-    });
-    // Structured tool parts arrive pre-formed (toolCall/toolResult) and append
-    // as-is; thinking deltas extend the trailing thinking part or open one.
-    // MessageItem renders text only for now — tasks 9-11 take over part
-    // rendering; the state just has to be correct by then.
-    const offTool = api.onChatTool((e) => {
-      if (e.sessionId !== activeId) return;
-      setMessages((prev) =>
-        prev.map((m) => (m.id === e.messageId ? { ...m, parts: [...m.parts, e.part] } : m)),
-      );
-    });
-    const offThinking = api.onChatThinking((e) => {
-      if (e.sessionId !== activeId) return;
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== e.messageId) return m;
-          const last = m.parts[m.parts.length - 1];
-          if (last?.type === "thinking") {
-            const parts = [...m.parts];
-            parts[parts.length - 1] = { type: "thinking", text: last.text + e.delta };
-            return { ...m, parts };
-          }
-          return { ...m, parts: [...m.parts, { type: "thinking", text: e.delta }] };
-        }),
-      );
-    });
-    return () => {
-      offDelta();
-      offDone();
-      offError();
-      offTool();
-      offThinking();
-    };
-  }, [activeId]);
-
-  // 落地态选中的项目："" = 不在项目中。进入落地态时默认取当前工作区。
-  const [pendingProject, setPendingProject] = useState("");
-  useEffect(() => {
-    if (activeId === null) setPendingProject(settings?.workspaceRoot ?? "");
-  }, [activeId, settings?.workspaceRoot]);
-
-  // 新建 ≠ 创建：点「新建会话」只回到落地态（输入居中 + 项目选择），侧栏
-  // 不出条目；真正的 createSession 在首条消息发送时发生（见 handleSend）。
-  const handleNewSession = useCallback(() => {
-    setActiveId(null);
-    setMessages([]);
-    setView("chat");
-    if (!isWide) setDrawerOpen(false);
-  }, [isWide]);
-
-  const handleDeleteSession = useCallback(async (id: string) => {
-    try {
-      await api.deleteSession(id);
-      if (id === activeId) setActiveId(null);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-    } catch (err) {
-      console.error("delete session failed", err);
-      showError(t("error.deleteSession"));
-    }
-  }, [activeId, t, showError]);
-
-  const handleSend = useCallback(async (text: string) => {
-    let sessionId = activeId;
-    if (!sessionId) {
-      // 落地态首条消息：此刻才创建会话，绑定所选项目并同步全局工作区
-      //（runtime 的 agent 以 settings.workspaceRoot 为根）。
-      const ws = pendingProject;
-      try {
-        if (ws !== (settings?.workspaceRoot ?? "")) {
-          handleSettingsChange({ workspaceRoot: ws });
-        }
-        sessionId = (await api.createSession({ workspaceRoot: ws })).id;
-      } catch (err) {
-        console.error("create session failed", err);
-        showError(t("error.createSession"));
-        return;
-      }
-      setActiveId(sessionId);
-    }
-
-    let messageId: string;
-    try {
-      ({ messageId } = await api.sendMessage(sessionId, text));
-    } catch (err) {
-      console.error("send message failed", err);
-      showError(t("error.sendMessage"));
-      return;
-    }
-    setStreamingId(messageId);
-    // Optimistic UI: user bubble immediately, assistant bubble fills via deltas.
-    const optimisticUser: ChatMessage = {
-      id: `${messageId}_user`,
-      role: "user",
-      parts: [{ type: "text", text }],
-      createdAt: Date.now(),
-    };
-    const pendingAssistant: ChatMessage = {
-      id: messageId,
-      role: "assistant",
-      parts: [],
-      createdAt: Date.now(),
-      streaming: true,
-    };
-    setMessages((prev) => [...prev, optimisticUser, pendingAssistant]);
-  }, [activeId, pendingProject, settings?.workspaceRoot, handleSettingsChange, t, showError]);
-
-  const handleStop = useCallback(() => {
-    if (activeId && streamingId) void api.stopMessage(activeId, streamingId);
-  }, [activeId, streamingId]);
-
-  // Native menu "New Session" shortcut.
-  useEffect(() => {
-    const off = api.onMenuNewSession(() => void handleNewSession());
-    return off;
-  }, [handleNewSession]);
-
-  const handleToggleSidebar = useCallback(() => {
-    if (isWide) setRailMode((v) => !v);
-    else setDrawerOpen((v) => !v);
-  }, [isWide]);
-
-  // 辅助面板各页签（Task 12 接任务上下文与终端 preload 后填充真实数据）：
-  // 路线切换沿用 RoutePanel 的等待模式——switchRoute resolve 完整 view model
-  // 后才更新 UI，避免旧内容闪回。
-  const switchRoute = useCallback(async (request: TaskSwitchRouteRequest): Promise<RoutePanelModel> => {
-    await taskApi.switchRoute(request);
-    const { routes } = await taskApi.listRoutes({ taskId: request.taskId });
-    return {
-      routes: routes.map((route) => ({ ...route, forkTurnId: null, workspaceKind: "git" })),
-      activeRouteId: request.routeId,
-    };
-  }, []);
-
-  const workbenchPanels = useMemo(
-    () => ({
-      review: <ReviewPanel files={[]} t={t} />,
-      routes: <RoutePanel taskId="" routes={[]} activeRouteId="" t={t} switchRoute={switchRoute} />,
-      code: <CodePanel taskId="" routeId="" files={[]} t={t} api={codeApi} />,
-    }),
-    [t, switchRoute],
+  // 恢复门禁：事件回放/worktree 失败未解决前禁止新的写回合。
+  const sendGate = useCallback(
+    () => (writeToolsBlocked(workbench.state) ? t("workbench.sendBlocked") : null),
+    [workbench.state, t],
   );
 
+  const chat = useChatStream({
+    activeId: sessions.activeId,
+    ensureSession: sessions.ensureSessionForSend,
+    showError,
+    t,
+    sendGate,
+  });
+
+  // Native menu "New Session" shortcut — also dismisses the overlay drawer.
+  useEffect(() => {
+    const off = api.onMenuNewSession(() => {
+      shellNav.current?.closeDrawerOnNavigate();
+      sessions.newSession();
+    });
+    return off;
+  }, [sessions.newSession]);
+
   // TitleBar 状态簇：项目取当前会话（回落全局工作区）；路线与 Git branch
-  // 等任务上下文接入（Task 12）前显示「非 Git」。
-  const workspaceRoot = sessions.find((s) => s.id === activeId)?.workspaceRoot ?? settings?.workspaceRoot ?? "";
+  // 来自任务上下文的真实 DTO（无任务时隐藏）。
+  const workspaceRoot =
+    sessions.sessions.find((s) => s.id === sessions.activeId)?.workspaceRoot ??
+    settings?.workspaceRoot ??
+    "";
   const projectName =
     workspaceRoot === "" ? "" : (workspaceRoot.split(/[\\/]/).filter(Boolean).pop() ?? "");
 
-  // Entering settings swaps the project sidebar for the settings menu.
-  const handleOpenSettings = useCallback(() => {
-    setView("settings");
-    if (!isWide) setDrawerOpen(false);
-  }, [isWide]);
-
-  const handleBackToChat = useCallback(() => setView("chat"), []);
-
-  const handleSelectSection = useCallback(
-    (next: SettingsSection) => {
-      setSection(next);
-      if (!isWide) setDrawerOpen(false);
-    },
-    [isWide],
+  // 辅助面板：审查/路线/代码以任务上下文的真实 DTO 驱动（无任务为空态）。
+  const workbenchPanels = useMemo(
+    () => ({
+      review: (
+        <ReviewPanel
+          files={[]}
+          taskId={task?.taskId ?? ""}
+          routeId={workbench.state.activeRouteId}
+          expectedVersion={task?.expectedVersion ?? ""}
+          t={t}
+          onReview={(dto) => void workbench.review(dto)}
+          onRestore={(request) => void workbench.restore(request)}
+        />
+      ),
+      routes: (
+        <RoutePanel
+          taskId={task?.taskId ?? ""}
+          routes={task?.routes ?? []}
+          activeRouteId={workbench.state.activeRouteId}
+          t={t}
+          switchRoute={workbench.switchRoute}
+        />
+      ),
+      code: (
+        <CodePanel
+          taskId={task?.taskId ?? ""}
+          routeId={workbench.state.activeRouteId}
+          files={[]}
+          t={t}
+          api={codeApi}
+        />
+      ),
+    }),
+    [t, task, workbench.state.activeRouteId, workbench],
   );
 
-  const sidebarProps = {
-    t,
-    appName: APP_NAME,
-    sessions,
-    activeId,
-    onSelect: handleSelectSession,
-    onNew: handleNewSession,
-    onDelete: handleDeleteSession,
-    onOpenSettings: handleOpenSettings,
-  };
-
-  // One nav per view, rendered in whichever shell slot is active (docked
-  // column / rail / overlay drawer).
-  const navFull =
-    view === "settings" ? (
-      <SettingsNav t={t} section={section} onSelect={handleSelectSection} onBack={handleBackToChat} />
-    ) : (
-      <Sidebar {...sidebarProps} />
-    );
-
-  const expandNav = useCallback(() => {
-    if (isWide) setRailMode(false);
-    else setDrawerOpen(true);
-  }, [isWide]);
-
-  const navRail =
-    view === "settings" ? (
-      <NavRail
-        top={{ icon: ArrowLeft, label: t("settings.backToChat"), onClick: handleBackToChat }}
-        items={SETTINGS_SECTIONS.map(({ id, icon, key }) => ({
-          icon,
-          label: t(key),
-          onClick: () => handleSelectSection(id),
-          active: section === id,
-        }))}
-      />
-    ) : (
-      <NavRail
-        top={{ icon: MessageSquarePlus, label: t("sidebar.nav.newChat"), onClick: handleNewSession }}
-        items={[{ icon: PanelLeftOpen, label: t("sidebar.open"), onClick: expandNav }]}
-        bottom={{ icon: SettingsIcon, label: t("sidebar.settings"), onClick: handleOpenSettings }}
+  // 恢复横幅：恢复状态 → 可见告警（重试/关闭），与写工具门禁同源。
+  const banner = useMemo(() => {
+    const recovery = workbench.state.recovery;
+    if (!restartWarningVisible(workbench.state)) return null;
+    const message =
+      recovery.eventRecoveryFailed !== null
+        ? t("workbench.warning.eventRecovery")
+        : recovery.worktreeFailure !== null
+          ? t("workbench.warning.worktree")
+          : recovery.checkpointFailed !== null
+            ? t("workbench.warning.checkpoint")
+            : recovery.recoveredFromInconsistent !== null
+              ? t("workbench.warning.inconsistent")
+              : t("workbench.warning.restart");
+    const retryTaskId = recovery.worktreeFailure?.retry.taskId;
+    return (
+      <RecoveryBanner
+        message={message}
+        onRetry={retryTaskId !== undefined ? () => void workbench.retryRecovery(retryTaskId) : undefined}
+        onDismiss={workbench.dismissRestartWarning}
+        retryLabel={t("workbench.warning.retry")}
+        dismissLabel={t("workbench.warning.dismiss")}
       />
     );
+  }, [workbench.state, workbench.retryRecovery, workbench.dismissRestartWarning, t]);
+
+  const sidebar = useCallback(
+    (nav: AppShellNav) =>
+      nav.view === "settings" ? (
+        <SettingsNav t={t} section={nav.section} onSelect={nav.selectSection} onBack={nav.backToChat} />
+      ) : (
+        <Sidebar
+          t={t}
+          appName={APP_NAME}
+          sessions={sessions.sessions}
+          activeId={sessions.activeId}
+          onSelect={(id) => {
+            nav.closeDrawerOnNavigate();
+            sessions.selectSession(id);
+          }}
+          onNew={() => {
+            nav.closeDrawerOnNavigate();
+            sessions.newSession();
+          }}
+          onDelete={(id) => void sessions.deleteSession(id)}
+          onOpenSettings={nav.openSettings}
+        />
+      ),
+    [t, sessions],
+  );
+
+  const rail = useCallback(
+    (nav: AppShellNav) =>
+      nav.view === "settings" ? (
+        <NavRail
+          top={{ icon: ArrowLeft, label: t("settings.backToChat"), onClick: nav.backToChat }}
+          items={SETTINGS_SECTIONS.map(({ id, icon, key }) => ({
+            icon,
+            label: t(key),
+            onClick: () => nav.selectSection(id),
+            active: nav.section === id,
+          }))}
+        />
+      ) : (
+        <NavRail
+          top={{
+            icon: MessageSquarePlus,
+            label: t("sidebar.nav.newChat"),
+            onClick: () => {
+              nav.closeDrawerOnNavigate();
+              sessions.newSession();
+            },
+          }}
+          items={[{ icon: PanelLeftOpen, label: t("sidebar.open"), onClick: nav.expandNav }]}
+          bottom={{ icon: SettingsIcon, label: t("sidebar.settings"), onClick: nav.openSettings }}
+        />
+      ),
+    [t, sessions],
+  );
+
+  const settingsView = useCallback(
+    (nav: AppShellNav) =>
+      settings ? (
+        <SettingsView
+          t={t}
+          section={nav.section}
+          settings={settings}
+          appInfo={appInfo}
+          onSettingsChange={handleSettingsSet}
+          onPickWorkspace={() => void handlePickWorkspace()}
+        />
+      ) : null,
+    [t, settings, appInfo, handleSettingsSet, handlePickWorkspace],
+  );
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-(--color-app-bg) text-(--color-app-text)">
-      <TitleBar
-        sidebarOpen={isWide ? !railMode : drawerOpen}
-        onToggleSidebar={handleToggleSidebar}
-        workbench={{ project: projectName, routeId: null, gitBranch: null }}
-        panelOpen={workbench.open}
-        onTogglePanel={workbench.togglePanel}
-        terminalOpen={workbench.open && workbench.tab === "terminal"}
-        onToggleTerminal={workbench.openTerminal}
-        t={t}
-      />
-      {/* One continuous surface: sidebar column (sidebar tone) + content
-          column (panel tone), separated by hairlines only. */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        {isWide && !railMode && (
-          <div className="w-[clamp(232px,20vw,288px)] shrink-0 border-r border-(--color-app-hairline) bg-(--color-app-sidebar)">
-            {navFull}
-          </div>
-        )}
-        {(isWide && railMode) || isMedium ? (
-          <div className="w-12 shrink-0 border-r border-(--color-app-hairline) bg-(--color-app-sidebar)">
-            {navRail}
-          </div>
-        ) : null}
-        <main className="min-w-0 flex-1 overflow-hidden bg-(--color-app-panel)">
-          {view === "settings" && settings ? (
-            <SettingsView
-              t={t}
-              section={section}
-              settings={settings}
-              appInfo={appInfo}
-              onSettingsChange={handleSettingsSet}
-              onPickWorkspace={() => void handlePickWorkspace()}
-            />
-          ) : (
-            <WorkbenchShell
-              open={workbench.open}
-              activeTab={workbench.tab}
-              onTabChange={workbench.setTab}
-              onClose={() => workbench.setOpen(false)}
-              panels={workbenchPanels}
-              t={t}
-            >
-              <ChatView
-                t={t}
-                appName={APP_NAME}
-                messages={messages}
-                streaming={streamingId !== null}
-                settings={settings}
-                permission={permission}
-                onSettingsChange={handleSettingsChange}
-                onPermissionRespond={handlePermissionRespond}
-                onSend={handleSend}
-                onStop={handleStop}
-                landing={activeId === null}
-                pendingProject={pendingProject}
-                onPickProject={setPendingProject}
-                recentProjects={recentProjects}
-                onOpenProjectDir={() => void handleOpenProjectDir()}
-              />
-            </WorkbenchShell>
-          )}
-        </main>
-      </div>
-
-      {/* Medium/narrow windows: overlay drawer with a scrim, flush against
-          the left edge below the title bar. */}
-      {!isWide && drawerOpen && (
-        <div className="fixed inset-x-0 bottom-0 top-9 z-40">
-          <button
-            type="button"
-            aria-label={t("sidebar.close")}
-            onClick={() => setDrawerOpen(false)}
-            className="fade-in absolute inset-0 bg-black/25"
-          />
-          <div className="drawer-in absolute bottom-0 left-0 top-0 w-[clamp(240px,72vw,300px)] border-r border-(--color-app-border) bg-(--color-app-sidebar) shadow-(--shadow-pop)">
-            {navFull}
-          </div>
-        </div>
+    <AppShell
+      t={t}
+      bindNav={(nav) => {
+        shellNav.current = nav;
+      }}
+      titleBar={(nav) => (
+        <TitleBar
+          sidebarOpen={nav.sidebarOpen}
+          onToggleSidebar={nav.toggleSidebar}
+          workbench={{
+            project: projectName,
+            routeId: task ? workbench.state.activeRouteId : null,
+            gitBranch: task?.gitBranch ?? null,
+          }}
+          panelOpen={nav.workbench.open}
+          onTogglePanel={nav.workbench.togglePanel}
+          terminalOpen={nav.workbench.open && nav.workbench.tab === "terminal"}
+          onToggleTerminal={nav.workbench.openTerminal}
+          t={t}
+        />
       )}
-
-      {error && (
-        <div
-          role="alert"
-          className="toast-in card-strong fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm"
-        >
-          {error}
-        </div>
-      )}
-    </div>
+      sidebar={sidebar}
+      rail={rail}
+      banner={banner}
+      toast={error}
+      panels={workbenchPanels}
+      chat={
+        <ChatView
+          t={t}
+          appName={APP_NAME}
+          messages={chat.messages}
+          streaming={chat.streaming}
+          settings={settings}
+          permission={chat.permission}
+          onSettingsChange={applySettingsPatch}
+          onPermissionRespond={chat.respondPermission}
+          onSend={(text) => void chat.send(text)}
+          onStop={chat.stop}
+          landing={sessions.activeId === null}
+          pendingProject={sessions.pendingProject}
+          onPickProject={sessions.setPendingProject}
+          recentProjects={sessions.recentProjects}
+          onOpenProjectDir={() => void sessions.pickProjectDir()}
+        />
+      }
+      settings={settingsView}
+    />
   );
 }

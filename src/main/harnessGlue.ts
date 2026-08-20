@@ -44,7 +44,12 @@ import { getMainWindow } from "./appWindow";
 import { broadcastTheme, setTheme } from "./theme";
 import { logger } from "./logger";
 import { broadcastSessions } from "./sessionEvents";
-import { createTaskRuntimeBridge, resolveTaskWorkspaceRoot, taskPluginsForRoute } from "./taskRuntimeBridge";
+import {
+  createTaskRuntimeBridge,
+  resolveTaskWorkspaceRoot,
+  taskPluginsForRoute,
+  type TaskRuntimeBridge,
+} from "./taskRuntimeBridge";
 
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -131,10 +136,20 @@ export async function composePlugins(
 /** Task runtime bridge: opens tasks (baseline/isolated), holds each task's
  *  TaskRuntimePort and injects plugin-task middleware into route-scoped
  *  sessions (see taskRuntimeBridge.ts — electron-free by construction). */
+const taskStorageDir = path.join(app.getPath("userData"), "tasks");
 const taskBridge = createTaskRuntimeBridge({
-  taskStorageDir: path.join(app.getPath("userData"), "tasks"),
+  taskStorageDir,
   log: (level, msg, data) => logger[level]("task bridge", { msg, data: String(data) }),
 });
+
+/** Bridge + storage dir for the host's task-runtime IPC composition (Task 12). */
+export function getTaskBridge(): TaskRuntimeBridge {
+  return taskBridge;
+}
+
+export function getTaskStorageDir(): string {
+  return taskStorageDir;
+}
 
 const runtime = new HarnessRuntime({
   settings: () => settings,

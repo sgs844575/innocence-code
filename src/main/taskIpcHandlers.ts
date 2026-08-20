@@ -30,9 +30,9 @@ import type {
 } from "../shared/taskIpc";
 
 // ---------------------------------------------------------------------------
-// Command port — the mutation surface the handlers delegate to.
-// Task 13 will formalize this as TaskCommandService; until then this
-// plain-object interface is the test seam.
+// Command port — the mutation surface the handlers delegate to. Task 13
+// formalizes the full TaskCommandService; taskCommandService.ts is the real
+// (bridge-backed) implementation composed today, fakes remain the test seam.
 // ---------------------------------------------------------------------------
 
 export interface TaskCommandPort {
@@ -52,6 +52,8 @@ export interface TaskCommandPort {
   createCheckpoint(taskId: string, routeId: string): Promise<TaskCheckpointResponse>;
   changeTaskStatus(taskId: string, status: string): Promise<void>;
   validate(taskId: string, routeId: string): Promise<ValidationResult>;
+  /** Re-runs runtime recovery (worktree/replay retry entry point). */
+  recoverTask(taskId: string): Promise<TaskGetResponse>;
   /** Append a synthetic event to the task log (used for validationOverride). */
   appendEvent(taskId: string, event: import("@innocencecode/task-core").TaskEvent): Promise<void>;
 }
@@ -103,15 +105,19 @@ function gateBlocks(gate: CompletionGate): boolean {
 export interface TaskIpcHandlersDeps {
   bridge: TaskRuntimeBridge;
   commandPort: TaskCommandPort;
+  /** Optional real-branch resolver (TitleBar chip; null = unknown → hidden). */
+  resolveGitBranch?: (taskId: string) => Promise<string | null>;
 }
 
 export class TaskIpcHandlers {
   private readonly bridge: TaskRuntimeBridge;
   private readonly commandPort: TaskCommandPort;
+  private readonly resolveGitBranch?: (taskId: string) => Promise<string | null>;
 
   constructor(deps: TaskIpcHandlersDeps) {
     this.bridge = deps.bridge;
     this.commandPort = deps.commandPort;
+    this.resolveGitBranch = deps.resolveGitBranch;
   }
 
   // -- Validation helpers --------------------------------------------------
@@ -142,10 +148,13 @@ export class TaskIpcHandlers {
     const state = await this.resolveTask(request.taskId);
     return {
       taskId: state.taskId,
+      sessionId: state.sessionId,
       status: state.status,
       activeRouteId: state.activeRouteId,
       mode: state.mode,
       workspaceKind: state.workspaceKind,
+      version: state.lastCommittedEventId ?? undefined,
+      gitBranch: this.resolveGitBranch ? await this.resolveGitBranch(request.taskId) : null,
     };
   }
 
@@ -330,6 +339,16 @@ export class TaskIpcHandlers {
       }
     }
     return { warnings };
+  }
+
+  /** Recovery retry (Task 12): re-runs the bridge's recoverTask and returns
+   *  the refreshed task view (real branch included when resolvable). */
+  async recover(request: { taskId: string }): Promise<TaskGetResponse> {
+    const recovered = await this.commandPort.recoverTask(request.taskId);
+    if (this.resolveGitBranch) {
+      recovered.gitBranch = await this.resolveGitBranch(request.taskId);
+    }
+    return recovered;
   }
 
   // -- Internal helpers ----------------------------------------------------
