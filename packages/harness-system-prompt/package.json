@@ -1,0 +1,26 @@
+{
+  "name": "@innocencecode/harness-system-prompt",
+  "version": "0.1.0",
+  "description": "InnocenceCode system-prompt spine service: base + ordered sections + skills index assembly",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@innocencecode/harness-skills": "^0.1.0",
+    "@innocencecode/kernel": "^0.1.0"
+  },
+  "license": "AGPL-3.0-only",
+  "author": "逆流无邪",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sgs844575/innocence-code.git",
+    "directory": "packages/harness-system-prompt"
+  }
+}
