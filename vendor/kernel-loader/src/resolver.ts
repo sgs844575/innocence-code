@@ -37,6 +37,11 @@ export function createFileModuleResolver(options: FileModuleResolverOptions): Fi
   return {
     version: "v2",
     import(specifier: string): Promise<unknown> {
+      // A specifier must stay a plain directory name below a root; reject it
+      // as a promise so callers awaiting import() observe the failure.
+      if (!isPlainSpecifier(specifier)) {
+        return Promise.reject(new Error(`invalid plugin specifier: ${specifier}`));
+      }
       const cached = cache.get(specifier);
       if (cached) return cached;
       // Cache the in-flight load itself so concurrent imports of one
@@ -57,6 +62,17 @@ function normalizeRoots(roots: ReadonlyArray<string | URL>): string[] {
     throw new Error("file module resolver requires at least one root");
   }
   return roots.map((root) => (typeof root === "string" ? resolve(root) : fileURLToPath(root)));
+}
+
+/** Whether the specifier is a plain directory name that cannot escape a root when joined. */
+function isPlainSpecifier(specifier: string): boolean {
+  return (
+    specifier !== "" &&
+    !specifier.startsWith(".") &&
+    !specifier.includes("/") &&
+    !specifier.includes("\\") &&
+    !/^[a-zA-Z]:/.test(specifier)
+  );
 }
 
 /** Probe the roots in order for the specifier's entry-point file. */

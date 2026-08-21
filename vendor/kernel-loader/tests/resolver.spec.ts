@@ -63,6 +63,13 @@ describe("file module resolver", () => {
     await expect(resolver.import("missing")).rejects.toThrow(/plugin not found: missing \(searched 2 roots\)/);
   });
 
+  it("rejects path-like specifiers", async () => {
+    const resolver = createFileModuleResolver({ roots: [join(tempRoot!, "user")] });
+    for (const bad of ["../escape", "a/b", "a\\b", "..", "", "C:\\x\\y"]) {
+      await expect(resolver.import(bad)).rejects.toThrow(/invalid plugin specifier/);
+    }
+  });
+
   it("rejects empty roots at construction", () => {
     expect(() => createFileModuleResolver({ roots: [] })).toThrow(/at least one root/);
   });
