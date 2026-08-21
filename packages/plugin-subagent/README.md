@@ -16,7 +16,7 @@
 
 | 导出 | 说明 |
 |---|---|
-| `subagentPlugin` | `HarnessPlugin`（name `plugin-subagent`），激活时注册 Task 工具 |
+| `SubagentPlugin` | 内核原生插件（name `subagent`），`apply` 时经脊柱 tools 服务注册 Task 工具 |
 | `taskTool` | `Task` 工具本体（`Tool`），可单独注册 |
 | `AgentType` | `"explore" \| "general"` |
 
@@ -25,9 +25,9 @@ Task 工具参数：`agentType`（必填）、`prompt`（必填）、`descriptio
 ## 使用
 
 ```ts
-import { subagentPlugin } from "@innocencecode/plugin-subagent";
+import { SubagentPlugin } from "@innocencecode/plugin-subagent";
 
-plugins.push(subagentPlugin); // 宿主接线见 src/main/harnessGlue.ts（插件开关 id: subagent，依赖 fs + shell）
+plugins.push(SubagentPlugin); // 宿主接线见 src/main/harnessGlue.ts（插件开关 id: subagent，依赖 fs + shell）
 ```
 
 模型侧的效果（无需宿主额外代码）：

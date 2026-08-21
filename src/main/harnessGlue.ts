@@ -29,7 +29,7 @@ import {
 } from "@innocencecode/harness-core";
 import { FsPlugin } from "@innocencecode/tools-fs";
 import { ShellPlugin } from "@innocencecode/tools-shell";
-import { subagentPlugin } from "@innocencecode/plugin-subagent";
+import { SubagentPlugin } from "@innocencecode/plugin-subagent";
 import { createSkillsPlugin } from "@innocencecode/plugin-skills";
 import { createMcpPlugin } from "@innocencecode/plugin-mcp";
 import { TodoPlugin } from "@innocencecode/tools-todo";
@@ -84,8 +84,8 @@ function projectRulesPlugin(config: ProjectPermissionConfig | undefined): Harnes
 
 /** 声明式插件关系表（spec B 3.4）：id → 依赖，core = 恒开不可关。
  *  组合根只声明关系与实例化，启停判定（两级覆盖/依赖连带）全部交给
- *  resolvePluginSet。fs/shell/skills/mcp/todo 实例为内核原生插件，name 与
- *  描述符 id 同名。 */
+ *  resolvePluginSet。fs/shell/subagent/skills/mcp/todo 实例为内核原生插
+ *  件，name 与描述符 id 同名。 */
 export const PLUGIN_DESCRIPTORS: readonly PluginDescriptor[] = [
   { id: "fs", dependencies: [], core: true },
   { id: "shell", dependencies: [], core: true },
@@ -98,10 +98,10 @@ export const PLUGIN_DESCRIPTORS: readonly PluginDescriptor[] = [
 /** Host composition root: one workspace's plugin set — workspace tools,
  *  subagents, project permission rules, project skills, MCP servers and the
  *  session todo tool. Declarative assembly: project plugins.yml + user
- *  toggles → resolvePluginSet → instantiate by active id. fs/shell/skills/
- *  mcp/todo are kernel-native plugin factories (static import; the
- *  disk-loading switch is T11); the subagent and project-rules plugins
- *  remain legacy plugins the session kernel adapts. fs/shell are core and
+ *  toggles → resolvePluginSet → instantiate by active id. fs/shell/subagent/
+ *  skills/mcp/todo are kernel-native plugins (static import; the
+ *  disk-loading switch is T11); the project-rules plugin remains a legacy
+ *  plugin the session kernel adapts. fs/shell are core and
  *  the project-rules plugin is not toggleable, so both are always present;
  *  skipped plugins and resolver warnings surface through the logger.
  *  Exported for the integration test (real yml + real resolver, no
@@ -129,7 +129,7 @@ export async function composePlugins(
   if (active.has("shell")) plugins.push(ShellPlugin);
   // 项目权限规则在关系模型之外（spec 非目标：不可关闭），恒定注入。
   plugins.push(projectRulesPlugin(config.permissions));
-  if (active.has("subagent")) plugins.push(subagentPlugin);
+  if (active.has("subagent")) plugins.push(SubagentPlugin);
   if (active.has("skills")) {
     plugins.push(createSkillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }));
   }

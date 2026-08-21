@@ -18,6 +18,7 @@ const PLUGINS = [
   { dir: "packages/tools-todo", id: "todo" },
   { dir: "packages/plugin-skills", id: "skills" },
   { dir: "packages/plugin-mcp", id: "mcp" },
+  { dir: "packages/plugin-subagent", id: "subagent" },
 ];
 const STAGING = "build/dist/resources";
 

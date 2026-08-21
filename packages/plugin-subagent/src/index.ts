@@ -1,6 +1,6 @@
+import type { Context } from "@innocencecode/kernel";
 import {
   sha256Hex,
-  type HarnessPlugin,
   type Tool,
   type ToolContext,
 } from "@innocencecode/harness-core";
@@ -84,9 +84,11 @@ export const taskTool: Tool = {
   },
 };
 
-export const subagentPlugin: HarnessPlugin = {
-  name: "plugin-subagent",
-  activate(ctx) {
-    ctx.registerTool(taskTool);
+/** Subagent plugin — registers the Task tool. */
+export const SubagentPlugin = {
+  name: "subagent",
+  apply(ctx: Context) {
+    ctx.tools.register(taskTool);
   },
 };
+export default SubagentPlugin;

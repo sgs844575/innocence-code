@@ -42,7 +42,7 @@ describe("composePlugins (declarative composition root)", () => {
     expect(names).toContain("todo");
     expect(names).toContain("skills"); // 未关的开关全部在场
     expect(names).not.toContain("mcp");
-    expect(names).not.toContain("plugin-subagent");
+    expect(names).not.toContain("subagent");
   });
 
   it("skills:false omits the skills plugin; core stays on", async () => {
@@ -57,11 +57,11 @@ describe("composePlugins (declarative composition root)", () => {
     const ws = await tempWorkspace({});
     const names = (await composePlugins(ws)).map((p) => p.name);
     // 描述符 id → 插件实例名；新增描述符必须同步此映射与实例化分支。
-    // fs/shell/skills/mcp/todo 为内核原生插件，name 与描述符 id 同名。
+    // fs/shell/subagent/skills/mcp/todo 为内核原生插件，name 与描述符 id 同名。
     const nameById: Record<string, string> = {
       fs: "fs",
       shell: "shell",
-      subagent: "plugin-subagent",
+      subagent: "subagent",
       skills: "skills",
       mcp: "mcp",
       todo: "todo",

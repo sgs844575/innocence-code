@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
 import {
   AgentSession,
-  PluginRegistry,
   createExecutionScope,
   sha256Hex,
   type Delta,
@@ -12,7 +13,7 @@ import {
   type Tool,
   type ToolExecutionMiddleware,
 } from "@innocencecode/harness-core";
-import { subagentPlugin, taskTool } from "../src";
+import { SubagentPlugin, taskTool } from "../src";
 
 describe("Task tool via session spawner", () => {
   it("spawns a child session that runs tools and reports back to the parent", async () => {
@@ -68,9 +69,9 @@ describe("Task tool via session spawner", () => {
           name: "wire",
           activate(ctx) {
             ctx.registerTool(peekTool);
-            ctx.registerTool(taskTool);
           },
         },
+        SubagentPlugin,
       ],
       provider,
       workspaceRoot: "D:/tmp",
@@ -162,7 +163,6 @@ describe("Task tool via session spawner", () => {
           name: "wire",
           activate(ctx) {
             ctx.registerTool(peekTool);
-            ctx.registerTool(taskTool);
             ctx.registerMessageProcessor({
               name: "mark",
               order: 0,
@@ -172,6 +172,7 @@ describe("Task tool via session spawner", () => {
             });
           },
         },
+        SubagentPlugin,
       ],
       provider,
       workspaceRoot: "D:/tmp",
@@ -227,7 +228,7 @@ describe("Task tool via session spawner", () => {
       },
     };
     const session = await AgentSession.create({
-      plugins: [{ name: "wire", activate(ctx) { ctx.registerTool(taskTool); } }],
+      plugins: [SubagentPlugin],
       provider,
       workspaceRoot: "D:/tmp",
       permission: { mode: "auto", decider: { ask: async () => "deny" } },
@@ -261,10 +262,10 @@ describe("Task tool via session spawner", () => {
     };
     const session = await AgentSession.create({
       plugins: [
+        SubagentPlugin,
         {
           name: "wire",
           activate(ctx) {
-            ctx.registerTool(taskTool);
             ctx.registerMessageProcessor({
               name: "poison-guard",
               order: 0,
@@ -334,14 +335,21 @@ describe("taskTool persistence policy", () => {
   });
 });
 
-describe("subagentPlugin", () => {
+/** Mounts the plugin on a bare kernel context (tools spine service only). */
+async function mountSubagent(): Promise<Context> {
+  const ctx = new Context();
+  await ctx.plugin(ToolsPlugin);
+  await ctx.plugin(SubagentPlugin);
+  return ctx;
+}
+
+describe("SubagentPlugin", () => {
   it("registers the Task tool with sane metadata", async () => {
-    const reg = new PluginRegistry();
-    await reg.load([subagentPlugin]);
-    expect(reg.tools.has("Task")).toBe(true);
-    expect(reg.tools.get("Task")!.readOnly).toBe(false);
+    const ctx = await mountSubagent();
+    expect(ctx.tools.get("Task")).toBeDefined();
+    expect(ctx.tools.get("Task")!.readOnly).toBe(false);
     // The child session audits its own tool effects — the parent must not
     // double-count them (P1 plugin-task keys on this value).
-    expect(reg.tools.get("Task")).toMatchObject({ sideEffect: "delegated" });
+    expect(ctx.tools.get("Task")).toMatchObject({ sideEffect: "delegated" });
   });
 });
