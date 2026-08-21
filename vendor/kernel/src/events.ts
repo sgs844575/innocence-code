@@ -7,7 +7,7 @@ import type { Fiber } from "./fiber";
  * the catalog through declaration merging:
  *
  * ```ts
- * declare module "@innocencecode/plugin-kernel" {
+ * declare module "@innocencecode/kernel" {
  *   interface Events {
  *     "my/event"(payload: string): void
  *   }

@@ -6,7 +6,8 @@
   "description": "AI coding assistant desktop client",
   "main": ".vite/build/main.js",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "vendor/*"
   ],
   "scripts": {
     "start": "electron-forge start",

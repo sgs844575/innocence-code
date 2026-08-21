@@ -1,6 +1,6 @@
-import type { Context } from "../context";
-import type { Fiber } from "../fiber";
-import type { ObjectPlugin, Plugin } from "../registry";
+import type { Context } from "@innocencecode/kernel";
+import type { Fiber } from "@innocencecode/kernel";
+import type { ObjectPlugin, Plugin } from "@innocencecode/kernel";
 import type { EntryCreateOptions, LoaderEntry } from "./tree";
 import { LoaderTree } from "./tree";
 
@@ -20,7 +20,7 @@ export interface ModuleResolver {
 /** Builtin names are addressed through this prefix in entry options. */
 const builtinPrefix = "kernel:";
 
-declare module "@innocencecode/plugin-kernel" {
+declare module "@innocencecode/kernel" {
   interface Context {
     /**
      * Config-tree loader service. Typed as always present; the accessor

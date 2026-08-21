@@ -1,8 +1,10 @@
-# plugin-kernel — 自研插件内核（context / fiber / effects / events）
+# kernel — 自研插件内核（context / fiber / effects / events）
 
-`@innocencecode/plugin-kernel` 是一套独立的通用插件运行时内核：以 `Context`（根容器）+ `Fiber`（插件生命周期状态机）+
+`@innocencecode/kernel` 是一套独立的通用插件运行时内核：以 `Context`（根容器）+ `Fiber`（插件生命周期状态机）+
 `Registry`（运行时表）+ `EventBus`（同步类型化事件总线）+ `ServiceTable`（具名服务表）构成一棵"上下文树"。
-每个插件运行在自己的 fiber 中，用 effect 收集清理函数，卸载时逆序回卷。包内另含一个配置树加载器（`LoaderService`，内部扩展层，暂未从入口导出）。
+每个插件运行在自己的 fiber 中，用 effect 收集清理函数，卸载时逆序回卷。
+
+配置树加载器在 `@innocencecode/kernel-loader`，YAML 条目内建在 `@innocencecode/kernel-include`。
 
 > 与 `harness-core` 的关系：`harness-core` 的 `PluginRegistry` 是当前 Agent harness 的注册面；
 > 本包是"万物皆插件"重构中自研的更底层插件内核，当前独立演进，尚未接入 Electron 宿主。
@@ -39,7 +41,7 @@
 ## 使用
 
 ```ts
-import { Context, toAwaitable } from "@innocencecode/plugin-kernel";
+import { Context, toAwaitable } from "@innocencecode/kernel";
 
 const root = Context.createRoot({ name: "host" });
 
@@ -68,7 +70,7 @@ await fiber.dispose();                              // 逆序回卷全部 dispos
 ## 测试
 
 ```bash
-npx vitest run packages/plugin-kernel
+npx vitest run vendor/kernel
 ```
 
-覆盖：内核语义（`kernel-semantics.spec.ts`）、加载器组合（`loader-composition.spec.ts`）、作用域生命周期（`scope-lifecycle.spec.ts`）。
+覆盖：内核语义（`kernel-semantics.spec.ts`）、作用域生命周期（`scope-lifecycle.spec.ts`）、服务发布守卫（`services.spec.ts`）。

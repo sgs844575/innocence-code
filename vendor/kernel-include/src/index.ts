@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import type { Context } from "./context";
-import type { EntryCreateOptions } from "./loader";
-import type { ObjectPlugin } from "./registry";
+import type { Context } from "@innocencecode/kernel";
+import type { EntryCreateOptions } from "@innocencecode/kernel-loader";
+import type { ObjectPlugin } from "@innocencecode/kernel";
 
 /** Config accepted by the include builtin. */
 export interface IncludeConfig {

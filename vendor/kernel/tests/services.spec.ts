@@ -1,4 +1,5 @@
-import { Context, KernelError, Loader } from "@innocencecode/plugin-kernel";
+import { Context, KernelError } from "@innocencecode/kernel";
+import { Loader } from "@innocencecode/kernel-loader";
 import { describe, expect, it } from "vitest";
 
 describe("service publish guards", () => {

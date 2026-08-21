@@ -1,4 +1,6 @@
-import { Context, FiberState, Include, Loader, LoaderEntry } from "@innocencecode/plugin-kernel";
+import { Context, FiberState } from "@innocencecode/kernel";
+import { Loader, LoaderEntry } from "@innocencecode/kernel-loader";
+import { Include } from "@innocencecode/kernel-include";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

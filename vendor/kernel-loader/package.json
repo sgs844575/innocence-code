@@ -1,7 +1,7 @@
 {
-  "name": "@innocencecode/plugin-kernel",
+  "name": "@innocencecode/kernel-loader",
   "version": "0.1.0",
-  "description": "Self-built plugin kernel: context, fibers, effects, events",
+  "description": "Config tree loader for the plugin kernel",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -10,7 +10,7 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "yaml": "^2.9.0"
+    "@innocencecode/kernel": "^0.1.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

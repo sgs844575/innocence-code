@@ -6,10 +6,6 @@ export * from "./events";
 export * from "./errors";
 /** Fiber state machine, effects, and kernel errors. */
 export * from "./fiber";
-/** Config-tree loader: entry trees, the loader service, and the Loader plugin. */
-export * from "./loader";
-/** YAML entry-list include builtin for the loader. */
-export * from "./include";
 /** Plugin shapes and the plugin runtime registry. */
 export * from "./registry";
 /** Tree-wide named service table behind `ctx.provide`. */
