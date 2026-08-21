@@ -95,7 +95,14 @@ export {
   findSplitIndex,
   type CompactionOptions,
 } from "./context-manager";
-export { runLoop, DEFAULT_MAX_TURNS, DEFAULT_TOOL_TIMEOUT_MS, type LoopOptions, type LoopResult } from "./loop";
+// Loop implementation lives in the agent-loop spine (loop.ts removed).
+export {
+  runLoop,
+  DEFAULT_MAX_TURNS,
+  DEFAULT_TOOL_TIMEOUT_MS,
+  type LoopOptions,
+  type LoopResult,
+} from "@innocencecode/harness-agent-loop";
 export { AgentSession, type AgentSessionOptions, type RunSummary } from "./session";
 export {
   bindSubagentSpawner,

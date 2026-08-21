@@ -1,26 +1,35 @@
-import { ContextManager } from "./context-manager";
+// AgentSession: the host-facing conversational session. The shell API is
+// unchanged; internally the session is one kernel Context carrying the spine
+// services (tools/permissions/providers/skills/session/system-prompt/agents/
+// spawner) with the HarnessPluginAdapter bridging legacy HarnessPlugins onto
+// them (see session-kernel.ts / session-adapter.ts / session-registry-view.ts).
+import {
+  createRunLoop,
+  DEFAULT_MAX_TURNS,
+  DEFAULT_TOOL_TIMEOUT_MS,
+  type RunLoopFunction,
+} from "@innocencecode/harness-agent-loop";
 import {
   nextRouteId,
   nextSessionId,
   type ExecutionScopeIdentity,
 } from "./execution-scope";
 import type { HarnessEventListener } from "./events";
-import { runLoop, DEFAULT_MAX_TURNS, DEFAULT_TOOL_TIMEOUT_MS } from "./loop";
-import {
+import type {
+  PermissionAuditor,
+  PermissionDecider,
   PermissionEngine,
-  type PermissionAuditor,
-  type PermissionDecider,
-  type ResourceValidator,
+  ResourceValidator,
 } from "./permission";
-import { rulesFromConfig, type ProjectPermissionConfig } from "./policy-config";
+import type { ProjectPermissionConfig } from "./policy-config";
 import type { PermissionMode } from "./policy";
-import { processMessage } from "./processor";
-import { PluginRegistry, type HarnessPlugin, type Logger } from "./registry";
 import type { Provider } from "./provider";
+import type { HarnessPlugin, Logger } from "./registry";
+import { mountSessionKernel, type SessionKernel } from "./session-kernel";
+import type { SessionRegistryView } from "./session-registry-view";
+import { createSpawnerChildSession, makeSessionSpawner } from "./session-spawner";
 import { textMessage, type Message, type MessagePart } from "./types";
-import type { SubagentOptions, SubagentResult, SubagentSpawner } from "./subagent";
-
-const SUBAGENT_CONCURRENCY = 3;
+import type { SubagentSpawner } from "./subagent";
 
 export interface AgentSessionOptions {
   plugins: HarnessPlugin[];
@@ -71,85 +80,79 @@ function canonicalUserMessage(input: string | Message): Message {
 }
 
 /**
- * Ties the registry, provider, permission engine, compactor and event stream
- * into one conversational session. Hosts (Electron, CLI, tests) subscribe to
- * events and inject the permission decider.
+ * Ties the kernel context, spine services, provider, permission engine,
+ * compactor and event stream into one conversational session. Hosts
+ * (Electron, CLI, tests) subscribe to events and inject the permission
+ * decider.
  */
 export class AgentSession {
-  readonly registry: PluginRegistry;
+  readonly registry: SessionRegistryView;
   readonly permission: PermissionEngine;
   readonly provider: Provider;
   readonly workspaceRoot: string;
   readonly sessionId: string;
-  readonly history: Message[] = [];
+  readonly history: Message[];
   readonly options: AgentSessionOptions;
 
-  private baseSystemPrompt: string;
-  private compactor: ContextManager;
-  private listeners = new Set<HarnessEventListener>();
+  private readonly kernel: SessionKernel;
+  private readonly loop: RunLoopFunction;
+  private readonly listeners = new Set<HarnessEventListener>();
+  private readonly logger: Logger;
   private abort: AbortController | undefined;
   private activeRun: Promise<unknown> | undefined;
-  private logger: Logger;
-  private activeSubagents = 0;
   /** Set as soon as dispose() starts: a released session never runs again. */
   private disposed = false;
+  private disposeInFlight: Promise<void> | undefined;
+  private disposeSettled = false;
 
-  private constructor(
-    options: AgentSessionOptions,
-    registry: PluginRegistry,
-    provider: Provider,
-  ) {
+  private constructor(options: AgentSessionOptions, kernel: SessionKernel, sessionId: string) {
     this.options = options;
-    this.registry = registry;
-    this.provider = provider;
+    this.kernel = kernel;
+    this.registry = kernel.view;
+    this.permission = kernel.services.permissions.engine;
+    this.provider = kernel.provider;
     this.workspaceRoot = options.workspaceRoot;
-    this.sessionId = nextSessionId();
-    this.baseSystemPrompt = options.systemPrompt ?? "";
+    this.sessionId = sessionId;
+    this.history = kernel.services.session.history;
     this.logger = options.logger ?? noopLogger;
-    this.permission =
-      options.permission.engine ??
-      new PermissionEngine({
-        mode: options.permission.mode,
-        decider: options.permission.decider,
-        workspaceRoot: options.workspaceRoot,
-        validateResource: options.permission.validateResource,
-        audit: options.permission.audit,
-      });
-    this.compactor = new ContextManager(options.compaction ?? {});
+    this.spawner = makeSessionSpawner(kernel.services.spawner, sessionId, kernel.view);
+    this.loop = createRunLoop({
+      tools: kernel.services.tools,
+      permission: this.permission,
+      provider: this.provider,
+      history: this.history,
+      systemPrompt: () => this.buildSystemPrompt(),
+      workspaceRoot: this.workspaceRoot,
+      onEvent: (event) => kernel.services.session.emit(event),
+      compactor: kernel.services.session.compactor,
+      spawner: this.spawner,
+      maxTurns: options.maxTurns ?? DEFAULT_MAX_TURNS,
+      toolTimeoutMs: options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+    });
+    // HarnessEvent traffic flows over the kernel bus: the session service
+    // emits, this root-level subscription fans out to the on() listeners and
+    // keeps the error-to-logger semantics.
+    kernel.ctx.on("harness/event", (event) => {
+      for (const listener of this.listeners) listener(event);
+      if (event.type === "error") this.logger("error", event.message);
+    });
   }
 
   static async create(options: AgentSessionOptions): Promise<AgentSession> {
-    const registry = new PluginRegistry();
-    const logger = options.logger ?? noopLogger;
-    await registry.load(options.plugins, logger);
-    try {
-      const provider =
-        options.provider ?? registry.providers.get(options.providerId ?? "");
-      if (!provider) {
-        throw new Error(
-          options.providerId
-            ? `provider not found: ${options.providerId}`
-            : "no provider configured",
-        );
-      }
-      const session = new AgentSession(options, registry, provider);
-      if (!options.permission.engine) {
-        session.permission.addRules(registry.policyRules);
-        if (options.permission.projectConfig) {
-          session.permission.addRules(rulesFromConfig(options.permission.projectConfig));
-        }
-      }
-      return session;
-    } catch (error) {
-      // Construction failed after plugins activated: release their resources
-      // before surfacing the error, so the failure path never leaks them.
-      try {
-        await registry.dispose();
-      } catch (disposeError) {
-        logger("error", "registry dispose failed during session create rollback", disposeError);
-      }
-      throw error;
-    }
+    const sessionId = nextSessionId();
+    const kernel = await mountSessionKernel({
+      sessionId,
+      plugins: options.plugins,
+      provider: options.provider,
+      providerId: options.providerId,
+      workspaceRoot: options.workspaceRoot,
+      systemPrompt: options.systemPrompt,
+      permission: options.permission,
+      compaction: options.compaction,
+      logger: options.logger ?? noopLogger,
+      spawnerSessionFactory: (materials) => createSpawnerChildSession(options, materials),
+    });
+    return new AgentSession(options, kernel, sessionId);
   }
 
   on(listener: HarnessEventListener): () => void {
@@ -158,28 +161,23 @@ export class AgentSession {
   }
 
   setSystemPrompt(prompt: string): void {
-    this.baseSystemPrompt = prompt;
+    this.kernel.services.systemPrompt.setBase(prompt);
   }
 
   setPermissionMode(mode: PermissionMode): void {
     this.permission.setMode(mode);
   }
 
-  /** Skills index table appended to the system prompt (descriptions only). */
+  /** Base prompt + registered sections + the skills index (descriptions only). */
   private buildSystemPrompt(): string {
-    const skills = [...this.registry.skills.values()];
-    if (skills.length === 0) return this.baseSystemPrompt;
-    const index = skills
-      .map((s) => `- ${s.name}: ${s.description}`)
-      .join("\n");
-    return `${this.baseSystemPrompt}\n\n可用技能（用户以 /名称 调用；相关时你也可以建议）：\n${index}`;
+    return this.kernel.services.systemPrompt.build(this.kernel.services.skills.all());
   }
 
   /** Expands "/skillname ..." input by loading the skill body as context. */
   private async expandUserText(text: string): Promise<string> {
     const match = /^\/([a-zA-Z0-9_-]+)\s*([\s\S]*)$/.exec(text.trim());
     if (!match) return text;
-    const skill = this.registry.skills.get(match[1]);
+    const skill = this.kernel.services.skills.get(match[1]);
     if (!skill) return text;
     const body = await skill.loadBody();
     return `[已加载技能 ${skill.name}]\n${body}\n\n[用户输入]\n${match[2]}`;
@@ -190,7 +188,7 @@ export class AgentSession {
    * parts change; every other part is kept as-is, in order.
    */
   private async expandUserMessage(message: Message): Promise<Message> {
-    if (this.registry.skills.size === 0) return message;
+    if (this.kernel.services.skills.all().length === 0) return message;
     const parts: MessagePart[] = [];
     for (const part of message.parts) {
       if (part.type === "text") {
@@ -236,8 +234,8 @@ export class AgentSession {
     // The run promise is created and published to activeRun synchronously,
     // BEFORE the first await: a dispose() racing the entry phase (skill
     // expansion / message processing) must wait for this run to settle
-    // instead of releasing the registry underneath it.
-    const running = this.executeRun(canonical, runScope, abort, sessionId);
+    // instead of releasing the kernel underneath it.
+    const running = this.executeRun(canonical, runScope, abort);
     this.activeRun = running;
     try {
       return await running;
@@ -252,31 +250,13 @@ export class AgentSession {
     canonical: Message,
     runScope: ExecutionScopeIdentity,
     abort: AbortController,
-    sessionId: string,
   ): Promise<RunSummary> {
     const expanded = await this.expandUserMessage(canonical);
-    const processed = await processMessage(expanded, this.registry.messageProcessors, {
-      signal: abort.signal,
-      provider: this.provider,
-      scope: { sessionId },
-    });
-    return runLoop(this.history, processed, {
-      provider: this.provider,
-      registry: this.registry,
-      permission: this.permission,
-      systemPrompt: this.buildSystemPrompt(),
-      workspaceRoot: this.workspaceRoot,
-      onEvent: (e) => {
-        for (const l of this.listeners) l(e);
-        if (e.type === "error") this.logger("error", e.message);
-      },
-      compactor: this.compactor,
-      signal: abort.signal,
-      maxTurns: this.options.maxTurns ?? DEFAULT_MAX_TURNS,
-      toolTimeoutMs: this.options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
-      spawner: this.spawner,
-      scope: runScope,
-    });
+    const processed = await this.kernel.services.session.processUserInput(
+      expanded,
+      abort.signal,
+    );
+    return this.loop(processed, { signal: abort.signal, scope: runScope });
   }
 
   stop(): void {
@@ -284,18 +264,49 @@ export class AgentSession {
   }
 
   /**
-   * Aborts the active run, waits for it to settle, then disposes all plugins.
-   * The disposed flag flips first, so run() calls racing this teardown reject
-   * with 会话已释放 instead of driving a released registry. Idempotent:
-   * repeat calls join the same cleanup (registry disposal deduplicates).
+   * Aborts the active run, waits for it to settle, then disposes the kernel
+   * context (every plugin and effect, reverse activation order). The
+   * disposed flag flips first, so run() calls racing this teardown reject
+   * with 会话已释放 instead of driving a released kernel. Idempotent:
+   * repeat calls join the same cleanup and never replay its outcome.
    */
   async dispose(): Promise<void> {
+    if (this.disposeSettled) return;
+    if (this.disposeInFlight) return this.disposeInFlight;
     this.disposed = true;
     this.abort?.abort();
-    if (this.activeRun) {
-      await this.activeRun.catch(() => {});
+    const active = this.activeRun;
+    this.disposeInFlight = this.settleKernel(active);
+    try {
+      await this.disposeInFlight;
+    } finally {
+      this.disposeInFlight = undefined;
+      this.disposeSettled = true;
     }
-    await this.registry.dispose();
+  }
+
+  /**
+   * Unwinds the kernel and surfaces plugin dispose failures with the legacy
+   * registry's shape (AggregateError, `plugin dispose failed: ...`) so hosts
+   * observing session.dispose() rejections keep their error-level handling.
+   */
+  private async settleKernel(active: Promise<unknown> | undefined): Promise<void> {
+    if (active) await active.catch(() => {});
+    const errors: unknown[] = [];
+    try {
+      await this.kernel.ctx.fiber.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+    for (const fiber of this.kernel.pluginFibers) {
+      errors.push(...fiber.unwindErrors);
+    }
+    if (errors.length > 0) {
+      const detail = errors
+        .map((error) => (error instanceof Error ? error.message : String(error)))
+        .join("; ");
+      throw new AggregateError(errors, `plugin dispose failed: ${detail}`);
+    }
   }
 
   /**
@@ -307,71 +318,6 @@ export class AgentSession {
    * parentInvocationId. Concurrency-capped; the child session is disposed in
    * a finally once its run settles.
    */
-  readonly spawner: SubagentSpawner = {
-    run: async (options: SubagentOptions): Promise<SubagentResult> => {
-      if (this.activeSubagents >= SUBAGENT_CONCURRENCY) {
-        throw new Error(`子代理并发已达上限（${SUBAGENT_CONCURRENCY}），请稍后再派生`);
-      }
-      this.activeSubagents += 1;
-      try {
-        const allTools = [...this.registry.tools.values()].filter((t) => t.name !== "Task");
-        const selected =
-          options.tools === "all"
-            ? allTools
-            : options.tools === "readOnly"
-              ? allTools.filter((t) => t.readOnly)
-              : allTools.filter((t) => options.tools.includes(t.name));
-        const toolsPlugin: HarnessPlugin = {
-          name: "subagent-tools",
-          activate: (ctx) => {
-            for (const tool of selected) ctx.registerTool(tool);
-          },
-        };
-        // Same registration set as the parent: identical processor and
-        // middleware objects, in the parent's registration order.
-        const inheritPlugin: HarnessPlugin = {
-          name: "subagent-inherit",
-          activate: (ctx) => {
-            for (const processor of this.registry.messageProcessors) {
-              ctx.registerMessageProcessor(processor);
-            }
-            for (const middleware of this.registry.toolMiddlewares) {
-              ctx.registerToolMiddleware(middleware);
-            }
-          },
-        };
-        const parent = options.parentScope;
-        const child = await AgentSession.create({
-          plugins: [toolsPlugin, inheritPlugin],
-          provider: this.provider,
-          workspaceRoot: this.workspaceRoot,
-          systemPrompt: options.systemPrompt,
-          permission: {
-            mode: this.permission.getMode(),
-            decider: this.options.permission.decider,
-            engine: this.permission, // shared rules, grants and mode
-          },
-          maxTurns: options.maxTurns ?? 20,
-          logger: this.logger,
-        });
-        try {
-          const result = await child.run(options.prompt, options.signal, {
-            sessionId: parent?.sessionId ?? this.sessionId,
-            taskId: parent?.taskId,
-            routeId: parent?.routeId ?? nextRouteId(),
-            parentInvocationId: parent?.invocationId,
-          });
-          return { finalText: result.finalText, turns: result.turns };
-        } finally {
-          // A dispose failure must never mask the child run's own outcome —
-          // log and swallow it (create's rollback path does the same).
-          await child.dispose().catch((disposeError) => {
-            this.logger("error", "subagent child dispose failed", disposeError);
-          });
-        }
-      } finally {
-        this.activeSubagents -= 1;
-      }
-    },
-  };
+  readonly spawner: SubagentSpawner;
 }
+

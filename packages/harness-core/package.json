@@ -12,6 +12,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@innocencecode/harness-agent": "^0.1.0",
+    "@innocencecode/harness-agent-loop": "^0.1.0",
+    "@innocencecode/harness-permissions": "^0.1.0",
+    "@innocencecode/harness-providers": "^0.1.0",
+    "@innocencecode/harness-session": "^0.1.0",
+    "@innocencecode/harness-skills": "^0.1.0",
+    "@innocencecode/harness-system-prompt": "^0.1.0",
+    "@innocencecode/harness-tools": "^0.1.0",
+    "@innocencecode/kernel": "^0.1.0",
+    "@innocencecode/kernel-logger": "^0.1.0",
     "yaml": "^2.9.0"
   },
   "license": "AGPL-3.0-only",

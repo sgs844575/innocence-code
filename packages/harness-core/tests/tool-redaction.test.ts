@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
 import {
   PermissionEngine,
-  PluginRegistry,
   redactCommand,
   redactCommandSummary,
   redactUrl,
@@ -260,11 +261,11 @@ async function runWithAllTools(): Promise<RunCapture> {
     },
   };
 
-  const registry = new PluginRegistry();
-  const gate = registry.createContext("redaction-test", () => {});
+  const kernel = new Context();
+  await kernel.plugin(ToolsPlugin);
   for (const tool of Object.values(tools)) {
-    // Route through the plugin context so the SPI gate is exercised too.
-    gate.registerTool(tool);
+    // Route through the tools service so the SPI gate is exercised too.
+    kernel.tools.register(tool);
   }
 
   const events: HarnessEvent[] = [];
@@ -273,7 +274,7 @@ async function runWithAllTools(): Promise<RunCapture> {
   const history: Message[] = [];
   await runLoop(history, textMessage("user", "run everything"), {
     provider,
-    registry,
+    tools: kernel.tools,
     permission: new PermissionEngine({
       mode: "ask",
       decider: {
@@ -430,13 +431,14 @@ describe("tool args redaction (persisted vs raw)", () => {
         }
       },
     };
-    const registry = new PluginRegistry();
-    registry.createContext("test", () => {}).registerTool(tool);
+    const kernel = new Context();
+    await kernel.plugin(ToolsPlugin);
+    kernel.tools.register(tool);
     const events: HarnessEvent[] = [];
     const history: Message[] = [];
     await runLoop(history, textMessage("user", "go"), {
       provider,
-      registry,
+      tools: kernel.tools,
       permission: new PermissionEngine({ mode: "auto", decider: { ask: async () => "deny" } }),
       systemPrompt: "s",
       workspaceRoot: "/tmp/ws",
@@ -477,12 +479,13 @@ describe("tool args redaction (persisted vs raw)", () => {
         }
       },
     };
-    const registry = new PluginRegistry();
-    registry.createContext("test", () => {}).registerTool(tool);
+    const kernel = new Context();
+    await kernel.plugin(ToolsPlugin);
+    kernel.tools.register(tool);
     const history: Message[] = [];
     await runLoop(history, textMessage("user", "go"), {
       provider,
-      registry,
+      tools: kernel.tools,
       permission: new PermissionEngine({ mode: "auto", decider: { ask: async () => "deny" } }),
       systemPrompt: "s",
       workspaceRoot: "/tmp/ws",

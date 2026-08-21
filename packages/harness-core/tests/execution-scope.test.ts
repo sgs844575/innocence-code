@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
 import {
   createExecutionScope,
   PermissionEngine,
-  PluginRegistry,
   runLoop,
   textMessage,
   type Delta,
@@ -65,12 +66,13 @@ describe("executor scope lifecycle", () => {
       },
     };
 
-    const registry = new PluginRegistry();
-    registry.createContext("test", () => {}).registerTool(echo);
+    const kernel = new Context();
+    await kernel.plugin(ToolsPlugin);
+    kernel.tools.register(echo);
     const history: Message[] = [];
     await runLoop(history, textMessage("user", "go"), {
       provider,
-      registry,
+      tools: kernel.tools,
       permission: new PermissionEngine({
         mode: "auto",
         decider: { ask: async () => "deny" },

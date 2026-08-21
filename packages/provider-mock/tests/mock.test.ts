@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
 import {
   SUMMARIZE_SYSTEM_PROMPT,
   runLoop,
-  PluginRegistry,
   PermissionEngine,
   textMessage,
 } from "@innocencecode/harness-core";
@@ -17,8 +18,9 @@ describe("createMockProvider", () => {
       ],
       chunkSize: 2,
     });
-    const registry = new PluginRegistry();
-    registry.createContext("test", () => {}).registerTool({
+    const kernel = new Context();
+    await kernel.plugin(ToolsPlugin);
+    kernel.tools.register({
       name: "Read",
       description: "r",
       readOnly: true,
@@ -30,7 +32,7 @@ describe("createMockProvider", () => {
     const events: string[] = [];
     const result = await runLoop([], textMessage("user", "读一下"), {
       provider,
-      registry,
+      tools: kernel.tools,
       permission: new PermissionEngine({ mode: "auto", decider: { ask: async () => "deny" } }),
       systemPrompt: "s",
       workspaceRoot: "/tmp",

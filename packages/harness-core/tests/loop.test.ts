@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { runLoop } from "../src/loop";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
+import { runLoop } from "../src";
 import { PermissionEngine } from "../src/permission";
-import { PluginRegistry } from "../src/registry";
 import { textMessage } from "../src/types";
 import type { Delta, Provider, Tool, ToolResult } from "../src";
 import type { HarnessEvent } from "../src/events";
@@ -61,14 +62,14 @@ function fakeTool(
 const allowAll = () =>
   new PermissionEngine({ mode: "auto", decider: { ask: async () => "deny" } });
 
-function setup(tools: Tool[], provider: Provider, permission = allowAll()) {
-  const registry = new PluginRegistry();
-  const ctx = registry.createContext("test-tools", () => {});
-  for (const tool of tools) ctx.registerTool(tool);
+async function setup(tools: Tool[], provider: Provider, permission = allowAll()) {
+  const kernel = new Context();
+  await kernel.plugin(ToolsPlugin);
+  for (const tool of tools) kernel.tools.register(tool);
   const events: HarnessEvent[] = [];
   const history: Parameters<typeof runLoop>[0] = [];
   return {
-    registry,
+    toolsService: kernel.tools,
     events,
     history,
     run: (
@@ -82,7 +83,7 @@ function setup(tools: Tool[], provider: Provider, permission = allowAll()) {
     ) =>
       runLoop(history, textMessage("user", text), {
         provider,
-        registry,
+        tools: kernel.tools,
         permission,
         systemPrompt: "test",
         workspaceRoot: "/tmp/ws",
@@ -122,7 +123,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "Echo", args: { msg: "hi" } }] },
       { text: "all done" },
     ]);
-    const { events, history, run } = setup([echo], provider);
+    const { events, history, run } = await setup([echo], provider);
 
     const result = await run("please echo");
     expect(result.turns).toBe(2);
@@ -151,7 +152,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "Ghost" }] },
       { text: "recovered" },
     ]);
-    const { history, run } = setup([], provider);
+    const { history, run } = await setup([], provider);
     const result = await run("x");
     expect(result.finalText).toBe("recovered");
     const tr = history[2].parts[0] as { isError?: boolean; content: string };
@@ -167,7 +168,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "Bomb" }] },
       { text: "handled" },
     ]);
-    const { events, history, run } = setup([bomb], provider);
+    const { events, history, run } = await setup([bomb], provider);
     const result = await run("x");
     expect(result.finalText).toBe("handled");
     const tr = history[2].parts[0] as { isError?: boolean; content: string };
@@ -186,7 +187,7 @@ describe("runLoop", () => {
       mode: "plan",
       decider: { ask: async () => "allow" },
     });
-    const { history, run, events } = setup([write], provider, permission);
+    const { history, run, events } = await setup([write], provider, permission);
     const result = await run("write it");
     expect(result.finalText).toBe("okay, I will not");
     expect(write.calls).toHaveLength(0);
@@ -202,7 +203,7 @@ describe("runLoop", () => {
   it("stops after maxTurns even if the model keeps calling tools", async () => {
     const loop = fakeTool("Loop", async () => ({ content: "again" }));
     const provider = scriptedProvider([{ toolCalls: [{ toolName: "Loop" }] }]);
-    const { run } = setup([loop], provider);
+    const { run } = await setup([loop], provider);
     const result = await run("go", { maxTurns: 3 });
     expect(result.turns).toBe(3);
     expect(loop.calls).toHaveLength(3);
@@ -215,7 +216,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "A" }, { toolName: "B" }] },
       { text: "done" },
     ]);
-    const { history, run } = setup([a, b], provider);
+    const { history, run } = await setup([a, b], provider);
     await run("x");
     const results = history[2].parts;
     expect(results).toHaveLength(2);
@@ -232,9 +233,9 @@ describe("runLoop", () => {
       mode: "plan",
       decider: { ask: async () => "allow" },
     });
-    const { registry, run } = setup([write], provider, permission);
+    const { toolsService, run } = await setup([write], provider, permission);
     const seen: string[] = [];
-    registry.createContext("mw", () => {}).registerToolMiddleware({
+    toolsService.registerMiddleware({
       name: "spy",
       async execute(invocation, next) {
         seen.push(invocation.toolName);
@@ -264,9 +265,9 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "Echo", args: { msg: "hi" } }] },
       { text: "done" },
     ]);
-    const { registry, events, run } = setup([echo], provider);
+    const { toolsService, events, run } = await setup([echo], provider);
     const seen: Array<{ toolName: string; persistedArgs: Record<string, unknown> }> = [];
-    registry.createContext("mw", () => {}).registerToolMiddleware({
+    toolsService.registerMiddleware({
       name: "spy",
       async execute(invocation, next) {
         seen.push({ toolName: invocation.toolName, persistedArgs: invocation.persistedArgs });
@@ -296,7 +297,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "Hang" }] },
       { text: "recovered" },
     ]);
-    const { events, history, run } = setup([hang], provider);
+    const { events, history, run } = await setup([hang], provider);
 
     const result = await run("x", { toolTimeoutMs: 20, abortGraceMs: 20 });
     expect(result.finalText).toBe("recovered");
@@ -323,7 +324,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "Zombie" }] },
       { text: "recovered" },
     ]);
-    const { events, history, run } = setup([zombie], provider);
+    const { events, history, run } = await setup([zombie], provider);
 
     const result = await run("x", { toolTimeoutMs: 20, abortGraceMs: 20 });
     expect(result.finalText).toBe("recovered");
@@ -354,7 +355,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "Stop" }] },
       { text: "never reached" },
     ]);
-    const { events, history, run } = setup([tool], provider);
+    const { events, history, run } = await setup([tool], provider);
 
     const result = await run("x", { signal: stop.signal });
     // Loop breaks on the next turn-top check; the aborted result is in history.
@@ -388,7 +389,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "ZombieStop" }] },
       { text: "recovered" },
     ]);
-    const { events, history, run } = setup([zombie], provider);
+    const { events, history, run } = await setup([zombie], provider);
 
     // 60s timeout with a 25ms grace: without grace-on-parent-abort the loop
     // would block on the deadline and this test itself would time out.
@@ -425,7 +426,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "OddStop" }] },
       { text: "after" },
     ]);
-    const { events, history, run } = setup([tool], provider);
+    const { events, history, run } = await setup([tool], provider);
 
     const result = await run("x", { signal: stop.signal });
     expect(result.aborted).toBe(true);
@@ -467,7 +468,7 @@ describe("runLoop", () => {
       { toolCalls: [{ toolName: "SlowStop" }, { toolName: "FollowUp" }] },
       { text: "after" },
     ]);
-    const { events, history, run } = setup([slow, follow], provider, permission);
+    const { events, history, run } = await setup([slow, follow], provider, permission);
 
     const result = await run("x", { signal: stop.signal });
     // Only the in-flight call consulted permissions; the post-stop call was
