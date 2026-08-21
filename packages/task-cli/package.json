@@ -17,5 +17,12 @@
     "@innocencecode/task-core": "*",
     "@innocencecode/task-git": "*",
     "@innocencecode/task-workspace": "*"
+  },
+  "license": "AGPL-3.0-only",
+  "author": "逆流无邪",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sgs844575/innocence-code.git",
+    "directory": "packages/task-cli"
   }
 }

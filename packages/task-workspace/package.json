@@ -16,5 +16,12 @@
     "@innocencecode/task-core": "*",
     "chokidar": "^5.0.0",
     "diff": "^9.0.0"
+  },
+  "license": "AGPL-3.0-only",
+  "author": "逆流无邪",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sgs844575/innocence-code.git",
+    "directory": "packages/task-workspace"
   }
 }

@@ -1,9 +1,18 @@
 {
   "name": "innocencecode",
   "productName": "InnocenceCode",
-  "author": "InnocenceCode",
+  "author": "逆流无邪",
   "version": "0.1.0",
   "description": "AI coding assistant desktop client",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sgs844575/innocence-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sgs844575/innocence-code/issues"
+  },
+  "homepage": "https://github.com/sgs844575/innocence-code#readme",
   "main": ".vite/build/main.js",
   "workspaces": [
     "packages/*",

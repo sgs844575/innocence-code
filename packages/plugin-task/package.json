@@ -14,5 +14,12 @@
   "dependencies": {
     "@innocencecode/harness-core": "*",
     "@innocencecode/task-core": "*"
+  },
+  "license": "AGPL-3.0-only",
+  "author": "逆流无邪",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sgs844575/innocence-code.git",
+    "directory": "packages/plugin-task"
   }
 }
