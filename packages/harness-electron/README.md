@@ -12,7 +12,7 @@
 - **路由会话缓存**：`RouteSessionCache` 处理构建去重与 dispose/build 竞态（墓碑状态机，dispose 期间落地的新会话就地释放）。
 - **设置**：`HarnessSettings`（v3 多平台 profile）、防御性归一化 `mergeSettings`（v1/v2 旧格式自动迁移）、
   内置 12 个平台预设、`resolveActive` 解析当前 Provider+模型（回落 mock）、`listModels` 拉取模型列表。
-- **Provider 构建**：`buildProviderFromSettings` 按设置实例化 openai / anthropic，其余回落 mock。
+- **Provider 构建**：已迁宿主组合层（`src/main/harnessGlue.ts`）——本包不再实例化 Provider，会话 provider 一律经 providers 注册表解析。
 - **内置代理**：`default / plan / full` 三档系统提示词（`systemPromptFor`），与 IPC 共享类型镜像测试防漂移。
 - **转录**：`encodeTurnV2/V3` + `decodeTranscript`（v2 行与 legacy 快照归入 main 路由；v3 行按 routeId 建路由图）、
   `canonicalizeHistory`（UI 形态 → 规范 harness 形态，未知合法 part 原样保留）。
@@ -26,7 +26,6 @@
 | `RuntimeOptions` / `RuntimeHooks` | 宿主注入面（settings / pluginsForSession / workspaceRootFor / persistDir）与 UI 钩子（onDelta / onTool / onThinking / onCompleted / onError / askPermission / log） |
 | `DEFAULT_ROUTE_ID` | 缺省路由 id `"main"` |
 | `DEFAULT_SETTINGS` / `mergeSettings` / `resolveActive` / `listModels` / `PROVIDER_PRESETS` | 设置体系 |
-| `buildProviderFromSettings` | Provider 工厂 |
 | `AGENT_IDS` / `BUILTIN_AGENTS` / `systemPromptFor` | 内置代理提示词 |
 | `encodeTurnV2` / `encodeTurnV3` / `decodeTranscript` / `canonicalizeHistory` | 转录编解码 |
 | `routeCacheKey` | `sessionId:routeId` 规范键 |

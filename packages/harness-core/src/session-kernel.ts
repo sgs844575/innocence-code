@@ -140,9 +140,11 @@ function chokepointSession(base: Context, view: SessionRegistryView): SessionSer
 /**
  * Registry-only provider resolution. An explicit providerId must hit the
  * registry (same error text as before); with neither an injected provider
- * nor an id the session takes the registry's sole registered provider —
- * host compositions register exactly one — and anything else keeps the
- * pre-kernel "no provider configured" error.
+ * nor an id the session takes the registry's SOLE registered provider —
+ * exactly one (host compositions register exactly one; a providerFactory
+ * seam plugin composed alongside one fails loudly here instead of silently
+ * shadowing either) — and any other registry state keeps the pre-kernel
+ * "no provider configured" error.
  */
 function resolveRegistryProvider(ctx: Context, providerId: string | undefined): Provider {
   if (providerId) {
@@ -150,10 +152,9 @@ function resolveRegistryProvider(ctx: Context, providerId: string | undefined): 
     if (!found) throw new Error(`provider not found: ${providerId}`);
     return found;
   }
-  const [soleId] = ctx.providers.ids();
-  const sole = soleId === undefined ? undefined : ctx.providers.get(soleId);
-  if (sole) return sole;
-  throw new Error("no provider configured");
+  const ids = ctx.providers.ids();
+  if (ids.length !== 1) throw new Error("no provider configured");
+  return ctx.providers.get(ids[0])!;
 }
 
 /**

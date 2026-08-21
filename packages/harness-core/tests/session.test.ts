@@ -123,6 +123,23 @@ describe("AgentSession", () => {
     expect(result.finalText).toContain("echo:");
   });
 
+  it("rejects an id-less session when the registry holds more than one provider (no silent pick)", async () => {
+    const plugin: HarnessPlugin = {
+      name: "p",
+      activate(ctx) {
+        ctx.registerProvider(echoProvider());
+        ctx.registerProvider({ id: "echo-2", async *chat() {} });
+      },
+    };
+    await expect(
+      AgentSession.create({
+        plugins: [plugin],
+        workspaceRoot: "D:/tmp",
+        permission: { mode: "auto", decider: { ask: async () => "deny" } },
+      }),
+    ).rejects.toThrow("no provider configured");
+  });
+
   it("still rejects a provider-less session with no registered provider", async () => {
     await expect(
       AgentSession.create({
