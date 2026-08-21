@@ -203,3 +203,5 @@ function messageOf(reason: unknown): string {
 
 export type { EntryCreateOptions, EntryOptions } from "./tree";
 export { LoaderEntry, LoaderTree } from "./tree";
+export { createFileModuleResolver } from "./resolver";
+export type { FileModuleResolver, FileModuleResolverOptions } from "./resolver";
