@@ -49,16 +49,25 @@ describe("kernel logger service", () => {
     expect(count).toBe(1);
   });
 
+  it("withdraws the service with the plugin fiber", async () => {
+    const ctx = new Context();
+    const fiber = await ctx.plugin(LoggerPlugin);
+    await fiber.dispose();
+    // The withdraw handle returned by `apply` removed the context property,
+    // so later access through the context is gone and must not throw.
+    expect((ctx as { logger?: LoggerService }).logger).toBeUndefined();
+    expect(() => (ctx as { logger?: LoggerService }).logger?.log("info", "x")).not.toThrow();
+  });
+
   it("drops all sinks when the plugin fiber is disposed", async () => {
     const ctx = new Context();
     const fiber = await ctx.plugin(LoggerPlugin);
     let count = 0;
+    const service = ctx.logger;
     ctx.logger.addSink(() => { count += 1; });
     await fiber.dispose();
-    // The service is withdrawn with the fiber, so later `log` calls through
-    // the context property are gone; sinks registered on it are cleaned too.
-    expect(() => (ctx as { logger?: LoggerService }).logger?.log("info", "x")).not.toThrow();
-    expect(count).toBe(0);
+    expect(() => service.log("info", "x")).not.toThrow(); // 直达 service，绕开属性撤除
+    expect(count).toBe(0); // 仅当 sink 真被 effect 清理时才为 0
   });
 
   it("log without sinks is silent", async () => {
