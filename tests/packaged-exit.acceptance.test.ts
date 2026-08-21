@@ -214,15 +214,18 @@ describe("packaged-exit acceptance (requires `npm run package` first)", () => {
     // residue sweep 2: a beat after exit, no process image from the packaged
     // tree (winpty/conpty agents, OpenConsole, spawned children) survives.
     // Scoped to IMAGE PATHS only: node-pty ships its agents inside the
-    // package, so a packaged-tree prefix (or any app.asar.unpacked path)
-    // catches every real residue — while matching by BASENAME would wrongly
-    // flag unrelated system processes (Windows Terminal keeps an
-    // OpenConsole.exe alive for every console pane on dev machines).
+    // package, so this repo's packaged-tree prefixes (the package dir or its
+    // app.asar.unpacked subtree) catch every real residue — while a global
+    // "app.asar.unpacked" substring would wrongly flag OTHER Electron hosts'
+    // conpty agents, and matching by BASENAME would wrongly flag unrelated
+    // system processes (Windows Terminal keeps an OpenConsole.exe alive for
+    // every console pane on dev machines).
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     const packageDirLower = packageDir.toLowerCase();
+    const unpackedTreeLower = path.join(packageDir, "resources", "app.asar.unpacked").toLowerCase();
     const residuals = (await processImagePaths()).filter((image) => {
       const lower = image.toLowerCase();
-      return lower.startsWith(packageDirLower) || lower.includes("app.asar.unpacked");
+      return lower.startsWith(packageDirLower) || lower.startsWith(unpackedTreeLower);
     });
     expect(residuals, "no packaged-tree process may survive the exit").toEqual([]);
     console.log("[packaged-exit] residue sweep clean (no processes, no lock leases)");
