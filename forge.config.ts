@@ -12,6 +12,13 @@ const config: ForgeConfig = {
       unpack: "**/node_modules/node-pty/**",
     },
     executableName: "InnocenceCode",
+    // Prebuilt kernel libraries and plugins live outside the ASAR archive:
+    // plugins are loaded at runtime via dynamic import from resources/, so
+    // they must stay as real files on disk (spec D10). @electron/packager
+    // 18.4 accepts string entries only and copies each to
+    // resources/<basename(entry)>, so listing the two staging children maps
+    // directly to resources/plugins and resources/node_modules.
+    extraResource: ["build/dist/resources/plugins", "build/dist/resources/node_modules"],
     // The pruner walks the ROOT production graph, which does not include
     // workspace packages' dependencies — node-pty (a dependency of the
     // @innocencecode/terminal-pty workspace) would be pruned away. The ignore

@@ -12,6 +12,8 @@
   "scripts": {
     "start": "electron-forge start",
     "dev": "electron-forge start",
+    "build:plugins": "node scripts/build-plugins.mjs",
+    "prepackage": "npm run build:plugins",
     "package": "electron-forge package",
     "package:smoke": "vitest run tests/packaged-exit.acceptance.test.ts",
     "make": "electron-forge make",
