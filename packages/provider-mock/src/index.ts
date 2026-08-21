@@ -1,10 +1,6 @@
 import type { Context } from "@innocencecode/kernel";
-import {
-  SUMMARIZE_SYSTEM_PROMPT,
-  type ChatRequest,
-  type Delta,
-  type Provider,
-} from "@innocencecode/harness-core";
+import { SUMMARIZE_SYSTEM_PROMPT } from "@innocencecode/harness-session";
+import type { ChatRequest, Delta, Provider } from "@innocencecode/harness-core";
 
 export interface MockToolCall {
   toolName: string;

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
-import { sha256Hex } from "@innocencecode/harness-core";
+import { sha256Hex } from "@innocencecode/harness-tools";
 import { resolveWithin, requireString, workspaceScope } from "./paths";
-import type { Tool, ToolContext } from "@innocencecode/harness-core";
+import type { Tool, ToolContext } from "@innocencecode/harness-tools";
 
 /** Exact-string replacement with uniqueness enforcement (like ZCode's Edit). */
 export const editTool: Tool = {

@@ -3,7 +3,7 @@ import {
   sha256Hex,
   type Tool,
   type ToolContext,
-} from "@innocencecode/harness-core";
+} from "@innocencecode/harness-tools";
 
 export type AgentType = "explore" | "general";
 

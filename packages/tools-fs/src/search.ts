@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { matchGlob } from "@innocencecode/harness-core";
+import { matchGlob } from "@innocencecode/harness-permissions";
 import { resolveWithin, requireString, walkFiles, workspaceScope } from "./paths";
-import type { Tool, ToolContext } from "@innocencecode/harness-core";
+import type { Tool, ToolContext } from "@innocencecode/harness-tools";
 
 const FILE_LIMIT = 500;
 const MATCH_LIMIT = 200;

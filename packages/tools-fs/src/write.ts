@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { sha256Hex } from "@innocencecode/harness-core";
+import { sha256Hex } from "@innocencecode/harness-tools";
 import { resolveWithin, requireString, workspaceScope } from "./paths";
-import type { Tool, ToolContext } from "@innocencecode/harness-core";
+import type { Tool, ToolContext } from "@innocencecode/harness-tools";
 
 /** Create or overwrite a file (mkdir -p for parent directories). */
 export const writeTool: Tool = {

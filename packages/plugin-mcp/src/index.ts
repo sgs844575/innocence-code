@@ -4,8 +4,17 @@ import {
   sha256Hex,
   type JsonSchema,
   type ToolResult,
-} from "@innocencecode/harness-core";
+} from "@innocencecode/harness-tools";
 import { StdioJsonRpcClient, type StdioServerOptions } from "./jsonrpc";
+
+// ctx.logger 的类型可见性：kernel-logger 不自带 Context 增强，这里按
+// session 组合侧（harness-core/session-kernel）的同一声明就地合并（成员
+// 类型逐字一致，同程序内合并合法），包自身不再依赖 harness-core。
+declare module "@innocencecode/kernel" {
+  interface Context {
+    logger: import("@innocencecode/kernel-logger").LoggerService;
+  }
+}
 
 const PROTOCOL_VERSION = "2024-11-05";
 
@@ -181,3 +190,6 @@ export function createMcpPlugin(options: McpPluginOptions): McpPlugin {
 
 export { StdioJsonRpcClient } from "./jsonrpc";
 export type { StdioServerOptions } from "./jsonrpc";
+// Distribution default (kernel-loader unwrapExports convention): the factory,
+// so a disk-loaded module resolves to the single entry point hosts configure.
+export default createMcpPlugin;

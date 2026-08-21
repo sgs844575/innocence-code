@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { resolveWithin, requireString, workspaceScope } from "./paths";
-import type { Tool, ToolContext } from "@innocencecode/harness-core";
+import type { Tool, ToolContext } from "@innocencecode/harness-tools";
 
 const MAX_LINES = 2000;
 

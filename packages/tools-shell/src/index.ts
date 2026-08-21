@@ -5,7 +5,7 @@ import {
   sha256Hex,
   type Tool,
   type ToolContext,
-} from "@innocencecode/harness-core";
+} from "@innocencecode/harness-tools";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 30_000;

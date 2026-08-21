@@ -10,6 +10,28 @@ const LIBS = [
   "vendor/kernel-loader",
   "vendor/kernel-include",
   "vendor/kernel-logger",
+  // 脊柱八包：能力插件 dist 的跨包裸导入（如 mcp→harness-tools、
+  // provider-*→harness-providers、agent-loop→session/tools/permissions/agent）
+  // 经 staging node_modules 解析。
+  "packages/harness-tools",
+  "packages/harness-permissions",
+  "packages/harness-providers",
+  "packages/harness-skills",
+  "packages/harness-session",
+  "packages/harness-system-prompt",
+  "packages/harness-agent",
+  "packages/harness-agent-loop",
+];
+// 内置能力插件清单（boot 侧 toggle 解析的描述符来源）：id + core 标记 +
+// 依赖关系，随 staging 产出 manifest.json。仅覆盖可开关的能力插件——
+// provider/task 等由宿主组合层按需装配，不进 toggle 面。
+const BUILTIN_DESCRIPTORS = [
+  { id: "fs", core: true, dependencies: [] },
+  { id: "shell", core: true, dependencies: [] },
+  { id: "subagent", dependencies: ["fs", "shell"] },
+  { id: "skills", dependencies: ["fs"] },
+  { id: "mcp", dependencies: [] },
+  { id: "todo", dependencies: [] },
 ];
 const PLUGINS = [
   { dir: "packages/plugin-example", id: "example" },
@@ -91,8 +113,28 @@ for (const { dir, id } of PLUGINS) {
   writeFileSync(join(target, "package.json"), JSON.stringify(pkg, null, 2) + "\n", "utf8");
 }
 
+// 内置清单：boot 读取的插件 id 列表 + core 标记 + 依赖（manifest.json）。
+const builtinIds = new Set(PLUGINS.map(({ id }) => id));
+for (const descriptor of BUILTIN_DESCRIPTORS) {
+  if (!builtinIds.has(descriptor.id)) {
+    console.error(`builtin descriptor "${descriptor.id}" has no staged plugin`);
+    process.exit(1);
+  }
+}
+writeFileSync(
+  join(STAGING, "plugins", "manifest.json"),
+  JSON.stringify({ plugins: BUILTIN_DESCRIPTORS }, null, 2) + "\n",
+  "utf8",
+);
+
 // 自检：staging 内 kernel 库与各清单插件的入口产物必须真实存在。
 const selfCheck = [join(STAGING, "node_modules", "@innocencecode", "kernel", "dist", "index.js")];
+for (const dir of LIBS) {
+  if (dir.startsWith("packages/")) {
+    selfCheck.push(join(STAGING, "node_modules", "@innocencecode", dir.slice("packages/".length), "dist", "index.js"));
+  }
+}
+selfCheck.push(join(STAGING, "plugins", "manifest.json"));
 for (const { id } of PLUGINS) selfCheck.push(join(STAGING, "plugins", id, "dist", "index.js"));
 for (const required of selfCheck) {
   if (!existsSync(required)) {

@@ -1,5 +1,6 @@
 import type { Context } from "@innocencecode/kernel";
-import { parseSSEData, type Provider } from "@innocencecode/harness-core";
+import { parseSSEData } from "@innocencecode/harness-providers";
+import type { Provider } from "@innocencecode/harness-core";
 import { toOpenAIBody } from "./mapping";
 import { openAIDeltasFromDataLines } from "./stream";
 

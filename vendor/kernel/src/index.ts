@@ -10,3 +10,5 @@ export * from "./fiber";
 export * from "./registry";
 /** Named service table behind `ctx.provide`, scoped per owning context. */
 export * from "./services";
+/** Independently disposable scopes with their own fiber and service table. */
+export * from "./scope";

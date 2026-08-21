@@ -131,3 +131,6 @@ export function createSkillsPlugin(options: SkillsPluginOptions): SkillsPlugin {
     },
   };
 }
+// Distribution default (kernel-loader unwrapExports convention): the factory,
+// so a disk-loaded module resolves to the single entry point hosts configure.
+export default createSkillsPlugin;
