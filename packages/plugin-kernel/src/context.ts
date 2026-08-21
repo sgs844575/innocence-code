@@ -4,6 +4,7 @@ import { Fiber } from "./fiber";
 import type { EffectBody, EffectHandle } from "./fiber";
 import type { Plugin } from "./registry";
 import { Registry } from "./registry";
+import { ServiceTable } from "./services";
 
 /**
  * Public surface of a kernel context. Declared as an interface so services
@@ -14,6 +15,11 @@ export interface Context {
   fiber: Fiber;
   /** Plugin runtime table shared across the whole context tree. */
   registry: Registry;
+  /**
+   * Base URL used to resolve relative config paths and module specifiers;
+   * set by the host or the loader service.
+   */
+  baseUrl?: string;
   /** Register a listener owned by the current fiber. */
   on<K extends keyof Events>(name: K, listener: Events[K]): () => void;
   /** Deliver an event synchronously to its current listeners. */
@@ -22,6 +28,13 @@ export interface Context {
   effect(body: EffectBody, label?: string): EffectHandle;
   /** Start a plugin below this context; returns its awaitable fiber. */
   plugin(entry: Plugin): Fiber & PromiseLike<Fiber>;
+  /**
+   * Publish a named, tree-wide service on the root context.
+   *
+   * @returns an idempotent withdraw handle; publishers commonly return it
+   * from their entry so the service disappears when its fiber unwinds.
+   */
+  provide(name: string, instance: unknown): () => void;
 }
 
 /**
@@ -34,13 +47,19 @@ export interface Context {
 export class Context {
   fiber: Fiber;
   registry: Registry;
+  readonly services: ServiceTable;
   private readonly bus: EventBus;
 
   /** Create an empty, active root context. */
   constructor() {
     this.bus = new EventBus();
     this.registry = new Registry();
+    this.services = new ServiceTable(this);
     this.fiber = Fiber.createRoot(this);
+  }
+
+  provide(name: string, instance: unknown): () => void {
+    return this.services.publish(name, instance);
   }
 
   on<K extends keyof Events>(name: K, listener: Events[K]): () => void {

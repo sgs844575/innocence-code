@@ -9,6 +9,9 @@
     ".": "./src/index.ts",
     "./package.json": "./package.json"
   },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   }
