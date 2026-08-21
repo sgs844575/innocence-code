@@ -1,0 +1,30 @@
+{
+  "name": "@innocencecode/harness-agent-loop",
+  "version": "0.1.0",
+  "description": "InnocenceCode agent loop driver: replaceable runLoop consuming the spine services",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@innocencecode/harness-agent": "^0.1.0",
+    "@innocencecode/harness-permissions": "^0.1.0",
+    "@innocencecode/harness-providers": "^0.1.0",
+    "@innocencecode/harness-session": "^0.1.0",
+    "@innocencecode/harness-tools": "^0.1.0",
+    "@innocencecode/kernel": "^0.1.0"
+  },
+  "license": "AGPL-3.0-only",
+  "author": "逆流无邪",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sgs844575/innocence-code.git",
+    "directory": "packages/harness-agent-loop"
+  }
+}
