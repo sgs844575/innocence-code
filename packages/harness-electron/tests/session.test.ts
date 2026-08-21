@@ -2,7 +2,8 @@
 // retired core package; assertions unchanged, imports re-pointed to
 // the spine packages that own each type face).
 import { describe, expect, it, vi } from "vitest";
-import { AgentSession, type HarnessPlugin } from "../src";
+import { AgentSession, staticSpineSuite, type HarnessPlugin, type SessionSpineSuite } from "../src";
+import * as loopModule from "@innocencecode/harness-agent-loop";
 import type { Delta, Provider } from "@innocencecode/harness-providers";
 import type { ExecutionScope, Tool } from "@innocencecode/harness-tools";
 import type { MessagePart } from "@innocencecode/harness-session";
@@ -655,5 +656,41 @@ describe("AgentSession injected scope", () => {
     // The host root outlives the route scope; unwinding it is idempotent.
     await scope.dispose();
     await root.fiber.dispose();
+  });
+});
+
+describe("AgentSession spine suite", () => {
+  it("propagates the injected spine to spawned child sessions (one suite identity per process)", async () => {
+    // Marker module: only sessions that mounted THIS suite build their run
+    // loop through the recording createRunLoop (the static default would use
+    // the unwrapped loopModule and record nothing).
+    const loopBuilds: number[] = [];
+    const markedLoop: typeof loopModule = {
+      ...loopModule,
+      createRunLoop: (deps) => {
+        loopBuilds.push(1);
+        return loopModule.createRunLoop(deps);
+      },
+    };
+    const suite: SessionSpineSuite = { ...staticSpineSuite(), loop: markedLoop };
+
+    const session = await AgentSession.create({
+      plugins: [],
+      provider: echoProvider(),
+      workspaceRoot: "D:/tmp",
+      permission: { mode: "auto", decider: { ask: async () => "deny" as const } },
+      spine: suite,
+    });
+    expect(session.options.spine).toBe(suite); // parent mounted the injected suite
+    expect(loopBuilds).toHaveLength(1); // ...and built its loop through the marker
+
+    const result = await session.spawner.run({ systemPrompt: "子", tools: "all", prompt: "去查" });
+    expect(result.finalText).toContain("echo:");
+    // The spawned child session mounted the SAME injected suite (a second
+    // marker build); before propagation it silently fell back to the static
+    // default, splitting the process's spine module identities.
+    expect(loopBuilds).toHaveLength(2);
+
+    await session.dispose();
   });
 });

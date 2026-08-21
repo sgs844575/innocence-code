@@ -52,7 +52,7 @@ export interface SessionKernel {
   readonly provider: Provider;
   readonly services: SessionKernelServices;
   readonly view: SessionRegistryView;
-  /** Adapter fibers in activation order; dispose-error collection reads these. */
+  /** Session plugin fibers (native and adapted) in activation order; dispose-error collection reads these. */
   readonly pluginFibers: readonly Fiber[];
 }
 

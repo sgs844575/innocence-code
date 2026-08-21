@@ -38,9 +38,9 @@ export function makeSessionSpawner(
 
 /**
  * Spawner child-session factory: the recursive AgentSession adapter. The
- * materials come from the spawner service; workspaceRoot and the permission
- * decider close over the PARENT session's options (the material face does
- * not carry them).
+ * materials come from the spawner service; workspaceRoot, the permission
+ * decider and the spine suite close over the PARENT session's options (the
+ * material face does not carry them).
  */
 export function createSpawnerChildSession(
   parentOptions: AgentSessionOptions,
@@ -67,6 +67,11 @@ export function createSpawnerChildSession(
     provider: materials.provider,
     workspaceRoot: parentOptions.workspaceRoot,
     systemPrompt: materials.systemPrompt,
+    // spine is process-level injected identity: the child mounts the parent's
+    // suite so every session in the process shares one set of spine module
+    // identities (scope stays session-level and is NOT inherited — the child
+    // is its own session instance on a fresh root).
+    spine: parentOptions.spine,
     permission: {
       mode: materials.permission.getMode(),
       decider: parentOptions.permission.decider,

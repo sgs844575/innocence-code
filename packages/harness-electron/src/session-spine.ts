@@ -44,7 +44,16 @@ export interface SessionSpineSuite {
 
 let memo: SessionSpineSuite | undefined;
 
-/** The bundled static spine (workspace sources; the no-injection default). */
+/**
+ * The bundled static spine (workspace sources; the no-injection default).
+ * WARNING: production hosts MUST inject the dynamically loaded spine suite
+ * through AgentSessionOptions.spine — the production domain relies on the
+ * single-instance invariant (one set of spine module identities per process,
+ * shared by the boot root, session scopes, disk-loaded capability plugins and
+ * spawned child sessions). This static default serves only self-contained
+ * sessions and in-repo tests; converging the dual-source static face itself
+ * is phase-2 scope.
+ */
 export function staticSpineSuite(): SessionSpineSuite {
   memo ??= {
     logger: loggerModule,
