@@ -14,5 +14,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@innocencecode/kernel-include": "^0.1.0"
   }
 }
