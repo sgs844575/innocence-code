@@ -1,4 +1,5 @@
-import { parseSSEData, type HarnessPlugin, type Provider } from "@innocencecode/harness-core";
+import type { Context } from "@innocencecode/kernel";
+import { parseSSEData, type Provider } from "@innocencecode/harness-core";
 import { toAnthropicBody } from "./mapping";
 import { anthropicDeltasFromDataLines } from "./stream";
 
@@ -53,13 +54,21 @@ export function createAnthropicProvider(config: AnthropicProviderConfig): Provid
   };
 }
 
-/** Plugin wrapper for uniform registration. */
-export const anthropicPlugin = (config: AnthropicProviderConfig): HarnessPlugin => ({
-  name: "provider-anthropic",
-  activate(ctx) {
-    ctx.registerProvider(createAnthropicProvider(config));
-  },
-});
+/** Kernel-native Anthropic provider plugin (name "provider-anthropic"). */
+export interface AnthropicPlugin {
+  readonly name: "provider-anthropic";
+  apply(ctx: Context): void;
+}
+
+/** Registers the Anthropic provider on the spine providers service. */
+export function createAnthropicPlugin(config: AnthropicProviderConfig): AnthropicPlugin {
+  return {
+    name: "provider-anthropic",
+    apply(ctx) {
+      ctx.providers.register(createAnthropicProvider(config));
+    },
+  };
+}
 
 export { toAnthropicBody } from "./mapping";
 export { anthropicDeltasFromDataLines } from "./stream";

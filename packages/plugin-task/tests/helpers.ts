@@ -3,15 +3,15 @@ import {
   createExecutionScope,
   sha256Hex,
   type Delta,
-  type HarnessPlugin,
   type Provider,
+  type SessionPlugin,
   type Tool,
 } from "@innocencecode/harness-core";
 import {
+  createTaskPlugin,
   hasUnresolvedAttribution,
   resolveAsExternal,
   resolveAsTaskOwned,
-  taskPlugin,
   toAttributionPending,
   type AttributionDecision,
   type ObservedChange,
@@ -313,7 +313,7 @@ export const TEST_WORKSPACE_ROOT = "D:/tmp/plugin-task-test";
 
 /** Session with the given plugin + tools, auto permissions (middleware sees permission-passed calls). */
 export async function createSessionWith(
-  plugin: HarnessPlugin,
+  plugin: SessionPlugin,
   tools: readonly Tool[],
   provider: Provider,
 ): Promise<AgentSession> {
@@ -378,7 +378,7 @@ export async function runParentTaskWithChild(options: {
           for (const tool of tools) ctx.registerTool(tool);
         },
       },
-      taskPlugin({ port: options.task, lookupTool: toolLookup(tools), workspaceRoot: TEST_WORKSPACE_ROOT }),
+      createTaskPlugin({ port: options.task, lookupTool: toolLookup(tools), workspaceRoot: TEST_WORKSPACE_ROOT }),
     ],
     provider: dualChannelProvider(writePath),
     workspaceRoot: TEST_WORKSPACE_ROOT,

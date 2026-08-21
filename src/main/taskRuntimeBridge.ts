@@ -19,9 +19,9 @@
 // here — the HarnessRuntime's disposeAll owns them on the same quit path.
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { HarnessPlugin } from "@innocencecode/harness-core";
+import type { SessionPlugin } from "@innocencecode/harness-core";
 import type { SessionToolIndex } from "@innocencecode/harness-electron";
-import { taskPlugin, type TaskRuntimePort } from "@innocencecode/plugin-task";
+import { createTaskPlugin, type TaskRuntimePort } from "@innocencecode/plugin-task";
 import {
   reduceTask,
   taskCreatedEvent,
@@ -545,14 +545,14 @@ export function createTaskRuntimeBridge(options: TaskRuntimeBridgeOptions): Task
 export function taskPluginsForRoute(
   bridge: TaskRuntimeBridge,
   context: { taskId?: string; routeId: string; toolIndex: SessionToolIndex },
-): HarnessPlugin[] {
+): SessionPlugin[] {
   if (!context.taskId) return [];
   const handle = context.routeId
     ? bridge.getRoute(context.taskId, context.routeId)
     : bridge.get(context.taskId);
   if (!handle) return [];
   return [
-    taskPlugin({
+    createTaskPlugin({
       port: handle.port as TaskRuntimePort,
       lookupTool: (toolName) => context.toolIndex.get(toolName),
       workspaceRoot: handle.workspaceRoot,

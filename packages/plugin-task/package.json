@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@innocencecode/harness-core": "*",
+    "@innocencecode/kernel": "*",
     "@innocencecode/task-core": "*"
   },
   "license": "AGPL-3.0-only",

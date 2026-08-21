@@ -47,3 +47,24 @@ export const ProvidersPlugin: { name: "harness-providers"; apply(ctx: Context): 
     return ctx.provide("providers", service);
   },
 };
+
+/** Kernel provider plugin wrapping one concrete provider instance (name "provider"). */
+export interface ProviderPlugin {
+  readonly name: "provider";
+  apply(ctx: Context): void;
+}
+
+/**
+ * Wraps one provider instance as a kernel plugin. Host compositions that
+ * build their provider from their own settings (profile, API keys...) use
+ * this so every session's provider flows through the providers registry —
+ * the single path the session kernel resolves from.
+ */
+export function createProviderPlugin(provider: Provider): ProviderPlugin {
+  return {
+    name: "provider",
+    apply(ctx) {
+      ctx.providers.register(provider);
+    },
+  };
+}

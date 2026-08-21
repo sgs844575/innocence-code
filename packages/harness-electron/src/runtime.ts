@@ -2,15 +2,14 @@
 // (`${sessionId}:${routeId}` — see route-cache.ts for the cache mechanics),
 // rebuilds a route's session when settings change, and translates harness
 // events into the host's streaming UI hooks. Types live in runtime-types.ts,
-// provider construction in provider-builder.ts, transcript persistence in
-// turn-persistence.ts.
+// transcript persistence in turn-persistence.ts.
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Route } from "@innocencecode/task-core";
 import { AgentSession, createExecutionScope, type ExecutionScopeIdentity, type PermissionDecider } from "@innocencecode/harness-core";
+import { createProviderPlugin } from "@innocencecode/harness-providers";
 import { decodeTranscript } from "./transcript";
 import { systemPromptFor } from "./agents";
-import { buildProviderFromSettings } from "./provider-builder";
 import { persistTurn } from "./turn-persistence";
 import { forwardHarnessEvent } from "./runtime-events";
 import { RouteSessionCache, routeCacheKey, sessionDisposedError } from "./route-cache";
@@ -220,11 +219,18 @@ export class HarnessRuntime {
     };
     const plugins = await this.options.pluginsForSession(factoryContext);
 
-    const create = () =>
-      AgentSession.create({
-        plugins,
-        provider:
-          this.options.providerFactory?.(settings) ?? buildProviderFromSettings(settings),
+    const create = () => {
+      // Provider registration path is registry-only: the host composition
+      // (harnessGlue) contributes the settings-based provider plugin; the
+      // providerFactory test seam wraps its instance the same way. No session
+      // is ever built with an explicit provider — AgentSession resolves the
+      // registry's sole registered one.
+      const providerFactory = this.options.providerFactory;
+      const sessionPlugins = providerFactory
+        ? [...plugins, createProviderPlugin(providerFactory(settings))]
+        : plugins;
+      return AgentSession.create({
+        plugins: sessionPlugins,
         workspaceRoot,
         systemPrompt: systemPromptFor(settings.activeAgent ?? "default"),
         permission: {
@@ -244,6 +250,7 @@ export class HarnessRuntime {
         },
         logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
       });
+    };
     const session = await (this.options.agentFactory?.(factoryContext, create) ?? create());
     // The session exists now, so its registry can back the late-bound index.
     toolIndex.adopt(session.registry.tools);

@@ -2,9 +2,9 @@
 // the permission-ask bridge between the runtime and the renderer. This module
 // is the host composition root: it declaratively assembles each agent
 // session's plugin set from PLUGIN_DESCRIPTORS (fs/shell core tools,
-// subagents, project skills, MCP servers, session todo tool) — the active set
-// comes from resolvePluginSet over project .innocence/plugins.yml + user
-// settings toggles.
+// subagents, project skills, MCP servers, session todo tool) plus the
+// settings-based provider plugin — the active set comes from resolvePluginSet
+// over project .innocence/plugins.yml + user settings toggles.
 import { app, dialog, type BrowserWindow } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -14,6 +14,8 @@ import {
   DEFAULT_SETTINGS,
   listModels,
   mergeSettings,
+  resolveActive,
+  MOCK_GREETING,
   type HarnessSettings as PkgSettings,
 } from "@innocencecode/harness-electron";
 import {
@@ -25,8 +27,13 @@ import {
   type PluginDescriptor,
   type PluginToggleSource,
   type ProjectPermissionConfig,
+  type Provider,
   type SessionPlugin,
 } from "@innocencecode/harness-core";
+import { createProviderPlugin } from "@innocencecode/harness-providers";
+import { createOpenAIProvider } from "@innocencecode/provider-openai";
+import { createAnthropicProvider } from "@innocencecode/provider-anthropic";
+import { createMockProvider } from "@innocencecode/provider-mock";
 import { FsPlugin } from "@innocencecode/tools-fs";
 import { ShellPlugin } from "@innocencecode/tools-shell";
 import { SubagentPlugin } from "@innocencecode/plugin-subagent";
@@ -82,6 +89,34 @@ function projectRulesPlugin(config: ProjectPermissionConfig | undefined): Harnes
   };
 }
 
+/**
+ * Provider instance from the active settings profile (migrated here from
+ * harness-electron/provider-builder.ts — the composition layer owns provider
+ * assembly now; the runtime no longer builds providers).
+ */
+function buildProviderFromSettings(settings: PkgSettings): Provider {
+  const active = resolveActive(settings);
+  // 空串 = 跟随模型默认（不传参）；off 交给 provider 层解释（openai 省略、anthropic 不开启）。
+  const reasoningEffort = settings.reasoningEffort || undefined;
+  switch (active.kind) {
+    case "openai":
+      return createOpenAIProvider({
+        apiKey: active.apiKey || undefined,
+        baseURL: active.baseURL || undefined,
+        model: active.model,
+        reasoningEffort,
+      });
+    case "anthropic":
+      return createAnthropicProvider({
+        apiKey: active.apiKey || undefined,
+        model: active.model,
+        reasoningEffort,
+      });
+    default:
+      return createMockProvider({ id: "mock", turns: [], exhaustedText: MOCK_GREETING });
+  }
+}
+
 /** 声明式插件关系表（spec B 3.4）：id → 依赖，core = 恒开不可关。
  *  组合根只声明关系与实例化，启停判定（两级覆盖/依赖连带）全部交给
  *  resolvePluginSet。fs/shell/subagent/skills/mcp/todo 实例为内核原生插
@@ -96,19 +131,23 @@ export const PLUGIN_DESCRIPTORS: readonly PluginDescriptor[] = [
 ];
 
 /** Host composition root: one workspace's plugin set — workspace tools,
- *  subagents, project permission rules, project skills, MCP servers and the
- *  session todo tool. Declarative assembly: project plugins.yml + user
- *  toggles → resolvePluginSet → instantiate by active id. fs/shell/subagent/
- *  skills/mcp/todo are kernel-native plugins (static import; the
- *  disk-loading switch is T11); the project-rules plugin remains a legacy
- *  plugin the session kernel adapts. fs/shell are core and
- *  the project-rules plugin is not toggleable, so both are always present;
- *  skipped plugins and resolver warnings surface through the logger.
+ * subagents, project permission rules, project skills, MCP servers, the
+ * session todo tool and the settings-based provider. Declarative assembly:
+ * project plugins.yml + user toggles → resolvePluginSet → instantiate by
+ * active id. fs/shell/subagent/skills/mcp/todo are kernel-native plugins
+ * (static import; the disk-loading switch is T11); the provider is assembled
+ * per session from the build-time settings and wrapped as a kernel provider
+ * plugin (name "provider") so the session resolves it through the providers
+ * registry; the project-rules plugin remains a legacy plugin the session
+ * kernel adapts. fs/shell are core and the project-rules/provider plugins
+ * are not toggleable, so all of them are always present; skipped plugins
+ * and resolver warnings surface through the logger.
  *  Exported for the integration test (real yml + real resolver, no
  *  Electron). */
 export async function composePlugins(
   workspaceRoot: string,
   userToggles?: PluginToggleSource,
+  settings: PkgSettings = DEFAULT_SETTINGS,
 ): Promise<SessionPlugin[]> {
   const [config, project] = await Promise.all([
     loadInnocenceConfig(workspaceRoot),
@@ -135,6 +174,10 @@ export async function composePlugins(
   }
   if (active.has("mcp")) plugins.push(createMcpPlugin({ servers: config.mcpServers ?? {} }));
   if (active.has("todo")) plugins.push(TodoPlugin);
+  // Provider assembly per session (the build-time settings): one provider
+  // plugin named "provider" — the session kernel resolves the registry's
+  // sole registered provider, so this is the only provider path.
+  plugins.push(createProviderPlugin(buildProviderFromSettings(settings)));
   return plugins;
 }
 
@@ -170,7 +213,7 @@ const runtime = new HarnessRuntime({
     }),
   forkRoute: (input) => taskBridge.forkRoute(input),
   pluginsForSession: async (context) => [
-    ...(await composePlugins(context.workspaceRoot, settings.pluginToggles)),
+    ...(await composePlugins(context.workspaceRoot, settings.pluginToggles, settings)),
     // Route-scoped task sessions get the change-capture middleware bound to
     // the live task's port; plain chat contexts contribute nothing.
     ...taskPluginsForRoute(taskBridge, context),

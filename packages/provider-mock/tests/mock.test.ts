@@ -7,7 +7,8 @@ import {
   PermissionEngine,
   textMessage,
 } from "@innocencecode/harness-core";
-import { createMockProvider } from "../src";
+import { ProvidersPlugin } from "@innocencecode/harness-providers";
+import { createMockPlugin, createMockProvider } from "../src";
 
 describe("createMockProvider", () => {
   it("streams text in chunks then complete tool calls, script advances per turn", async () => {
@@ -72,5 +73,16 @@ describe("createMockProvider", () => {
     const deltas = [];
     for await (const d of iter) deltas.push(d);
     expect(deltas).toEqual([{ type: "text", text: "END" }]);
+  });
+});
+
+describe("createMockPlugin (kernel mount)", () => {
+  it("registers the mock provider on the spine providers service", async () => {
+    const ctx = new Context();
+    await ctx.plugin(ProvidersPlugin);
+    const plugin = createMockPlugin({ turns: [] });
+    expect(plugin.name).toBe("provider-mock");
+    await ctx.plugin(plugin);
+    expect(ctx.providers.get("mock")).toBeDefined();
   });
 });

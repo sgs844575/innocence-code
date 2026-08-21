@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createAnthropicProvider } from "../src/index";
+import { Context } from "@innocencecode/kernel";
+import { ProvidersPlugin } from "@innocencecode/harness-providers";
+import { createAnthropicPlugin, createAnthropicProvider } from "../src/index";
 
 const SSE = [
   'data: {"type":"message_start","message":{"usage":{"input_tokens":9,"output_tokens":1}}}',
@@ -116,5 +118,16 @@ describe("createAnthropicProvider full path (stubbed fetch)", () => {
     } finally {
       if (prev !== undefined) process.env.ANTHROPIC_API_KEY = prev;
     }
+  });
+});
+
+describe("createAnthropicPlugin (kernel mount)", () => {
+  it("registers the Anthropic provider on the spine providers service", async () => {
+    const ctx = new Context();
+    await ctx.plugin(ProvidersPlugin);
+    const plugin = createAnthropicPlugin({ apiKey: "k", model: "m" });
+    expect(plugin.name).toBe("provider-anthropic");
+    await ctx.plugin(plugin);
+    expect(ctx.providers.get("anthropic")).toBeDefined();
   });
 });

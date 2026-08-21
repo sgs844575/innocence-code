@@ -1,7 +1,7 @@
 // Runtime TYPES and shared constants: the hooks, contexts and option
 // surfaces of the harness runtime (split from runtime.ts by responsibility —
-// see route-cache.ts for the cache mechanics, provider-builder.ts,
-// turn-persistence.ts and runtime-events.ts for the remaining collaborators).
+// see route-cache.ts for the cache mechanics, turn-persistence.ts and
+// runtime-events.ts for the remaining collaborators).
 import type {
   AgentSession,
   ExecutionScope,
@@ -147,7 +147,11 @@ export interface RuntimeOptions {
   forkRoute?(input: RuntimeForkRouteInput): Promise<Route & { prompt: string }>;
   /** Directory for JSONL session transcripts; omitted = no persistence. */
   persistDir?: string;
-  /** Replaces the settings-based provider construction (test seam). */
+  /**
+   * Replaces the composition-layer provider plugin (test seam): the returned
+   * instance is wrapped as a provider plugin and enters the providers
+   * registry like every other session provider.
+   */
   providerFactory?: (settings: HarnessSettings) => Provider;
   /**
    * Wraps the AgentSession construction (test seam): receives the factory

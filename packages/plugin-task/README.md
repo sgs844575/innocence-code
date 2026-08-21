@@ -20,7 +20,7 @@ before/after 快照，把工作区变更归属到任务（attribution 状态机�
 
 | 导出 | 说明 |
 |---|---|
-| `taskPlugin(options)` | 构造 `HarnessPlugin`（name `task-change-capture`）注入中间件 |
+| `createTaskPlugin(options)` | 构造内核插件（name `task`）：`apply` 时经 `ctx.tools.registerMiddleware` 注入中间件 |
 | `createTaskCaptureMiddleware(options)` | 直接构建 `ToolExecutionMiddleware`（`port / lookupTool / workspaceRoot / log`） |
 | `resolveTaskAttribution(port, scope, resolution)` | 在租约下应用一次用户归属答复并追加 `attributionResolved` |
 | `ATTRIBUTION_BLOCKED` / `attributionBlockedResult` / `isAttributionBlocked` | 归属阻塞的类型化结果与判定 |
@@ -32,11 +32,11 @@ before/after 快照，把工作区变更归属到任务（attribution 状态机�
 ## 使用
 
 ```ts
-import { taskPlugin } from "@innocencecode/plugin-task";
+import { createTaskPlugin } from "@innocencecode/plugin-task";
 
 // 宿主接线（src/main/taskRuntimeBridge.ts）：按路由注入——非任务会话返回空数组
 const plugins = taskPluginsForRoute(bridge, { taskId, routeId });
-// 其中：taskPlugin({ port: liveTaskPort, lookupTool: (n) => toolIndex.get(n), workspaceRoot })
+// 其中：createTaskPlugin({ port: liveTaskPort, lookupTool: (n) => toolIndex.get(n), workspaceRoot })
 ```
 
 归属答复（用户在 UI 上确认"这是我改的/外部改动"）经 `resolveTaskAttribution` 落为

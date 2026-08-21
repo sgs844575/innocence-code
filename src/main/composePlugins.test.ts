@@ -70,9 +70,11 @@ describe("composePlugins (declarative composition root)", () => {
       expect(nameById[id], `descriptor "${id}" 缺少测试侧 id→name 映射`).toBeTruthy();
       expect(names, `descriptor "${id}" 未实例化`).toContain(nameById[id]);
     }
-    // +1 = project-permission-rules（关系模型外，恒定注入）；多余的实例化
-    // 分支（无对应描述符）同样会让计数失衡变红。
+    // +2 = project-permission-rules（关系模型外，恒定注入）与 provider（设置
+    // 驱动的 provider 插件，每 session 组装）；多余的实例化分支（无对应
+    // 描述符）同样会让计数失衡变红。
     expect(names).toContain("project-permission-rules");
-    expect(names).toHaveLength(PLUGIN_DESCRIPTORS.length + 1);
+    expect(names).toContain("provider");
+    expect(names).toHaveLength(PLUGIN_DESCRIPTORS.length + 2);
   });
 });

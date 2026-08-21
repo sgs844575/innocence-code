@@ -4,8 +4,8 @@ import {
   ATTRIBUTION_BLOCKED,
   attributionBlockedResult,
   createTaskCaptureMiddleware,
+  createTaskPlugin,
   isAttributionBlocked,
-  taskPlugin,
 } from "../src";
 import {
   TEST_WORKSPACE_ROOT,
@@ -24,7 +24,7 @@ describe("task change-capture middleware", () => {
   it("captures a declared write before and after, appends changeRecorded and disposes the context", async () => {
     const task = fakeTaskRuntime();
     const tools = [fakeWriteTool(task)];
-    const plugin = taskPlugin({
+    const plugin = createTaskPlugin({
       port: task,
       lookupTool: toolLookup(tools),
       workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -70,7 +70,7 @@ describe("task change-capture middleware", () => {
       observedChanges: [{ path: "src/a.ts", source: "unknown", beforeHash: null, afterHash: "hash-1" }],
     });
     const tools = [fakeShellTool()];
-    const plugin = taskPlugin({
+    const plugin = createTaskPlugin({
       port: task,
       lookupTool: toolLookup(tools),
       workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -97,7 +97,7 @@ describe("task change-capture middleware", () => {
     let writeExecuted = 0;
     const writeTool = fakeWriteTool(task, { onExecute: () => { writeExecuted += 1; } });
     const tools = [fakeShellTool(), writeTool];
-    const plugin = taskPlugin({
+    const plugin = createTaskPlugin({
       port: task,
       lookupTool: toolLookup(tools),
       workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -180,7 +180,7 @@ describe("task change-capture middleware", () => {
     const task = fakeTaskRuntime();
     let writeExecuted = 0;
     const tools = [fakeWriteTool(task, { onExecute: () => { writeExecuted += 1; } })];
-    const plugin = taskPlugin({
+    const plugin = createTaskPlugin({
       port: task,
       lookupTool: toolLookup(tools),
       workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -205,7 +205,7 @@ describe("task change-capture middleware", () => {
     const task = fakeTaskRuntime();
     let readExecuted = 0;
     const tools = [fakeReadTool({ onExecute: () => { readExecuted += 1; } })];
-    const plugin = taskPlugin({
+    const plugin = createTaskPlugin({
       port: task,
       lookupTool: toolLookup(tools),
       workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -228,7 +228,7 @@ describe("task change-capture middleware", () => {
   it("captures after and disposes the context even when the tool throws", async () => {
     const task = fakeTaskRuntime();
     const tools = [fakeWriteTool(task, { failWith: new Error("disk full") })];
-    const plugin = taskPlugin({
+    const plugin = createTaskPlugin({
       port: task,
       lookupTool: toolLookup(tools),
       workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -268,7 +268,7 @@ describe("task change-capture middleware", () => {
       ],
     });
     const tools = [fakeWriteTool(task)];
-    const plugin = taskPlugin({
+    const plugin = createTaskPlugin({
       port: task,
       lookupTool: toolLookup(tools),
       workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -324,7 +324,7 @@ describe("task change-capture middleware", () => {
     it("is captured like any other write tool", async () => {
       const task = fakeTaskRuntime();
       const tools = [undeclaredWriteTool(task)];
-      const plugin = taskPlugin({
+      const plugin = createTaskPlugin({
         port: task,
         lookupTool: toolLookup(tools),
         workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -358,7 +358,7 @@ describe("task change-capture middleware", () => {
       await seedPendingAttribution(task, ["src/a.ts"]);
       let executed = 0;
       const tools = [undeclaredWriteTool(task, { onExecute: () => { executed += 1; } })];
-      const plugin = taskPlugin({
+      const plugin = createTaskPlugin({
         port: task,
         lookupTool: toolLookup(tools),
         workspaceRoot: TEST_WORKSPACE_ROOT,
@@ -398,7 +398,7 @@ describe("task change-capture middleware", () => {
       const tools: Tool[] = [
         { ...fakeReadTool({ onExecute: () => { executed += 1; } }), sideEffect: undefined },
       ];
-      const plugin = taskPlugin({
+      const plugin = createTaskPlugin({
         port: task,
         lookupTool: toolLookup(tools),
         workspaceRoot: TEST_WORKSPACE_ROOT,

@@ -1,6 +1,7 @@
 import { Context } from "@innocencecode/kernel";
 import {
   ProvidersPlugin,
+  createProviderPlugin,
   type Provider,
   type ProvidersService,
 } from "@innocencecode/harness-providers";
@@ -71,5 +72,25 @@ describe("providers service lifecycle on the kernel", () => {
     // the detached service object stays inert but usable.
     expect((ctx as { providers?: ProvidersService }).providers).toBeUndefined();
     expect(() => service.register({ id: "late", async *chat() {} })).not.toThrow();
+  });
+});
+
+describe("createProviderPlugin (instance wrapper)", () => {
+  it("registers the wrapped instance under its id through the spine service", async () => {
+    const ctx = await withProviders();
+    const provider: Provider = { id: "from-settings", async *chat() {} };
+    const plugin = createProviderPlugin(provider);
+    expect(plugin.name).toBe("provider");
+    await ctx.plugin(plugin);
+    expect(ctx.providers.get("from-settings")).toBe(provider);
+    expect(ctx.providers.ids()).toEqual(["from-settings"]);
+  });
+
+  it("goes through the registration gate (duplicate ids still reject)", async () => {
+    const ctx = await withProviders();
+    await ctx.plugin(createProviderPlugin({ id: "dup", async *chat() {} }));
+    await expect(
+      ctx.plugin(createProviderPlugin({ id: "dup", async *chat() {} })),
+    ).rejects.toThrow("duplicate provider registration: dup");
   });
 });

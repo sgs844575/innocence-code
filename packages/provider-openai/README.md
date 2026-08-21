@@ -15,7 +15,7 @@ fetch + SSE 流式解析、`tool_calls` 增量聚合，把 wire 格式转换为 
 | 导出 | 说明 |
 |---|---|
 | `createOpenAIProvider(config)` | 构造 `Provider`（id 默认 `openai`） |
-| `openAIPlugin(config)` | 插件包装：`activate(ctx)` 时 `ctx.registerProvider(...)`（name `provider-openai`） |
+| `createOpenAIPlugin(config)` | 内核插件（name `provider-openai`）：`apply(ctx)` 时 `ctx.providers.register(...)` |
 | `toOpenAIBody` | 请求映射（导出供测试回放） |
 | `openAIDeltasFromDataLines` | SSE 增量聚合（导出供测试回放） |
 
@@ -33,12 +33,12 @@ const provider = createOpenAIProvider({
   // baseURL: "http://localhost:11434/v1",  // OpenAI 兼容端点（本地推理/网关）
 });
 
-// 直接作为 Provider 用，或经插件注册：
-import { openAIPlugin } from "@innocencecode/provider-openai";
-plugins.push(openAIPlugin({ apiKey: "sk-…", model: "gpt-4.1" }));
+// 直接作为 Provider 用，或经内核插件注册（providers 服务面）：
+import { createOpenAIPlugin } from "@innocencecode/provider-openai";
+plugins.push(createOpenAIPlugin({ apiKey: "sk-…", model: "gpt-4.1" }));
 ```
 
-桌面宿主里由 `harness-electron` 的 `buildProviderFromSettings(settings)` 按当前设置实例化（设置界面可填
+桌面宿主里由组合层（`src/main/harnessGlue.ts`）按当前设置构造实例并包成 provider 插件入组合集（设置界面可填
 API Key 与 Base URL，Key 仅存本机）。
 
 ## 关键行为与约束

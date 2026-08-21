@@ -138,6 +138,25 @@ function chokepointSession(base: Context, view: SessionRegistryView): SessionSer
 }
 
 /**
+ * Registry-only provider resolution. An explicit providerId must hit the
+ * registry (same error text as before); with neither an injected provider
+ * nor an id the session takes the registry's sole registered provider —
+ * host compositions register exactly one — and anything else keeps the
+ * pre-kernel "no provider configured" error.
+ */
+function resolveRegistryProvider(ctx: Context, providerId: string | undefined): Provider {
+  if (providerId) {
+    const found = ctx.providers.get(providerId);
+    if (!found) throw new Error(`provider not found: ${providerId}`);
+    return found;
+  }
+  const [soleId] = ctx.providers.ids();
+  const sole = soleId === undefined ? undefined : ctx.providers.get(soleId);
+  if (sole) return sole;
+  throw new Error("no provider configured");
+}
+
+/**
  * Mount order (behavior-preserving; see the task report for the one order
  * deviation forced by providerId resolution):
  *  1. kernel-logger (plugin log prefixing), tools, permissions, providers,
@@ -209,12 +228,7 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
       await fiber;
     }
 
-    const provider = init.provider ?? ctx.providers.get(init.providerId ?? "");
-    if (!provider) {
-      throw new Error(
-        init.providerId ? `provider not found: ${init.providerId}` : "no provider configured",
-      );
-    }
+    const provider = init.provider ?? resolveRegistryProvider(ctx, init.providerId);
 
     await ctx.plugin(
       createSessionPlugin({

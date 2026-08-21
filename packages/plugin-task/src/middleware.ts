@@ -1,5 +1,5 @@
+import type { Context } from "@innocencecode/kernel";
 import type {
-  HarnessPlugin,
   Logger,
   Tool,
   ToolContext,
@@ -193,12 +193,27 @@ export function createTaskCaptureMiddleware(options: TaskCaptureOptions): ToolEx
   };
 }
 
-/** Registers the change-capture middleware as a harness plugin. */
-export function taskPlugin(options: TaskCaptureOptions): HarnessPlugin {
+/** Kernel-native task plugin (name "task"). */
+export interface TaskPlugin {
+  readonly name: "task";
+  apply(ctx: Context): void;
+}
+
+/**
+ * Registers the change-capture middleware as a kernel-native plugin through
+ * the tools service face (`registerMiddleware` — the same spine path the
+ * session kernel routes through the registry chokepoint).
+ */
+export function createTaskPlugin(options: TaskCaptureOptions): TaskPlugin {
   return {
-    name: "task-change-capture",
-    activate(ctx) {
-      ctx.registerToolMiddleware(createTaskCaptureMiddleware({ ...options, log: options.log ?? ctx.log }));
+    name: "task",
+    apply(ctx: Context) {
+      ctx.tools.registerMiddleware(
+        createTaskCaptureMiddleware({
+          ...options,
+          log: options.log ?? ((level, msg, data) => ctx.logger.log(level, `[task] ${msg}`, data)),
+        }),
+      );
     },
   };
 }

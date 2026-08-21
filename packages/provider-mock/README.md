@@ -16,6 +16,7 @@
 | 导出 | 说明 |
 |---|---|
 | `createMockProvider(opts)` | 构造 `Provider`（id 默认 `mock`） |
+| `createMockPlugin(opts)` | 内核插件（name `provider-mock`）：`apply(ctx)` 时 `ctx.providers.register(...)` |
 | `MockTurn` | `{ text?, toolCalls?: MockToolCall[] }`，`MockToolCall = { toolName, args? }` |
 | `MockProviderOptions` | `turns`（必填）、`id? / chunkSize?（默认 4）/ delayMs?（默认 0）/ summarizeResponse? / exhaustedText? / onChat?` |
 

@@ -1,4 +1,5 @@
-import { parseSSEData, type HarnessPlugin, type Provider } from "@innocencecode/harness-core";
+import type { Context } from "@innocencecode/kernel";
+import { parseSSEData, type Provider } from "@innocencecode/harness-core";
 import { toOpenAIBody } from "./mapping";
 import { openAIDeltasFromDataLines } from "./stream";
 
@@ -55,13 +56,21 @@ export function createOpenAIProvider(config: OpenAIProviderConfig): Provider {
   };
 }
 
-/** Plugin wrapper for uniform registration. */
-export const openAIPlugin = (config: OpenAIProviderConfig): HarnessPlugin => ({
-  name: "provider-openai",
-  activate(ctx) {
-    ctx.registerProvider(createOpenAIProvider(config));
-  },
-});
+/** Kernel-native OpenAI-compatible provider plugin (name "provider-openai"). */
+export interface OpenAIPlugin {
+  readonly name: "provider-openai";
+  apply(ctx: Context): void;
+}
+
+/** Registers the OpenAI-compatible provider on the spine providers service. */
+export function createOpenAIPlugin(config: OpenAIProviderConfig): OpenAIPlugin {
+  return {
+    name: "provider-openai",
+    apply(ctx) {
+      ctx.providers.register(createOpenAIProvider(config));
+    },
+  };
+}
 
 export { toOpenAIBody } from "./mapping";
 export { openAIDeltasFromDataLines } from "./stream";

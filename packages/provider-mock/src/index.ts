@@ -1,3 +1,4 @@
+import type { Context } from "@innocencecode/kernel";
 import {
   SUMMARIZE_SYSTEM_PROMPT,
   type ChatRequest,
@@ -78,6 +79,22 @@ export function createMockProvider(opts: MockProviderOptions): Provider {
           args: call.args ?? {},
         };
       }
+    },
+  };
+}
+
+/** Kernel-native mock provider plugin (name "provider-mock"). */
+export interface MockPlugin {
+  readonly name: "provider-mock";
+  apply(ctx: Context): void;
+}
+
+/** Registers the scripted mock provider on the spine providers service. */
+export function createMockPlugin(options: MockProviderOptions): MockPlugin {
+  return {
+    name: "provider-mock",
+    apply(ctx) {
+      ctx.providers.register(createMockProvider(options));
     },
   };
 }

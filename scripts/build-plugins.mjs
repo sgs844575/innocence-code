@@ -19,6 +19,10 @@ const PLUGINS = [
   { dir: "packages/plugin-skills", id: "skills" },
   { dir: "packages/plugin-mcp", id: "mcp" },
   { dir: "packages/plugin-subagent", id: "subagent" },
+  { dir: "packages/plugin-task", id: "task" },
+  { dir: "packages/provider-anthropic", id: "provider-anthropic" },
+  { dir: "packages/provider-openai", id: "provider-openai" },
+  { dir: "packages/provider-mock", id: "provider-mock" },
 ];
 const STAGING = "build/dist/resources";
 

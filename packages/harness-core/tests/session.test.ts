@@ -107,6 +107,32 @@ describe("AgentSession", () => {
     ).rejects.toThrow("provider not found: nope");
   });
 
+  it("resolves the sole registry provider when no explicit provider is given", async () => {
+    const plugin: HarnessPlugin = {
+      name: "p",
+      activate(ctx) {
+        ctx.registerProvider(echoProvider());
+      },
+    };
+    const session = await AgentSession.create({
+      plugins: [plugin],
+      workspaceRoot: "D:/tmp",
+      permission: { mode: "auto", decider: { ask: async () => "deny" } },
+    });
+    const result = await session.run("你好");
+    expect(result.finalText).toContain("echo:");
+  });
+
+  it("still rejects a provider-less session with no registered provider", async () => {
+    await expect(
+      AgentSession.create({
+        plugins: [],
+        workspaceRoot: "D:/tmp",
+        permission: { mode: "auto", decider: { ask: async () => "deny" } },
+      }),
+    ).rejects.toThrow("no provider configured");
+  });
+
   it("create failures after plugin load dispose the already-activated plugins", async () => {
     const events: string[] = [];
     await expect(

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createOpenAIProvider } from "../src/index";
+import { Context } from "@innocencecode/kernel";
+import { ProvidersPlugin } from "@innocencecode/harness-providers";
+import { createOpenAIPlugin, createOpenAIProvider } from "../src/index";
 
 const SSE = [
   'data: {"choices":[{"index":0,"delta":{"content":"让我读"}}]}',
@@ -102,5 +104,16 @@ describe("createOpenAIProvider full path (stubbed fetch)", () => {
     } finally {
       if (prev !== undefined) process.env.OPENAI_API_KEY = prev;
     }
+  });
+});
+
+describe("createOpenAIPlugin (kernel mount)", () => {
+  it("registers the OpenAI provider on the spine providers service", async () => {
+    const ctx = new Context();
+    await ctx.plugin(ProvidersPlugin);
+    const plugin = createOpenAIPlugin({ apiKey: "k", model: "m" });
+    expect(plugin.name).toBe("provider-openai");
+    await ctx.plugin(plugin);
+    expect(ctx.providers.get("openai")).toBeDefined();
   });
 });
