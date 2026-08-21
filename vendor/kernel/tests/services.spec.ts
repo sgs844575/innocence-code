@@ -18,6 +18,23 @@ describe("service publish guards", () => {
     expect((error as KernelError).code).toBe("SERVICE_NAME_CONFLICT");
   });
 
+  it("rejects publishing under a method name inherited from the context prototype", () => {
+    const ctx = new Context();
+    let error: unknown;
+    try { ctx.provide("emit", 1); } catch (reason) { error = reason; }
+    expect(error).toBeInstanceOf(KernelError);
+    expect((error as KernelError).code).toBe("SERVICE_NAME_CONFLICT");
+  });
+
+  it("rejects publishing under a method name on a derived scope", () => {
+    const ctx = new Context();
+    const scope = ctx.derive();
+    let error: unknown;
+    try { scope.provide("derive", 1); } catch (reason) { error = reason; }
+    expect(error).toBeInstanceOf(KernelError);
+    expect((error as KernelError).code).toBe("SERVICE_NAME_CONFLICT");
+  });
+
   it("rejects a duplicate service name and keeps the published one", async () => {
     const ctx = new Context();
     await ctx.plugin(Loader);
