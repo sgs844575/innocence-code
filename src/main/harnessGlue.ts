@@ -1,10 +1,10 @@
 // Harness glue — owns settings persistence, the HarnessRuntime instance and
 // the permission-ask bridge between the runtime and the renderer. This module
-// is the host composition root: it declaratively assembles each agent
-// session's plugin set from PLUGIN_DESCRIPTORS (fs/shell core tools,
-// subagents, project skills, MCP servers, session todo tool) plus the
-// settings-based provider plugin — the active set comes from resolvePluginSet
-// over project .innocence/plugins.yml + user settings toggles.
+// is the host composition root: it resolves each agent session's plugin set
+// through the kernel-backed plugin boot (pluginBoot.ts — the staging kernel,
+// the dual-root resolver and the builtin manifest live there), so the active
+// set comes from staging manifest.json descriptors + resolvePluginSet (local
+// copy) over project .innocence/plugins.yml + user settings toggles.
 import { app, dialog, type BrowserWindow } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -20,12 +20,9 @@ import {
 } from "@innocencecode/harness-electron";
 import {
   loadInnocenceConfig,
-  loadPluginToggles,
-  resolvePluginSet,
   rulesFromConfig,
   type HarnessPlugin,
-  type PluginDescriptor,
-  type PluginToggleSource,
+  type InnocenceConfig,
   type ProjectPermissionConfig,
   type Provider,
   type SessionPlugin,
@@ -34,12 +31,6 @@ import { createProviderPlugin } from "@innocencecode/harness-providers";
 import { createOpenAIProvider } from "@innocencecode/provider-openai";
 import { createAnthropicProvider } from "@innocencecode/provider-anthropic";
 import { createMockProvider } from "@innocencecode/provider-mock";
-import { FsPlugin } from "@innocencecode/tools-fs";
-import { ShellPlugin } from "@innocencecode/tools-shell";
-import { SubagentPlugin } from "@innocencecode/plugin-subagent";
-import { createSkillsPlugin } from "@innocencecode/plugin-skills";
-import { createMcpPlugin } from "@innocencecode/plugin-mcp";
-import { TodoPlugin } from "@innocencecode/tools-todo";
 import {
   IPC,
   appendText,
@@ -47,6 +38,9 @@ import {
   type ChatToolEvent,
   type PermissionChoice,
 } from "../shared/ipc";
+import type { PluginBoot } from "./pluginBoot";
+import { createPluginBoot } from "./pluginBoot";
+import type { PluginToggleSource } from "./plugin-toggles-local";
 import * as sessions from "./sessions";
 import { getMainWindow } from "./appWindow";
 import { broadcastTheme, setTheme } from "./theme";
@@ -117,46 +111,114 @@ function buildProviderFromSettings(settings: PkgSettings): Provider {
   }
 }
 
-/** 声明式插件关系表（spec B 3.4）：id → 依赖，core = 恒开不可关。
- *  组合根只声明关系与实例化，启停判定（两级覆盖/依赖连带）全部交给
- *  resolvePluginSet。fs/shell/subagent/skills/mcp/todo 实例为内核原生插
- *  件，name 与描述符 id 同名。 */
-export const PLUGIN_DESCRIPTORS: readonly PluginDescriptor[] = [
-  { id: "fs", dependencies: [], core: true },
-  { id: "shell", dependencies: [], core: true },
-  { id: "subagent", dependencies: ["fs", "shell"] },
-  { id: "skills", dependencies: ["fs"] },
-  { id: "mcp", dependencies: [] },
-  { id: "todo", dependencies: [] },
-];
+// ---------------------------------------------------------------------------
+// Plugin boot（内核化装载）
+// ---------------------------------------------------------------------------
+
+/** dev：仓库 staging 树；prod：打包 resources 下的同一布局（forge
+ *  extraResource 把 build/dist/resources/{plugins,node_modules} 复制到
+ *  resources/）。内核经动态 import 装载（单实例），src/main 不再静态
+ *  import vendor/kernel 的运行时值。 */
+function bootPaths(): { kernelPath: string; builtinRoot: string } {
+  if (app.isPackaged) {
+    const resources = process.resourcesPath;
+    return {
+      kernelPath: path.join(resources, "node_modules", "@innocencecode", "kernel", "dist", "index.js"),
+      builtinRoot: path.join(resources, "plugins"),
+    };
+  }
+  const staging = path.resolve(process.cwd(), "build", "dist", "resources");
+  return {
+    kernelPath: path.join(staging, "node_modules", "@innocencecode", "kernel", "dist", "index.js"),
+    builtinRoot: path.join(staging, "plugins"),
+  };
+}
+
+/** Lazy boot singleton：首个会话组装触发创建（staging 缺失时错误在会话
+ *  构建路径显性抛出，不影响应用启动）；settings/workspaceRoot 不在此固
+ *  化——每会话经 resolveBuiltinSet 现取（settings 重建语义零变化）。 */
+let bootPromise: Promise<PluginBoot> | undefined;
+
+function ensureBoot(): Promise<PluginBoot> {
+  bootPromise ??= createPluginBoot({
+    ...bootPaths(),
+    workspaceRoot: settings.workspaceRoot || undefined,
+  });
+  return bootPromise;
+}
+
+/** App shutdown: unwinds the boot root (cascades into live route scopes).
+ *  Never rejects — failures surface through the harness log. */
+export async function disposePluginBoot(): Promise<void> {
+  const pending = bootPromise;
+  bootPromise = undefined;
+  const boot = await pending?.catch(() => undefined);
+  if (!boot) return;
+  try {
+    await boot.dispose();
+  } catch (err) {
+    logger.warn("plugin boot dispose failed", { error: String(err) });
+  }
+}
+
+/** 磁盘装载一个内置能力插件并按 id 装配：fs/shell/todo/subagent 为插件
+ *  对象（default 导出）；skills/mcp 为工厂（default 导出），由组合根注入
+ *  配置后实例化。name 与清单 id 同名（composePlugins.test 的 1:1 守卫）。 */
+async function builtinPluginFor(
+  boot: PluginBoot,
+  id: string,
+  config: InnocenceConfig,
+  workspaceRoot: string,
+): Promise<SessionPlugin> {
+  const value = await boot.importPlugin(id);
+  switch (id) {
+    case "fs":
+    case "shell":
+    case "todo":
+    case "subagent":
+      return value as SessionPlugin;
+    case "skills":
+      return (value as (options: { dirs: string[] }) => SessionPlugin)({
+        dirs: [path.join(workspaceRoot, ".innocence", "skills")],
+      });
+    case "mcp":
+      return (value as (options: { servers: Record<string, unknown> }) => SessionPlugin)({
+        servers: (config.mcpServers ?? {}) as Record<string, unknown>,
+      });
+    default:
+      throw new Error(`builtin plugin "${id}" has no composition branch`);
+  }
+}
 
 /** Host composition root: one workspace's plugin set — workspace tools,
- * subagents, project permission rules, project skills, MCP servers, the
- * session todo tool and the settings-based provider. Declarative assembly:
- * project plugins.yml + user toggles → resolvePluginSet → instantiate by
- * active id. fs/shell/subagent/skills/mcp/todo are kernel-native plugins
- * (static import; the disk-loading switch is T11); the provider is assembled
- * per session from the build-time settings and wrapped as a kernel provider
- * plugin (name "provider") so the session resolves it through the providers
- * registry; the project-rules plugin remains a legacy plugin the session
- * kernel adapts. fs/shell are core and the project-rules/provider plugins
- * are not toggleable, so all of them are always present; skipped plugins
- * and resolver warnings surface through the logger.
- *  Exported for the integration test (real yml + real resolver, no
- *  Electron). */
+ *  subagents, project permission rules, project skills, MCP servers, the
+ *  session todo tool and the settings-based provider. Declarative assembly:
+ *  staging manifest descriptors + project plugins.yml + user toggles →
+ *  resolvePluginSet（本地拷贝）→ 按清单 id 从 staging 双根磁盘装载
+ *  （boot 的 FileModuleResolver；用户根在前）。Instantiation order matches
+ *  the pre-T11 static composition exactly; the provider is assembled per
+ *  session and wrapped as a kernel provider plugin (name "provider") so the
+ *  session resolves it through the providers registry; the project-rules
+ *  plugin remains a legacy plugin the session kernel adapts. fs/shell are
+ *  core and the project-rules/provider plugins are not toggleable, so all of
+ *  them are always present; skipped plugins and resolver warnings surface
+ *  through the logger. Exported for the integration test (real yml + real
+ *  resolver + real staging tree, no Electron). */
 export async function composePlugins(
   workspaceRoot: string,
   userToggles?: PluginToggleSource,
   settings: PkgSettings = DEFAULT_SETTINGS,
 ): Promise<SessionPlugin[]> {
-  const [config, project] = await Promise.all([
+  const boot = await ensureBoot();
+  const [config, resolved] = await Promise.all([
     loadInnocenceConfig(workspaceRoot),
-    loadPluginToggles(workspaceRoot, {
-      // yml 损坏/未知键告警必须进 userData/logs，而非 core 的 console 兜底。
+    boot.resolveBuiltinSet({
+      workspaceRoot,
+      userToggles,
+      // yml 损坏/未知键告警必须进 userData/logs，而非 console 兜底。
       logger: (level, msg, data) => logger[level === "error" ? "error" : "warn"](msg, data),
     }),
   ]);
-  const resolved = resolvePluginSet(PLUGIN_DESCRIPTORS, userToggles, project);
   for (const { id, reason, via } of resolved.skipped) {
     logger.info("plugin skipped", { id, reason, via });
   }
@@ -164,16 +226,18 @@ export async function composePlugins(
 
   const active = new Set(resolved.active);
   const plugins: SessionPlugin[] = [];
-  if (active.has("fs")) plugins.push(FsPlugin);
-  if (active.has("shell")) plugins.push(ShellPlugin);
+  if (active.has("fs")) plugins.push(await builtinPluginFor(boot, "fs", config, workspaceRoot));
+  if (active.has("shell")) plugins.push(await builtinPluginFor(boot, "shell", config, workspaceRoot));
   // 项目权限规则在关系模型之外（spec 非目标：不可关闭），恒定注入。
   plugins.push(projectRulesPlugin(config.permissions));
-  if (active.has("subagent")) plugins.push(SubagentPlugin);
-  if (active.has("skills")) {
-    plugins.push(createSkillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }));
+  if (active.has("subagent")) {
+    plugins.push(await builtinPluginFor(boot, "subagent", config, workspaceRoot));
   }
-  if (active.has("mcp")) plugins.push(createMcpPlugin({ servers: config.mcpServers ?? {} }));
-  if (active.has("todo")) plugins.push(TodoPlugin);
+  if (active.has("skills")) {
+    plugins.push(await builtinPluginFor(boot, "skills", config, workspaceRoot));
+  }
+  if (active.has("mcp")) plugins.push(await builtinPluginFor(boot, "mcp", config, workspaceRoot));
+  if (active.has("todo")) plugins.push(await builtinPluginFor(boot, "todo", config, workspaceRoot));
   // Provider assembly per session (the build-time settings): one provider
   // plugin named "provider" — the session kernel resolves the registry's
   // sole registered provider, so this is the only provider path.
@@ -202,6 +266,10 @@ export function getTaskStorageDir(): string {
 const runtime = new HarnessRuntime({
   settings: () => settings,
   persistDir: transcriptsDir(),
+  // Route scopes: every session build mounts into a fresh kernel scope below
+  // the plugin-boot root (dynamic staging kernel) — session dispose unwinds
+  // the whole scope; the root and sibling routes stay untouched.
+  sessionScope: async () => (await ensureBoot()).createSessionScope(),
   // Authoritative per-route workspace root: a live task's effective workspace
   // (the isolated worktree) wins, then the session-bound project root, then
   // settings — settings.workspaceRoot is never the sole task root.

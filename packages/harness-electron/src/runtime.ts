@@ -201,102 +201,117 @@ export class HarnessRuntime {
     };
 
     const toolIndex = createSessionToolIndex();
-    // Plugins come from the host composition root — the runtime owns no
-    // concrete capability, so tools/skills/MCP wiring lives in the host.
-    const factoryContext: PluginFactoryContext = {
-      sessionId,
-      routeId,
-      taskId: taskId || undefined,
-      messageId,
-      settings,
-      workspaceRoot,
-      scope: createExecutionScope("session", undefined, {
+    // Route scope FIRST (when the host provides one): the whole build — plugin
+    // composition, session kernel mounts — happens inside it, so disposing the
+    // session (or the scope) unwinds everything this route loaded and nothing
+    // else. A failed build disposes the fresh scope before rethrowing.
+    const scope = this.options.sessionScope ? await this.options.sessionScope() : undefined;
+    try {
+      // Plugins come from the host composition root — the runtime owns no
+      // concrete capability, so tools/skills/MCP wiring lives in the host.
+      const factoryContext: PluginFactoryContext = {
         sessionId,
         routeId,
-        ...(taskId ? { taskId } : {}),
-      }),
-      toolIndex,
-    };
-    const plugins = await this.options.pluginsForSession(factoryContext);
-
-    const create = () => {
-      // Provider registration path is registry-only: the host composition
-      // (harnessGlue) contributes the settings-based provider plugin; the
-      // providerFactory test seam wraps its instance the same way. No session
-      // is ever built with an explicit provider — AgentSession resolves the
-      // registry's sole registered one.
-      const providerFactory = this.options.providerFactory;
-      const sessionPlugins = providerFactory
-        ? [...plugins, createProviderPlugin(providerFactory(settings))]
-        : plugins;
-      return AgentSession.create({
-        plugins: sessionPlugins,
+        taskId: taskId || undefined,
+        messageId,
+        settings,
         workspaceRoot,
-        systemPrompt: systemPromptFor(settings.activeAgent ?? "default"),
-        permission: {
-          mode: settings.permissionMode,
-          decider,
-          // Every resolution (including full mode) is audited through the host
-          // log with the persisted request — raw args never reach this surface.
-          audit: (entry) => {
-            this.options.hooks.log("info", "permission", {
-              mode: entry.mode,
-              tool: entry.request.toolName,
-              resource: `${entry.request.resource.action}:${entry.request.resource.kind}:${entry.request.resource.scope}`,
-              decision: entry.resolution.decision,
-              via: entry.resolution.via,
-            });
-          },
-        },
-        logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
-      });
-    };
-    const session = await (this.options.agentFactory?.(factoryContext, create) ?? create());
-    // The session exists now, so its registry can back the late-bound index.
-    toolIndex.adopt(session.registry.tools);
+        scope: createExecutionScope("session", undefined, {
+          sessionId,
+          routeId,
+          ...(taskId ? { taskId } : {}),
+        }),
+        toolIndex,
+      };
+      const plugins = await this.options.pluginsForSession(factoryContext);
 
-    if (cached) {
-      // Rebuilds (settings changed) keep the conversation: copy the previous
-      // session's canonical history FIRST, then release the old session —
-      // dispose aborts its in-flight work, so the snapshot must not depend
-      // on anything that teardown touches.
-      session.history.push(
-        ...cached.session.history.map((m) => ({ role: m.role, parts: [...m.parts] })),
-      );
-    } else if (this.options.persistDir && routeId === DEFAULT_ROUTE_ID) {
-      // Fresh runtime after app restart: the MAIN route seeds from the
-      // canonical transcript codec (never renderer/UI-coalesced messages).
-      // Non-main routes keep an empty history — their durable state is the
-      // task system's (turn commit), not the chat transcript.
-      try {
-        const raw = await fs.readFile(
-          path.join(this.options.persistDir, `${sessionId}.jsonl`),
-          "utf8",
+      const create = () => {
+        // Provider registration path is registry-only: the host composition
+        // (harnessGlue) contributes the settings-based provider plugin; the
+        // providerFactory test seam wraps its instance the same way. No session
+        // is ever built with an explicit provider — AgentSession resolves the
+        // registry's sole registered one.
+        const providerFactory = this.options.providerFactory;
+        const sessionPlugins = providerFactory
+          ? [...plugins, createProviderPlugin(providerFactory(settings))]
+          : plugins;
+        return AgentSession.create({
+          plugins: sessionPlugins,
+          ...(scope ? { scope } : {}),
+          workspaceRoot,
+          systemPrompt: systemPromptFor(settings.activeAgent ?? "default"),
+          permission: {
+            mode: settings.permissionMode,
+            decider,
+            // Every resolution (including full mode) is audited through the host
+            // log with the persisted request — raw args never reach this surface.
+            audit: (entry) => {
+              this.options.hooks.log("info", "permission", {
+                mode: entry.mode,
+                tool: entry.request.toolName,
+                resource: `${entry.request.resource.action}:${entry.request.resource.kind}:${entry.request.resource.scope}`,
+                decision: entry.resolution.decision,
+                via: entry.resolution.via,
+              });
+            },
+          },
+          logger: (level, msg, data) => this.options.hooks.log(level, msg, data),
+        });
+      };
+      const session = await (this.options.agentFactory?.(factoryContext, create) ?? create());
+      // The session exists now, so its registry can back the late-bound index.
+      toolIndex.adopt(session.registry.tools);
+
+      if (cached) {
+        // Rebuilds (settings changed) keep the conversation: copy the previous
+        // session's canonical history FIRST, then release the old session —
+        // dispose aborts its in-flight work, so the snapshot must not depend
+        // on anything that teardown touches.
+        session.history.push(
+          ...cached.session.history.map((m) => ({ role: m.role, parts: [...m.parts] })),
         );
-        const prior = decodeTranscript(raw).history;
-        if (prior.length > 0) {
-          session.history.push(...prior.map((m) => ({ role: m.role, parts: [...m.parts] })));
-        }
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-          this.options.hooks.log("warn", "history seed failed", String(err));
+      } else if (this.options.persistDir && routeId === DEFAULT_ROUTE_ID) {
+        // Fresh runtime after app restart: the MAIN route seeds from the
+        // canonical transcript codec (never renderer/UI-coalesced messages).
+        // Non-main routes keep an empty history — their durable state is the
+        // task system's (turn commit), not the chat transcript.
+        try {
+          const raw = await fs.readFile(
+            path.join(this.options.persistDir, `${sessionId}.jsonl`),
+            "utf8",
+          );
+          const prior = decodeTranscript(raw).history;
+          if (prior.length > 0) {
+            session.history.push(...prior.map((m) => ({ role: m.role, parts: [...m.parts] })));
+          }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            this.options.hooks.log("warn", "history seed failed", String(err));
+          }
         }
       }
+      if (this.cache.isDisposing(key)) {
+        // dispose() arrived while this build was in flight: release the
+        // product in place — it must never enter the cache or run a turn.
+        // (The previously cached session, if any, was already released by
+        // dispose() itself.)
+        await this.cache.releaseInPlace(key, session);
+        throw sessionDisposedError(key);
+      }
+      this.cache.commit(key, settingsKey, session);
+      if (cached) {
+        // dispose() may have released this old entry mid-build; the second
+        // call is an idempotent no-op (session dispose deduplicates).
+        await this.settleDispose(key, cached.session);
+      }
+      return session;
+    } catch (err) {
+      // The fresh scope never entered the cache: unwind it here so a failed
+      // build (or an in-place release racing dispose) leaks no carrier fiber.
+      // Session.dispose already unwound it on the release paths, and scope
+      // disposal is idempotent, so this joins whatever unwind already ran.
+      await scope?.dispose().catch(() => {});
+      throw err;
     }
-    if (this.cache.isDisposing(key)) {
-      // dispose() arrived while this build was in flight: release the
-      // product in place — it must never enter the cache or run a turn.
-      // (The previously cached session, if any, was already released by
-      // dispose() itself.)
-      await this.cache.releaseInPlace(key, session);
-      throw sessionDisposedError(key);
-    }
-    this.cache.commit(key, settingsKey, session);
-    if (cached) {
-      // dispose() may have released this old entry mid-build; the second
-      // call is an idempotent no-op (session dispose deduplicates).
-      await this.settleDispose(key, cached.session);
-    }
-    return session;
   }
 }

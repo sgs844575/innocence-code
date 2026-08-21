@@ -875,3 +875,87 @@ describe("HarnessRuntime route cache", () => {
     expect(toolIndexLookups).toEqual(["Probe"]);
   });
 });
+
+describe("HarnessRuntime route scopes", () => {
+  // Route scopes (kernel createScope below one shared root): each session
+  // build mounts into a FRESH scope; session dispose unwinds the whole scope.
+  it("builds a session inside a fresh scope and unwinds it on dispose", async () => {
+    const { Context, createScope, FiberState } = await import("@innocencecode/kernel");
+    const root = new Context();
+    const cleaned: string[] = [];
+    const scopes: Array<ReturnType<typeof createScope>> = [];
+    const recorded: Recorded = emptyRecorded();
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }], { workspaceRoot: workspace }, recorded),
+      sessionScope: () => {
+        const scope = createScope(root);
+        // Host-side effect ON the scope itself: it must unwind with the
+        // session, proving the scope fiber backs the session's teardown.
+        scope.ctx.effect(() => () => { cleaned.push("scope"); }, "scope-probe");
+        scopes.push(scope);
+        return scope;
+      },
+    });
+
+    await chatTurn(runtime, "rt-scope-1", "hello", "m-rt-scope-1");
+    expect(recorded.completed).toBe(1);
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0].ctx.fiber).not.toBe(root.fiber);
+
+    await runtime.dispose("rt-scope-1");
+    expect(cleaned).toEqual(["scope"]);
+    // The shared root outlives the route scope.
+    expect(root.fiber.state).toBe(FiberState.ACTIVE);
+  });
+
+  it("rebuilds into a fresh scope on settings change and unwinds the old one", async () => {
+    const { Context, createScope } = await import("@innocencecode/kernel");
+    const root = new Context();
+    const cleaned: number[] = [];
+    let scopes = 0;
+    let current: HarnessSettings = { ...DEFAULT_SETTINGS, workspaceRoot: workspace };
+    const runtime = new HarnessRuntime({
+      settings: () => current,
+      hooks: makeHooks(emptyRecorded()),
+      persistDir,
+      providerFactory: () => createMockProvider({ turns: [{ text: "好" }] }),
+      pluginsForSession: () => [],
+      sessionScope: () => {
+        scopes += 1;
+        const built = scopes;
+        const scope = createScope(root);
+        scope.ctx.effect(() => () => { cleaned.push(built); }, "scope-probe");
+        return scope;
+      },
+    });
+
+    await chatTurn(runtime, "rt-scope-2", "一", "m-a");
+    // permissionMode is already "ask" by default; the model field is what
+    // actually changes the settings key and forces the rebuild.
+    current = { ...current, activeModel: "scope-rebuild-model" };
+    await chatTurn(runtime, "rt-scope-2", "二", "m-b");
+
+    expect(scopes).toBe(2);
+    expect(cleaned).toEqual([1]);
+    await runtime.disposeAll();
+    expect(cleaned).toEqual([1, 2]);
+  });
+
+  it("reuses the cached session without consuming a new scope", async () => {
+    const { Context, createScope } = await import("@innocencecode/kernel");
+    const root = new Context();
+    let scopes = 0;
+    const runtime = new HarnessRuntime({
+      ...runtimeOptions([{ text: "好" }, { text: "好" }], { workspaceRoot: workspace }),
+      sessionScope: () => {
+        scopes += 1;
+        return createScope(root);
+      },
+    });
+
+    await chatTurn(runtime, "rt-scope-3", "一", "m-a");
+    await chatTurn(runtime, "rt-scope-3", "二", "m-b");
+    expect(scopes).toBe(1);
+    await runtime.disposeAll();
+  });
+});

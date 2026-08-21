@@ -1,20 +1,25 @@
 // composePlugins 集成（spec 4）：项目 plugins.yml + 用户开关 →
-// resolvePluginSet → 按 active 声明式实例化。harnessGlue 只在模块加载期
-// 触及 Electron（runtime 构造取 userData 路径），mock 掉即可在纯 Node 下
-// 驱动真实组合根（真实 yml 读取、真实解析器、真实插件实例）。
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+// resolvePluginSet（本地拷贝）→ 按清单 id 从 staging 双根磁盘装载。
+// T11 起组合根经 pluginBoot（动态 staging 内核 + FileModuleResolver）装
+// 配，测试因此需要真实 staging 树（npm run build:plugins 产出）；无
+// staging 的干净检出按 packaged-exit 先例设计性跳过。
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
-  app: { getPath: () => tmpdir() },
+  app: { getPath: () => tmpdir(), isPackaged: false },
   dialog: { showOpenDialog: vi.fn() },
   nativeTheme: { shouldUseDarkColors: false, themeSource: "system", on: vi.fn() },
   BrowserWindow: class {},
 }));
 
-import { composePlugins, PLUGIN_DESCRIPTORS } from "./harnessGlue";
+import { composePlugins } from "./harnessGlue";
+import { stagingBootPaths } from "./staging-paths";
+
+const stagingAvailable = existsSync(stagingBootPaths().kernelPath);
+const maybeDescribe = stagingAvailable ? describe : describe.skip;
 
 const roots: string[] = [];
 afterEach(() => {
@@ -32,7 +37,11 @@ async function tempWorkspace(files: Record<string, string>): Promise<string> {
   return root;
 }
 
-describe("composePlugins (declarative composition root)", () => {
+// staging manifest 的清单 id 集（fs/shell/subagent/skills/mcp/todo：内核
+// 原生插件，name 与 id 同名；provider/task 等由组合层另行装配不进清单）。
+const MANIFEST_IDS = ["fs", "shell", "subagent", "skills", "mcp", "todo"] as const;
+
+maybeDescribe("composePlugins (declarative composition root)", () => {
   it("project yml wins, user toggles apply, core stays, todo registers", async () => {
     const ws = await tempWorkspace({ ".innocence/plugins.yml": "plugins:\n  mcp: false\n" });
     const names = (await composePlugins(ws, { subagent: false })).map((p) => p.name);
@@ -53,11 +62,10 @@ describe("composePlugins (declarative composition root)", () => {
     expect(names).toContain("todo");
   });
 
-  it("guard: descriptors and instantiation branches stay 1:1", async () => {
+  it("guard: manifest ids and instantiation branches stay 1:1", async () => {
     const ws = await tempWorkspace({});
     const names = (await composePlugins(ws)).map((p) => p.name);
-    // 描述符 id → 插件实例名；新增描述符必须同步此映射与实例化分支。
-    // fs/shell/subagent/skills/mcp/todo 为内核原生插件，name 与描述符 id 同名。
+    // 清单 id → 插件实例名；新增清单条目必须同步此映射与实例化分支。
     const nameById: Record<string, string> = {
       fs: "fs",
       shell: "shell",
@@ -66,7 +74,7 @@ describe("composePlugins (declarative composition root)", () => {
       mcp: "mcp",
       todo: "todo",
     };
-    for (const { id } of PLUGIN_DESCRIPTORS) {
+    for (const id of MANIFEST_IDS) {
       expect(nameById[id], `descriptor "${id}" 缺少测试侧 id→name 映射`).toBeTruthy();
       expect(names, `descriptor "${id}" 未实例化`).toContain(nameById[id]);
     }
@@ -75,6 +83,11 @@ describe("composePlugins (declarative composition root)", () => {
     // 描述符）同样会让计数失衡变红。
     expect(names).toContain("project-permission-rules");
     expect(names).toContain("provider");
-    expect(names).toHaveLength(PLUGIN_DESCRIPTORS.length + 2);
+    expect(names).toHaveLength(MANIFEST_IDS.length + 2);
   });
 });
+
+if (!stagingAvailable) {
+  // A visible reason next to the skip (vitest shows it.skip without one).
+  it.skip("staging tree not found — run `npm run build:plugins` then re-run to exercise the boot composition", () => {});
+}

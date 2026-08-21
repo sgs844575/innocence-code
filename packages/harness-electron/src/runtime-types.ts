@@ -13,6 +13,7 @@ import type {
   ToolCallPart,
   ToolResultPart,
 } from "@innocencecode/harness-core";
+import type { Context } from "@innocencecode/kernel";
 import type { Route } from "@innocencecode/task-core";
 import type { HarnessSettings } from "./settings";
 
@@ -126,6 +127,18 @@ export interface RuntimeForkRouteInput {
   routeName: string;
 }
 
+/**
+ * Kernel scope handle one route session mounts into (the kernel's
+ * `createScope` product; structurally satisfied by any such handle). The
+ * session's publications shadow the host root's names inside the scope, and
+ * session disposal unwinds the scope fiber — host and session can tear the
+ * route down from either side.
+ */
+export interface SessionScope {
+  readonly ctx: Context;
+  dispose(): Promise<void>;
+}
+
 export interface RuntimeOptions {
   settings(): HarnessSettings;
   hooks: RuntimeHooks;
@@ -147,6 +160,15 @@ export interface RuntimeOptions {
   forkRoute?(input: RuntimeForkRouteInput): Promise<Route & { prompt: string }>;
   /** Directory for JSONL session transcripts; omitted = no persistence. */
   persistDir?: string;
+  /**
+   * Kernel scope factory for route sessions: called once per session BUILD
+   * (cache hits reuse the existing session and never call it), and each call
+   * must produce a FRESH scope below the host's root — the session mounts
+   * into it (AgentSessionOptions.scope) and unwinds it on dispose. Omitted =
+   * every session keeps its own self-contained kernel root (pre-existing
+   * behavior, and what every test that predates route scopes exercises).
+   */
+  sessionScope?: () => SessionScope | Promise<SessionScope>;
   /**
    * Replaces the composition-layer provider plugin (test seam): the returned
    * instance is wrapped as a provider plugin and enters the providers

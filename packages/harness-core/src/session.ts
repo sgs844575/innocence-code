@@ -9,6 +9,7 @@ import {
   DEFAULT_TOOL_TIMEOUT_MS,
   type RunLoopFunction,
 } from "@innocencecode/harness-agent-loop";
+import type { Context } from "@innocencecode/kernel";
 import {
   nextRouteId,
   nextSessionId,
@@ -35,6 +36,15 @@ export interface AgentSessionOptions {
   /** Legacy HarnessPlugins (activate) and kernel-native plugins (apply); the
    *  session kernel loads both (dual-track, see session-kernel.ts). */
   plugins: SessionPlugin[];
+  /**
+   * Injected kernel scope (e.g. one route scope below a host-owned root,
+   * created with the kernel's `createScope`): the session mounts into this
+   * scope's context and fiber instead of a fresh root context. Disposing the
+   * session unwinds the scope fiber, so a host can cascade route teardown
+   * from either side; omitted (the default, and every pre-existing caller)
+   * keeps the self-contained per-session root.
+   */
+  scope?: { ctx: Context };
   /** Provider instance, or the id of one registered by a plugin. */
   provider?: Provider;
   providerId?: string;
@@ -145,6 +155,7 @@ export class AgentSession {
     const kernel = await mountSessionKernel({
       sessionId,
       plugins: options.plugins,
+      scope: options.scope,
       provider: options.provider,
       providerId: options.providerId,
       workspaceRoot: options.workspaceRoot,

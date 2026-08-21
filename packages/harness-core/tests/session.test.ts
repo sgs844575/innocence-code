@@ -618,3 +618,44 @@ describe("AgentSession", () => {
     expect(legacySpy.calls).toBe(1);
   });
 });
+
+describe("AgentSession injected scope", () => {
+  it("mounts into a host-owned scope and unwinds it on dispose", async () => {
+    const { Context, createScope } = await import("@innocencecode/kernel");
+    const root = new Context();
+    const scope = createScope(root);
+    const cleaned: string[] = [];
+    const probe: Tool = {
+      name: "Probe",
+      description: "探针",
+      readOnly: true,
+      sideEffect: "none",
+      parameters: { type: "object", properties: {} },
+      permissionResource: () => ({ action: "read", kind: "paths", scope: "x" }),
+      persistArgs: () => ({}),
+      execute: async () => ({ content: "ok" }),
+    };
+    const session = await AgentSession.create({
+      ...baseOptions(),
+      scope,
+      plugins: [{
+        name: "probe",
+        apply(ctx) {
+          ctx.tools.register(probe);
+          ctx.effect(() => () => { cleaned.push("plugin"); }, "probe-cleanup");
+        },
+      }],
+    });
+    expect([...session.registry.tools.keys()]).toContain("Probe");
+    // The session's publications shadow the root's names inside the scope
+    // (session spine services) without leaking onto the host root.
+    expect(scope.ctx.services.owns("tools")).toBe(true);
+    expect(root.services.owns("tools")).toBe(false);
+
+    await session.dispose();
+    expect(cleaned).toEqual(["plugin"]);
+    // The host root outlives the route scope; unwinding it is idempotent.
+    await scope.dispose();
+    await root.fiber.dispose();
+  });
+});

@@ -20,7 +20,9 @@
   ],
   "scripts": {
     "start": "electron-forge start",
+    "prestart": "npm run build:plugins",
     "dev": "electron-forge start",
+    "predev": "npm run build:plugins",
     "build:plugins": "node scripts/build-plugins.mjs",
     "prepackage": "npm run build:plugins",
     "package": "electron-forge package",

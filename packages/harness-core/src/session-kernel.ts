@@ -64,6 +64,14 @@ export interface SessionKernel {
 export interface SessionKernelInit {
   sessionId: string;
   plugins: SessionPlugin[];
+  /**
+   * Injected kernel scope: mounts the session below a host-owned context
+   * tree (one route scope below a boot root) instead of a fresh root.
+   * Everything the session publishes lands on the scope's own service table
+   * (shadowing the host root's names), and session disposal unwinds the
+   * scope's fiber.
+   */
+  scope?: { ctx: Context };
   provider?: Provider;
   providerId?: string;
   workspaceRoot: string;
@@ -175,7 +183,9 @@ function resolveRegistryProvider(ctx: Context, providerId: string | undefined): 
  *     on a session-built engine only (an injected engine carries its own).
  */
 export async function mountSessionKernel(init: SessionKernelInit): Promise<SessionKernel> {
-  const ctx = new Context();
+  // An injected scope hosts the session below the host's context tree; every
+  // publication below shadows the host root's names on the scope's own table.
+  const ctx = init.scope?.ctx ?? new Context();
   const log = init.logger;
   // Declared outside the try so the rollback can read what had loaded so far.
   const pluginFibers: Fiber[] = [];
