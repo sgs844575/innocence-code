@@ -1,6 +1,6 @@
 # harness-electron — Electron 宿主的 Agent 运行时适配层
 
-`@innocencecode/harness-electron` 是 harness-core 会话与 Electron 宿主之间的运行时胶水：
+`@innocencecode/harness-electron` 是 AgentSession 会话（本包自带，见 session.ts）与 Electron 宿主之间的运行时胶水：
 按聊天路由（`sessionId:routeId`）持有/重建 `AgentSession`，把 harness 事件翻译为宿主流式 UI 钩子，
 并负责设置持久化、Provider 构建、会话转录（JSONL）与内置代理提示词。
 包本身不 import 任何 Electron API——UI 桥全部经注入的 `RuntimeHooks` 端口，因此可在 Node 测试中直接运行。

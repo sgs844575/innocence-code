@@ -1,4 +1,4 @@
-// 本地 plugin-set/plugin-toggles 拷贝的钉死测试（T11 从 harness-core 迁
+// 本地 plugin-set/plugin-toggles 拷贝的钉死测试（T11 自已删除的 core 包迁
 // 入 src/main；原件 T12 删除）：不依赖 staging，干净检出恒可跑——覆盖两
 // 级覆盖/依赖连带/core 恒开与 yml 解析告警面。
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

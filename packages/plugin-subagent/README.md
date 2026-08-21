@@ -2,7 +2,7 @@
 
 `@innocencecode/plugin-subagent` 注册 `Task` 工具：把一项独立任务委派给一个隔离的进程内子代理会话去完成。
 子代理有自己的上下文与循环，中间过程不占用父会话上下文，只把最终报告返回——适合并行研究与探索。
-子代理由 harness-core 的 `bindSubagentSpawner` 派生：共享父会话的 Provider 与权限引擎（走同一套审批流），
+子代理由脊柱 `harness-agent` 的 `createSpawnerPlugin` 派生（宿主侧经 AgentSession.spawner 暴露）：共享父会话的 Provider 与权限引擎（走同一套审批流），
 并发上限 3，默认 `maxTurns` 20，Task 工具自身排除（防无限递归派生）。
 
 ## 作用
@@ -34,7 +34,7 @@ plugins.push(SubagentPlugin); // 宿主接线见 src/main/harnessGlue.ts（插�
 
 ```json
 { "agentType": "explore", "description": "摸清权限模块结构",
-  "prompt": "研究 packages/harness-core/src/permission.ts 的判定顺序，返回管线各阶段与关键行号。" }
+  "prompt": "研究 packages/harness-permissions/src/permission.ts 的判定顺序，返回管线各阶段与关键行号。" }
 ```
 
 ## 关键行为与约束

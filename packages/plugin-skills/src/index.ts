@@ -132,6 +132,11 @@ export function createSkillsPlugin(options: SkillsPluginOptions): SkillsPlugin {
           }
         }
       }
+      // Child sessions inherit their parent's processors (session-spawner's
+      // subagent-inherit), so a subagent prompt starting with "/<skill>" also
+      // expands here against this session's skill table. Accepted semantic:
+      // non-destructive and narrowly triggered (normal subagent prompts do
+      // not start with "/"); isolation would require a protocol change.
       ctx.session.registerProcessor({
         name: "skill-expansion",
         order: SKILL_EXPANSION_ORDER,

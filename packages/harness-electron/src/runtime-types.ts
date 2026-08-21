@@ -34,7 +34,7 @@ export interface RuntimeHooks {
   onDelta(sessionId: string, messageId: string, delta: string): void;
   /** Structured tool events (call and result arrive separately; pair them via id/toolCallId). */
   onTool(sessionId: string, messageId: string, part: LiveToolPart): void;
-  /** Thinking deltas (harness-core does not emit these yet; the channel is ready). */
+  /** Thinking deltas (the session spine does not emit these yet; the channel is ready). */
   onThinking(sessionId: string, messageId: string, delta: string): void;
   onCompleted(sessionId: string, messageId: string): void;
   onError(sessionId: string, messageId: string, error: string): void;

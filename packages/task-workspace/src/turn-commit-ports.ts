@@ -9,7 +9,7 @@ import type { Checkpoint, TaskHead } from "@innocencecode/task-core";
  * Structural minimal form of plugin-task's TaskMutationContext
  * ({ taskId, routeId, workspaceKey, leaseToken }). task-workspace must not
  * depend on @innocencecode/plugin-task (a horizontal dependency — plugin-task
- * depends on harness-core), so only the fields this coordinator enforces are
+ * sits on the harness spine), so only the fields this coordinator enforces are
  * declared; a real TaskMutationContext satisfies this interface structurally.
  */
 export interface TurnMutationContext {

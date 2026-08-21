@@ -19,7 +19,7 @@ function skill(name: string, description: string): Skill {
 }
 
 // Byte-for-byte equivalence anchors against the previous private
-// AgentSession.buildSystemPrompt (harness-core session.ts:169-176):
+// AgentSession.buildSystemPrompt (harness-electron session.ts):
 // no registered section may change any byte of its output.
 describe("build equals the previous buildSystemPrompt output (byte anchors)", () => {
   it("base + skills index, single skill", async () => {

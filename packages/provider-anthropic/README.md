@@ -1,7 +1,7 @@
 # provider-anthropic — Anthropic messages 协议 Provider
 
 `@innocencecode/provider-anthropic` 是 Anthropic `v1/messages` 协议的原生 Provider 实现：
-fetch + SSE 流式解析、`tool_use` 内容块增量聚合，把 wire 格式转换为 harness-core 的规范 `Delta` 流。
+fetch + SSE 流式解析、`tool_use` 内容块增量聚合，把 wire 格式转换为 `harness-providers` 的规范 `Delta` 流。
 
 ## 作用
 
@@ -41,7 +41,7 @@ plugins.push(createAnthropicPlugin({ apiKey: "sk-ant-…", model: "claude-sonnet
 
 - 非 2xx 响应抛 `Anthropic HTTP <status>` 并附响应体前 300 字符；无 body 抛错。
 - 请求 signal（用户停止）直接传导到 fetch，中断流。
-- Provider 转换属于本包职责——规范消息里不出现任何 wire 字段（harness-core 协议中立约束）。
+- Provider 转换属于本包职责——规范消息里不出现任何 wire 字段（providers 脊柱协议中立约束）。
 
 ## 测试
 

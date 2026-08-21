@@ -42,7 +42,7 @@ plugins.push(createMcpPlugin({ servers: config.mcpServers ?? {} }));
 // 之后模型即可调用 mcp__example__工具名，默认走审批
 ```
 
-该插件在插件开关里的 id 是 `mcp`，可被用户/项目层开关关闭（见 harness-core 的 `resolvePluginSet`）。
+该插件在插件开关里的 id 是 `mcp`，可被用户/项目层开关关闭（解析逻辑在宿主侧 `src/main/plugin-toggles-local.ts` 的 `resolvePluginSet`）。
 
 ## 关键行为与约束
 

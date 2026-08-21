@@ -32,15 +32,17 @@
 ## 架构总览
 
 ```
-React UI ←→ IPC 契约 ←→ harness-electron 适配层 ←→ harness-core（内核循环/权限/压缩）
-                                                    ↘ 插件：fs / shell / subagent / skills / mcp / task / todo
+React UI ←→ IPC 契约 ←→ harness-electron 适配层（会话/路由运行时 + AgentSession）
+                                                    ↘ 内核与脊柱（vendor/kernel + 脊柱八包）：循环/权限/工具/技能/子代理
+                                                    ↘ 插件：fs / shell / subagent / skills / mcp / task / todo（磁盘分发装载）
                                                     ↘ Provider：openai / anthropic / mock
                                 任务系统：task-core（状态机）+ task-git（worktree）+ task-workspace（持久化）
 ```
 
-依赖方向单向：宿主适配层 → 插件 / Provider / 工具 / 运行时 → `harness-core`；领域包之间只通过核心协议
+依赖方向单向：宿主适配层 → 插件 / Provider / 工具 / 运行时 → 内核与脊柱包（`vendor/kernel` + `harness-*` 脊柱）；领域包之间只通过核心协议
 或注入端口通信，全部 `packages/*` 包不依赖 Electron / React / DOM（唯一例外是宿主适配层 `harness-electron`，
-它也不直接 import Electron API，而是经注入的端口工作）。
+它也不直接 import Electron API，而是经注入的端口工作）。内核、注册脊柱与能力插件随构建分发到
+`resources/{node_modules,plugins}`，宿主运行时动态装载（主 bundle 零 workspace 静态依赖）。
 
 ## 快速开始
 
@@ -123,11 +125,18 @@ innocence-code/
 ├── package.json               # 根：workspaces（packages/* + vendor/*）+ 脚本
 ├── LICENSE                    # AGPL-3.0
 ├── forge.config.ts            # Electron Forge 打包配置
-├── vite.*.config.ts           # 主进程/预加载/渲染构建 + @innocencecode/* 源码别名
+├── vite.*.config.ts           # 主进程/预加载/渲染构建（workspace 经 node_modules 解析，无别名）
 ├── docs/                      # 设计规格
 ├── packages/                  # Harness 与领域包（除 harness-electron 外均不依赖 Electron）
-│   ├── harness-core/          # 内核：循环/权限/压缩/插件注册/子代理派生/SSE
-│   ├── harness-electron/      # 适配层：路由会话运行时 + 设置 + JSONL 转写
+│   ├── harness-electron/      # 适配层：路由会话运行时 + AgentSession + 设置 + JSONL 转写
+│   ├── harness-tools/         # 脊柱：工具注册/执行/脱敏/执行作用域
+│   ├── harness-permissions/   # 脊柱：权限引擎/策略/项目规则
+│   ├── harness-providers/     # 脊柱：Provider 注册/SSE 解析
+│   ├── harness-session/       # 脊柱：消息模型/处理器/压缩
+│   ├── harness-skills/        # 脊柱：技能注册与索引
+│   ├── harness-system-prompt/ # 脊柱：系统提示词分段
+│   ├── harness-agent/         # 脊柱：子代理派生服务
+│   ├── harness-agent-loop/    # 脊柱：Agent 循环（runLoop）
 │   ├── provider-openai/       # OpenAI 兼容协议（SSE 流式 + tool_calls 聚合）
 │   ├── provider-anthropic/    # Anthropic messages（tool_use 流式聚合）
 │   ├── provider-mock/         # 剧本化 Mock（离线开发与测试）

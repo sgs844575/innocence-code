@@ -47,6 +47,11 @@ plugins.push(createSkillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", 
 - 扫描只发生在激活时刻——新增技能文件需新一轮会话生效。
 - `loadBody` 返回解析时常驻的正文字符串（读取已在激活时完成），不会在会话中途再次读盘。
 - 技能本身没有执行逻辑，只是"按需注入的提示词资产"。
+- **子会话语义（有意接受）**：子代理会话按继承设计复制父会话的处理器
+  （`harness-electron` session-spawner 的 `subagent-inherit`），因此以 `/技能名`
+  开头的子代理 prompt 会在子会话内按**父会话的技能表**展开。方向无破坏性、
+  触发面极窄（正常子代理 prompt 不以 `/` 开头），与处理器继承语义一致；
+  若未来需要隔离，须改协议（继承集排除展开类处理器），本包不单独处理。
 
 ## 测试
 

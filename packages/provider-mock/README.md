@@ -6,7 +6,7 @@
 ## 作用
 
 - **剧本回放**：`turns` 数组逐回合消耗，每回合可含 `text` 与若干 `toolCalls`；文本按 `chunkSize` 切成增量模拟流式。
-- **压缩旁路**：收到压缩摘要请求（harness-core 的 `SUMMARIZE_SYSTEM_PROMPT`）时直接返回 `summarizeResponse`，
+- **压缩旁路**：收到压缩摘要请求（`harness-session` 的 `SUMMARIZE_SYSTEM_PROMPT`）时直接返回 `summarizeResponse`，
   主循环剧本保持线性。
 - **剧本耗尽**：返回 `exhaustedText`（默认 `[mock] 剧本已播完。`）。
 - **观测缝**：`onChat` 回调收到每个请求，供断言请求内容。

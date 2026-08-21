@@ -108,7 +108,7 @@ export function hydrateSessionMessages(record: SessionRecord, options: HydrateOp
         : []
     ).filter((x): x is MessagePart => x !== null);
     if (mapped.length === 0) continue;
-    // Tool results are persisted as their own textless user turn (harness-core
+    // Tool results are persisted as their own textless user turn (the loop
     // loop.ts pushes { role: "user", parts: resultParts }), while the live
     // stream appends them to the assistant message — the shape pairTools
     // expects. Merge such turns into the preceding assistant message; only a

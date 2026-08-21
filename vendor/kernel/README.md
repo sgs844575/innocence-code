@@ -6,8 +6,8 @@
 
 配置树加载器在 `@innocencecode/kernel-loader`，YAML 条目内建在 `@innocencecode/kernel-include`。
 
-> 与 `harness-core` 的关系：`harness-core` 的 `PluginRegistry` 是当前 Agent harness 的注册面；
-> 本包是"万物皆插件"重构中自研的更底层插件内核，当前独立演进，尚未接入 Electron 宿主。
+> 与 harness 脊柱的关系：Agent 会话（harness-electron 的 session 家）与注册脊柱（harness-tools 等
+> `harness-*` 脊柱包）以本内核为底座装载；本包保持独立通用演进，宿主经动态 import 从分发树装载（单实例）。
 
 ## 作用
 

@@ -137,7 +137,7 @@ export type PermissionMode = "auto" | "ask" | "plan" | "full";
 // （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
 export type AgentId = "default" | "plan" | "full";
 
-// 镜像契约：PluginToggleSource 复制自 packages/harness-core/src/plugin-set.ts
+// 镜像契约：PluginToggleSource 复制自 packages/harness-electron/src/settings.ts
 // （shared 不 import 包），修改任何一侧时必须同步另一侧
 // （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
 export interface PluginToggleSource {
@@ -168,7 +168,7 @@ export interface ModelInfo {
   dirty?: boolean;
 }
 
-// 镜像契约：以下资源类型镜像 packages/harness-core/src/policy.ts 的
+// 镜像契约：以下资源类型镜像 packages/harness-permissions/src/policy.ts 的
 // PermissionResource（shared 不 import 包），修改任何一侧时必须同步另一侧
 // （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
 /** 脱敏持久化资源：工具调用作用的对象摘要，raw 值永不进入。 */
