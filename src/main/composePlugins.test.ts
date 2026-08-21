@@ -40,15 +40,15 @@ describe("composePlugins (declarative composition root)", () => {
     expect(names).toContain("shell");
     expect(names).toContain("project-permission-rules");
     expect(names).toContain("todo");
-    expect(names).toContain("plugin-skills"); // 未关的开关全部在场
-    expect(names).not.toContain("plugin-mcp");
+    expect(names).toContain("skills"); // 未关的开关全部在场
+    expect(names).not.toContain("mcp");
     expect(names).not.toContain("plugin-subagent");
   });
 
   it("skills:false omits the skills plugin; core stays on", async () => {
     const ws = await tempWorkspace({ ".innocence/plugins.yml": "plugins:\n  skills: false\n" });
     const names = (await composePlugins(ws)).map((p) => p.name);
-    expect(names).not.toContain("plugin-skills");
+    expect(names).not.toContain("skills");
     expect(names).toContain("fs");
     expect(names).toContain("todo");
   });
@@ -57,13 +57,13 @@ describe("composePlugins (declarative composition root)", () => {
     const ws = await tempWorkspace({});
     const names = (await composePlugins(ws)).map((p) => p.name);
     // 描述符 id → 插件实例名；新增描述符必须同步此映射与实例化分支。
-    // fs/shell/todo 为内核原生插件，name 与描述符 id 同名。
+    // fs/shell/skills/mcp/todo 为内核原生插件，name 与描述符 id 同名。
     const nameById: Record<string, string> = {
       fs: "fs",
       shell: "shell",
       subagent: "plugin-subagent",
-      skills: "plugin-skills",
-      mcp: "plugin-mcp",
+      skills: "skills",
+      mcp: "mcp",
       todo: "todo",
     };
     for (const { id } of PLUGIN_DESCRIPTORS) {

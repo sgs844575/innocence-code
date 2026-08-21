@@ -10,13 +10,13 @@
 - **工具映射**：每个 MCP 工具变成一个普通 harness 工具，走统一审批；`sideEffect: "unknown"`（外部能力未知，按最保守处理）。
 - **权限与脱敏**：资源只标识 `server/tool`，调用参数绝不进入资源；持久化只保存参数名与参数哈希，不保存参数值。
 - **生命周期**：单个服务器连接失败仅告警并跳过，绝不阻塞其他服务器激活；崩溃的服务器按调用返回 `isError` 工具结果；
-  `dispose` 并行释放全部 stdio 客户端。
+  插件卸载（fiber effect）并行释放全部 stdio 客户端。
 
 ## 公开 API
 
 | 导出 | 说明 |
 |---|---|
-| `mcpPlugin(options)` | 构造 `HarnessPlugin`（name `plugin-mcp`）；`options.servers: Record<string, StdioServerOptions>` |
+| `createMcpPlugin(options)` | 构造内核原生插件（name `mcp`，`apply(ctx)`）；`options.servers: Record<string, StdioServerOptions>` |
 | `StdioJsonRpcClient` | stdio JSON-RPC 客户端：`start / request / notify / dispose / stop`，getter `isExited / pid` |
 | `StdioServerOptions` | `{ command, args?, env?, cwd? }`（env 与 process.env 合并） |
 
@@ -35,10 +35,10 @@
 宿主接线（`src/main/harnessGlue.ts`）：
 
 ```ts
-import { mcpPlugin } from "@innocencecode/plugin-mcp";
+import { createMcpPlugin } from "@innocencecode/plugin-mcp";
 
 // config 来自 loadInnocenceConfig(workspaceRoot)
-plugins.push(mcpPlugin({ servers: config.mcpServers ?? {} }));
+plugins.push(createMcpPlugin({ servers: config.mcpServers ?? {} }));
 // 之后模型即可调用 mcp__example__工具名，默认走审批
 ```
 

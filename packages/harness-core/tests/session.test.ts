@@ -4,6 +4,7 @@ import {
   type Delta,
   type ExecutionScope,
   type HarnessPlugin,
+  type MessagePart,
   type Provider,
   type Tool,
 } from "../src";
@@ -188,13 +189,39 @@ describe("AgentSession", () => {
         yield { type: "text", text: "ok" };
       },
     };
+    // "/name" 展开已迁入 plugin-skills（首序 MessageProcessor）；此处内联同
+    // 语义 processor，经 adapter 装载路径继续锚定 session 行为（技能索引注入
+    // + processor 管线在进入 loop 前运行）。展开语义本体由 plugin-skills
+    // 用例钉死；T12 收敛时统一。
     const skillPlugin: HarnessPlugin = {
       name: "skills",
       activate(ctx) {
-        ctx.registerSkill({
+        const review = {
           name: "review",
           description: "代码审查指南",
           loadBody: async () => "审查正文内容",
+        };
+        ctx.registerSkill(review);
+        ctx.registerMessageProcessor({
+          name: "skill-expansion",
+          order: -1000,
+          async process(message) {
+            const parts: MessagePart[] = [];
+            for (const part of message.parts) {
+              if (part.type !== "text") {
+                parts.push(part);
+                continue;
+              }
+              const match = /^\/review\s*([\s\S]*)$/.exec(part.text.trim());
+              parts.push({
+                type: "text" as const,
+                text: match
+                  ? `[已加载技能 review]\n${await review.loadBody()}\n\n[用户输入]\n${match[1]}`
+                  : part.text,
+              });
+            }
+            return { role: message.role, parts };
+          },
         });
       },
     };

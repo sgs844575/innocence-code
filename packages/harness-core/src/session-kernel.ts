@@ -108,6 +108,36 @@ function chokepointTools(base: ToolsService, view: SessionRegistryView): ToolsSe
 }
 
 /**
+ * Session service face natively mounted plugins register processors
+ * through: `registerProcessor` flows through the view chokepoint (queued
+ * here in order and flushed 1:1 when the late-mounted session service
+ * binds — the same face adapter-mounted plugins use); every other member
+ * delegates lazily to the real service on the root scope, which mounts
+ * after the host plugins have loaded.
+ */
+function chokepointSession(base: Context, view: SessionRegistryView): SessionService {
+  const late = (): SessionService => {
+    const resolved = base.services.resolve<SessionService>("session");
+    if (!resolved) {
+      throw new Error("spine service missing after mount: session");
+    }
+    return resolved;
+  };
+  return {
+    get history() {
+      return late().history;
+    },
+    registerProcessor: view.registerMessageProcessor,
+    processors: () => late().processors(),
+    processUserInput: (input, signal) => late().processUserInput(input, signal),
+    emit: (event) => late().emit(event),
+    get compactor() {
+      return late().compactor;
+    },
+  };
+}
+
+/**
  * Mount order (behavior-preserving; see the task report for the one order
  * deviation forced by providerId resolution):
  *  1. kernel-logger (plugin log prefixing), tools, permissions, providers,
@@ -115,9 +145,9 @@ function chokepointTools(base: ToolsService, view: SessionRegistryView): ToolsSe
  *     before any host plugin loads;
  *  2. host plugins, sequentially (a failed activation rolls the whole
  *     context back and rethrows): kernel-native plugins (apply) mount
- *     directly on a scope whose tools service routes through the view
- *     chokepoint; legacy HarnessPlugins (activate) load through the
- *     HarnessPluginAdapter;
+ *     directly on a scope whose tools and session services route through
+ *     the view chokepoint; legacy HarnessPlugins (activate) load through
+ *     the HarnessPluginAdapter;
  *  3. provider resolution (`options.provider` ?? provider registered by a
  *     plugin), then the session service (ledger + processors + compactor —
  *     queued processors flush here) and the spawner;
@@ -164,12 +194,13 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
     ]);
 
     const view = new SessionRegistryView(ctx.tools, ctx.providers, ctx.skills, permissions);
-    // Native plugins mount directly on this scope: the shadowed tools
-    // service keeps the view chokepoint authoritative for their
+    // Native plugins mount directly on this scope: the shadowed tools and
+    // session services keep the view chokepoint authoritative for their
     // registrations (the scope shares the root fiber, so the plugin fiber
     // hangs off the session root exactly like an adapter-mounted one).
     const nativeScope = ctx.derive();
     nativeScope.provide("tools", chokepointTools(ctx.tools, view));
+    nativeScope.provide("session", chokepointSession(ctx, view));
     for (const plugin of init.plugins) {
       const fiber = isKernelPlugin(plugin)
         ? nativeScope.plugin(plugin)

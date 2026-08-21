@@ -1,7 +1,7 @@
+import type { Context } from "@innocencecode/kernel";
 import {
   isAbortError,
   sha256Hex,
-  type HarnessPlugin,
   type JsonSchema,
   type ToolResult,
 } from "@innocencecode/harness-core";
@@ -83,26 +83,41 @@ async function connect(
   }
 }
 
+/** Kernel-native MCP plugin (name "mcp"). */
+export interface McpPlugin {
+  readonly name: "mcp";
+  apply(ctx: Context): Promise<void>;
+}
+
 /**
  * MCP stdio client plugin. Failed servers log a warning and are skipped —
  * one bad server never blocks activation; crashed servers surface per-call
- * as error tool results. `dispose` releases every stdio client it started.
+ * as error tool results. Unloading the plugin releases every stdio client
+ * it started (fiber effect): plugin unload stops the subprocesses.
  */
-export const mcpPlugin = (options: McpPluginOptions): HarnessPlugin => {
+export function createMcpPlugin(options: McpPluginOptions): McpPlugin {
   const clients: StdioJsonRpcClient[] = [];
+  /**
+   * Releases every stdio client in parallel; one stuck server must not
+   * block the others (each dispose is itself time-bounded).
+   */
+  const release = async (): Promise<void> => {
+    await Promise.allSettled(clients.map((client) => client.dispose()));
+    clients.length = 0;
+  };
   return {
-    name: "plugin-mcp",
-    async activate(ctx) {
+    name: "mcp",
+    async apply(ctx) {
       for (const [serverName, serverOptions] of Object.entries(options.servers)) {
         let connected: Awaited<ReturnType<typeof connect>>;
         try {
           connected = await connect(serverName, serverOptions, (level, msg) =>
-            ctx.log(level, msg),
+            ctx.logger.log(level, `[mcp] ${msg}`),
           );
         } catch (err) {
-          ctx.log(
+          ctx.logger.log(
             "warn",
-            `MCP 服务器 ${serverName} 连接失败：${err instanceof Error ? err.message : err}`,
+            `[mcp] MCP 服务器 ${serverName} 连接失败：${err instanceof Error ? err.message : err}`,
           );
           continue;
         }
@@ -110,7 +125,7 @@ export const mcpPlugin = (options: McpPluginOptions): HarnessPlugin => {
         for (const def of connected.tools) {
           const toolName = `mcp__${serverName}__${def.name}`;
           try {
-            ctx.registerTool({
+            ctx.tools.register({
               name: toolName,
               description: def.description ?? `MCP 工具 ${serverName}/${def.name}`,
               readOnly: false,
@@ -157,15 +172,12 @@ export const mcpPlugin = (options: McpPluginOptions): HarnessPlugin => {
           }
         }
       }
-    },
-    async dispose() {
-      // Release every stdio client in parallel; one stuck server must not
-      // block the others (each dispose is itself time-bounded).
-      await Promise.allSettled(clients.map((client) => client.dispose()));
-      clients.length = 0;
+      // Registered after a successful activation, so a failed apply never
+      // triggers cleanup (the legacy dispose-after-activate semantics).
+      ctx.effect(() => release, "mcp stdio clients");
     },
   };
-};
+}
 
 export { StdioJsonRpcClient } from "./jsonrpc";
 export type { StdioServerOptions } from "./jsonrpc";

@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { HarnessPlugin, Skill } from "@innocencecode/harness-core";
+import type { Context } from "@innocencecode/kernel";
+import type { Skill } from "@innocencecode/harness-core";
+import type { Message, MessagePart } from "@innocencecode/harness-session";
 
 export interface ParsedSkillFile {
   name: string;
@@ -45,28 +47,87 @@ export interface SkillsPluginOptions {
   dirs: string[];
 }
 
-/** Scans skill directories at activation; registers every parseable skill. */
-export const skillsPlugin = (options: SkillsPluginOptions): HarnessPlugin => ({
-  name: "plugin-skills",
-  async activate(ctx) {
-    for (const dir of options.dirs) {
-      let entries: string[] = [];
-      try {
-        entries = await fs.readdir(dir);
-      } catch {
-        continue; // missing dir is normal (no skills yet)
-      }
-      for (const entry of entries) {
-        const skill = await loadSkillFrom(dir, entry);
-        if (skill) {
-          try {
-            ctx.registerSkill(skill);
-            ctx.log("info", `skill loaded: ${skill.name}`);
-          } catch {
-            // duplicate name across dirs — first one wins
+/** The skills service face the expansion needs (subset of the spine face). */
+interface SkillsLookup {
+  get(name: string): Skill | undefined;
+  all(): readonly Skill[];
+}
+
+/**
+ * Pipeline order of the expansion processor: strictly ahead of the
+ * conventionally-numbered processors (hosts register theirs at 0), so
+ * downstream processors see the expanded text — the pre-migration session
+ * expanded user input before running any processor.
+ */
+const SKILL_EXPANSION_ORDER = -1000;
+
+/** Expands "/skillname ..." input by loading the skill body as context. */
+async function expandUserText(text: string, skills: SkillsLookup): Promise<string> {
+  const match = /^\/([a-zA-Z0-9_-]+)\s*([\s\S]*)$/.exec(text.trim());
+  if (!match) return text;
+  const skill = skills.get(match[1]);
+  if (!skill) return text;
+  const body = await skill.loadBody();
+  return `[已加载技能 ${skill.name}]\n${body}\n\n[用户输入]\n${match[2]}`;
+}
+
+/**
+ * Runs skill expansion over one message. Only the targeted text parts
+ * change; every other part is kept as-is, in order.
+ */
+async function expandUserMessage(message: Message, skills: SkillsLookup): Promise<Message> {
+  if (skills.all().length === 0) return message;
+  const parts: MessagePart[] = [];
+  for (const part of message.parts) {
+    if (part.type === "text") {
+      parts.push({ type: "text", text: await expandUserText(part.text, skills) });
+    } else {
+      parts.push(part);
+    }
+  }
+  return { role: message.role, parts };
+}
+
+/** Kernel-native skills plugin (name "skills"). */
+export interface SkillsPlugin {
+  readonly name: "skills";
+  apply(ctx: Context): Promise<void>;
+}
+
+/**
+ * Scans skill directories at apply time, registers every parseable skill on
+ * the spine skills service, and registers the "/name" expansion message
+ * processor (order first) on the session service — expansion runs over real
+ * user input only, exactly like the pipeline-external pass it replaces.
+ */
+export function createSkillsPlugin(options: SkillsPluginOptions): SkillsPlugin {
+  return {
+    name: "skills",
+    async apply(ctx) {
+      for (const dir of options.dirs) {
+        let entries: string[] = [];
+        try {
+          entries = await fs.readdir(dir);
+        } catch {
+          continue; // missing dir is normal (no skills yet)
+        }
+        for (const entry of entries) {
+          const skill = await loadSkillFrom(dir, entry);
+          if (skill) {
+            try {
+              ctx.skills.register(skill);
+              ctx.logger.log("info", `[skills] skill loaded: ${skill.name}`);
+            } catch {
+              // duplicate name across dirs — first one wins
+            }
           }
         }
       }
-    }
-  },
-});
+      ctx.session.registerProcessor({
+        name: "skill-expansion",
+        order: SKILL_EXPANSION_ORDER,
+        process: (message) => expandUserMessage(message, ctx.skills),
+      });
+    },
+  };
+}

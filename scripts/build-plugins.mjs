@@ -16,6 +16,8 @@ const PLUGINS = [
   { dir: "packages/tools-fs", id: "fs" },
   { dir: "packages/tools-shell", id: "shell" },
   { dir: "packages/tools-todo", id: "todo" },
+  { dir: "packages/plugin-skills", id: "skills" },
+  { dir: "packages/plugin-mcp", id: "mcp" },
 ];
 const STAGING = "build/dist/resources";
 

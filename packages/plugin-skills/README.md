@@ -14,9 +14,9 @@
 
 | 导出 | 说明 |
 |---|---|
-| `skillsPlugin(options)` | 构造 `HarnessPlugin`（name `plugin-skills`）；`options.dirs: string[]` |
+| `createSkillsPlugin(options)` | 构造内核原生插件（name `skills`，`apply(ctx)`）；`options.dirs: string[]` |
 | `parseSkillMarkdown(raw)` | 解析 SKILL.md 文本 → `{ name, description, body } \| null` |
-| `ParsedSkillFile` | 解析结果类型 |
+| `ParsedSkillFile` / `SkillsPluginOptions` / `SkillsPlugin` | 解析结果与插件选项/形态类型 |
 
 ## 使用
 
@@ -33,12 +33,13 @@ description: 代码审查指南
 宿主接线（`src/main/harnessGlue.ts`）：
 
 ```ts
-import { skillsPlugin } from "@innocencecode/plugin-skills";
+import { createSkillsPlugin } from "@innocencecode/plugin-skills";
 
-plugins.push(skillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }));
+plugins.push(createSkillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }));
 ```
 
-会话中输入 `/review` 即可调用该技能（由 harness-core 的 `AgentSession` 做技能展开）。
+会话中输入 `/review` 即可调用该技能——`/name` 展开由本插件注册的首序 `MessageProcessor`
+（name `skill-expansion`）在消息处理管线最前完成，正文替换语义与迁移前的会话内展开一致。
 该插件在插件开关里的 id 是 `skills`（依赖 `fs`）。
 
 ## 关键行为与约束

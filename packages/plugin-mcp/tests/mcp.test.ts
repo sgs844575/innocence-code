@@ -1,19 +1,31 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Context } from "@innocencecode/kernel";
+import { LoggerPlugin } from "@innocencecode/kernel-logger";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
 import {
   createExecutionScope,
   sha256Hex,
-  PluginRegistry,
   type ToolContext,
 } from "@innocencecode/harness-core";
-import { StdioJsonRpcClient, mcpPlugin } from "../src";
+import { StdioJsonRpcClient, createMcpPlugin, type StdioServerOptions } from "../src";
 
 const fixture = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "fixtures",
   "echo-server.mjs",
 );
+
+/** Mounts the plugin on a bare kernel context (logger + tools spine); the
+ *  plugin fiber's unwind (ctx.fiber.dispose) replaces the old registry dispose. */
+async function mountMcp(servers: Record<string, StdioServerOptions>): Promise<Context> {
+  const ctx = new Context();
+  await ctx.plugin(LoggerPlugin);
+  await ctx.plugin(ToolsPlugin);
+  await ctx.plugin(createMcpPlugin({ servers }));
+  return ctx;
+}
 
 /** Polls process.kill(pid, 0) until every pid is gone (process tree exited). */
 async function waitGone(pids: number[], timeoutMs = 10_000): Promise<void> {
@@ -42,7 +54,7 @@ afterAll(async () => {
   await client.dispose();
 });
 
-const ctx = (signal?: AbortSignal): ToolContext => ({
+const ctxToolContext = (signal?: AbortSignal): ToolContext => ({
   workspaceRoot: "D:/tmp",
   signal: signal ?? new AbortController().signal,
   log: () => {},
@@ -158,60 +170,48 @@ describe("request abort signal", () => {
   });
 
   it("MCP tool execute rejects with an AbortError when ctx.signal aborts", async () => {
-    const reg = new PluginRegistry();
-    await reg.load([
-      mcpPlugin({ servers: { echo: { command: process.execPath, args: [fixture] } } }),
-    ]);
-    const tool = reg.tools.get("mcp__echo__slow")!;
+    const ctx = await mountMcp({ echo: { command: process.execPath, args: [fixture] } });
+    const tool = ctx.tools.get("mcp__echo__slow")!;
     const controller = new AbortController();
-    const promise = tool.execute({ text: "x" }, ctx(controller.signal));
+    const promise = tool.execute({ text: "x" }, ctxToolContext(controller.signal));
     setTimeout(() => controller.abort(), 100);
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
-    await reg.dispose();
+    await ctx.fiber.dispose();
   });
 
   it("server-echoed secrets are truncated out of isError tool results", async () => {
-    const reg = new PluginRegistry();
-    await reg.load([
-      mcpPlugin({ servers: { echo: { command: process.execPath, args: [fixture] } } }),
-    ]);
-    const tool = reg.tools.get("mcp__echo__boom")!;
+    const ctx = await mountMcp({ echo: { command: process.execPath, args: [fixture] } });
+    const tool = ctx.tools.get("mcp__echo__boom")!;
     const SECRET = `MCP-BOOM-SECRET-${"y".repeat(600)}`;
     // The isError result is what history/audit persist — the echoed secret
     // must not survive intact past the client's trust boundary.
-    const result = await tool.execute({ token: SECRET }, ctx());
+    const result = await tool.execute({ token: SECRET }, ctxToolContext());
     expect(result.isError).toBe(true);
     expect(result.content).toContain("MCP 调用失败");
     expect(result.content).not.toContain(SECRET);
     expect(result.content).toContain("[已截断");
-    await reg.dispose();
+    await ctx.fiber.dispose();
   });
 });
 
-describe("mcpPlugin", () => {
+describe("createMcpPlugin", () => {
   it("maps server tools as mcp__server__tool and executes calls end-to-end", async () => {
-    const reg = new PluginRegistry();
-    await reg.load([
-      mcpPlugin({ servers: { echo: { command: process.execPath, args: [fixture] } } }),
-    ]);
-    const tool = reg.tools.get("mcp__echo__echo");
+    const ctx = await mountMcp({ echo: { command: process.execPath, args: [fixture] } });
+    const tool = ctx.tools.get("mcp__echo__echo");
     expect(tool).toBeDefined();
     expect(tool!.readOnly).toBe(false);
     expect(tool!.sideEffect).toBe("unknown"); // 外部服务器能力未知，按最保守处理
-    const result = await tool!.execute({ text: "hello" }, ctx());
+    const result = await tool!.execute({ text: "hello" }, ctxToolContext());
     expect(result.content).toBe("echo: hello");
     expect(result.isError).toBeFalsy();
-    await reg.dispose();
+    await ctx.fiber.dispose();
   });
 
   it("persists server/tool, parameter names and an args hash — never arg values", async () => {
-    const reg = new PluginRegistry();
-    await reg.load([
-      mcpPlugin({ servers: { echo: { command: process.execPath, args: [fixture] } } }),
-    ]);
-    const tool = reg.tools.get("mcp__echo__echo")!;
+    const ctx = await mountMcp({ echo: { command: process.execPath, args: [fixture] } });
+    const tool = ctx.tools.get("mcp__echo__echo")!;
     const SECRET = "MCP-PLUGIN-SECRET-77aa1";
-    const resource = tool.permissionResource({ text: SECRET }, ctx());
+    const resource = tool.permissionResource({ text: SECRET }, ctxToolContext());
     expect(resource).toEqual({ action: "call", kind: "mcp", scope: "echo/echo" });
 
     const persisted = tool.persistArgs({ text: SECRET, extra: 1 });
@@ -222,52 +222,38 @@ describe("mcpPlugin", () => {
       argsSha256: sha256Hex(JSON.stringify({ text: SECRET, extra: 1 }, ["extra", "text"])),
     });
     expect(JSON.stringify(persisted)).not.toContain(SECRET);
-    await reg.dispose();
+    await ctx.fiber.dispose();
   });
 
   it("skips unreachable servers without failing activation", async () => {
-    const warnings: string[] = [];
-    const reg = new PluginRegistry();
-    await reg.load([
-      {
-        name: "capture",
-        activate: (c) => {
-          void c;
-        },
-      },
-      mcpPlugin({
-        servers: {
-          missing: { command: "definitely-not-a-real-command-xyz", args: [] },
-        },
-      }),
-    ]);
-    // registry still usable, no tools from the missing server
-    expect([...reg.tools.keys()].filter((k) => k.startsWith("mcp__"))).toEqual([]);
-    void warnings;
-    await reg.dispose();
+    const ctx = await mountMcp({
+      missing: { command: "definitely-not-a-real-command-xyz", args: [] },
+    });
+    // kernel still usable, no tools from the missing server
+    expect(ctx.tools.specs().map((s) => s.name).filter((k) => k.startsWith("mcp__"))).toEqual([]);
+    await ctx.fiber.dispose();
   });
 
   it("dispose releases every stdio server's whole process tree", async () => {
-    const reg = new PluginRegistry();
     // HOLD servers ignore stdin close, so disposal must take the force-kill
     // tree branch (Windows taskkill /T /F, POSIX process-group kill).
-    const server = () => ({
+    const server = (): StdioServerOptions => ({
       command: process.execPath,
       args: [fixture],
       env: { MCP_FIXTURE_HOLD: "1" },
     });
-    await reg.load([mcpPlugin({ servers: { echo: server(), second: server() } })]);
+    const ctx = await mountMcp({ echo: server(), second: server() });
 
     const pids: number[] = [];
     for (const name of ["echo", "second"]) {
-      const result = await reg.tools.get(`mcp__${name}__tree`)!.execute({}, ctx());
+      const result = await ctx.tools.get(`mcp__${name}__tree`)!.execute({}, ctxToolContext());
       const match = result.content.match(/parent=(\d+) child=(\d+)/);
       expect(match).toBeDefined();
       pids.push(Number(match![1]), Number(match![2]));
     }
     expect(pids.length).toBe(4);
 
-    await reg.dispose();
+    await ctx.fiber.dispose();
     await waitGone(pids); // both servers AND their spawned children are gone
   }, 25_000);
 });

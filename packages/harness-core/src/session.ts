@@ -28,7 +28,7 @@ import type { Logger, SessionPlugin } from "./registry";
 import { mountSessionKernel, type SessionKernel } from "./session-kernel";
 import type { SessionRegistryView } from "./session-registry-view";
 import { createSpawnerChildSession, makeSessionSpawner } from "./session-spawner";
-import { textMessage, type Message, type MessagePart } from "./types";
+import { textMessage, type Message } from "./types";
 import type { SubagentSpawner } from "./subagent";
 
 export interface AgentSessionOptions {
@@ -175,39 +175,13 @@ export class AgentSession {
     return this.kernel.services.systemPrompt.build(this.kernel.services.skills.all());
   }
 
-  /** Expands "/skillname ..." input by loading the skill body as context. */
-  private async expandUserText(text: string): Promise<string> {
-    const match = /^\/([a-zA-Z0-9_-]+)\s*([\s\S]*)$/.exec(text.trim());
-    if (!match) return text;
-    const skill = this.kernel.services.skills.get(match[1]);
-    if (!skill) return text;
-    const body = await skill.loadBody();
-    return `[已加载技能 ${skill.name}]\n${body}\n\n[用户输入]\n${match[2]}`;
-  }
-
-  /**
-   * Runs skill expansion over the canonical input. Only the targeted text
-   * parts change; every other part is kept as-is, in order.
-   */
-  private async expandUserMessage(message: Message): Promise<Message> {
-    if (this.kernel.services.skills.all().length === 0) return message;
-    const parts: MessagePart[] = [];
-    for (const part of message.parts) {
-      if (part.type === "text") {
-        parts.push({ type: "text", text: await this.expandUserText(part.text) });
-      } else {
-        parts.push(part);
-      }
-    }
-    return { role: message.role, parts };
-  }
-
   /**
    * One user-initiated run. A string input becomes a canonical single-text
    * user message; a Message must already be `role: "user"`. The canonical
-   * input is skill-expanded and processor-run BEFORE entering the loop; the
-   * tool-result user turns the loop pushes afterwards never pass through
-   * processors. `scopePatch` overrides the run's inherited identity
+   * input is processor-run BEFORE entering the loop ("/name" skill expansion
+   * lives in plugin-skills' first-order processor); the tool-result user
+   * turns the loop pushes afterwards never pass through processors.
+   * `scopePatch` overrides the run's inherited identity
    * (sessionId/taskId/routeId/parentInvocationId) stamped on every tool
    * invocation scope of this run.
    */
@@ -234,9 +208,9 @@ export class AgentSession {
       parentInvocationId: scopePatch.parentInvocationId,
     };
     // The run promise is created and published to activeRun synchronously,
-    // BEFORE the first await: a dispose() racing the entry phase (skill
-    // expansion / message processing) must wait for this run to settle
-    // instead of releasing the kernel underneath it.
+    // BEFORE the first await: a dispose() racing the entry phase (message
+    // processing) must wait for this run to settle instead of releasing the
+    // kernel underneath it.
     const running = this.executeRun(canonical, runScope, abort);
     this.activeRun = running;
     try {
@@ -247,15 +221,14 @@ export class AgentSession {
     }
   }
 
-  /** Expansion + processing + loop — the promise activeRun tracks. */
+  /** Processing + loop — the promise activeRun tracks. */
   private async executeRun(
     canonical: Message,
     runScope: ExecutionScopeIdentity,
     abort: AbortController,
   ): Promise<RunSummary> {
-    const expanded = await this.expandUserMessage(canonical);
     const processed = await this.kernel.services.session.processUserInput(
-      expanded,
+      canonical,
       abort.signal,
     );
     return this.loop(processed, { signal: abort.signal, scope: runScope });
