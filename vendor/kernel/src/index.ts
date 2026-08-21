@@ -8,5 +8,5 @@ export * from "./errors";
 export * from "./fiber";
 /** Plugin shapes and the plugin runtime registry. */
 export * from "./registry";
-/** Tree-wide named service table behind `ctx.provide`. */
+/** Named service table behind `ctx.provide`, scoped per owning context. */
 export * from "./services";

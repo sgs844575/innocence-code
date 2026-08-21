@@ -29,7 +29,10 @@ export interface Context {
   /** Start a plugin below this context; returns its awaitable fiber. */
   plugin(entry: Plugin): Fiber & PromiseLike<Fiber>;
   /**
-   * Publish a named, tree-wide service on the root context.
+   * Publish a named service on the scope that owns this context's service
+   * table — the root, or the innermost scope this context was derived from.
+   * Derived scopes may publish the same name to shadow it without affecting
+   * enclosing contexts.
    *
    * @returns an idempotent withdraw handle; publishers commonly return it
    * from their entry so the service disappears when its fiber unwinds.
@@ -40,9 +43,11 @@ export interface Context {
 /**
  * Root dependency container of the plugin kernel.
  *
- * A context carries the fiber tree, the plugin registry, and the event
- * bus. Plugin-scoped contexts are derived children that shadow `fiber`
- * while sharing everything else with the root.
+ * A context carries the fiber tree, the plugin registry, and the event bus.
+ * Children derived with a fiber are plugin runtime contexts that shadow
+ * `fiber` while sharing every other member with their parent. Children
+ * derived without a fiber are scopes that additionally carry their own
+ * service table, so services published on them shadow the parent's names.
  */
 export class Context {
   fiber: Fiber;
@@ -79,13 +84,25 @@ export class Context {
   }
 
   /**
-   * Create a plugin-scoped child context bound to `fiber`.
+   * Derive a child context below this one.
    *
-   * The child inherits every member of this context and shadows only its
-   * owning fiber; the parent is left untouched.
+   * With `fiber`, the child is a plugin runtime context: it shadows `fiber`
+   * and shares every other member — including this context's service table
+   * — with its parent. Without `fiber`, the child is an independent scope:
+   * it keeps the parent's fiber and carries its own service table, so
+   * services published on the child shadow the parent's names without
+   * affecting the parent or sibling scopes.
    */
-  derive(fiber: Fiber): Context {
+  derive(fiber?: Fiber): Context {
     const child = Object.create(this) as Context;
+    if (fiber === undefined) {
+      Object.defineProperty(child, "services", {
+        value: new ServiceTable(child),
+        writable: false,
+        enumerable: true,
+      });
+      return child;
+    }
     child.fiber = fiber;
     return child;
   }
