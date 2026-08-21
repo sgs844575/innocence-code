@@ -19,7 +19,7 @@
 // here — the HarnessRuntime's disposeAll owns them on the same quit path.
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { SessionPlugin } from "@innocencecode/harness-core";
+import type { SessionPlugin } from "@innocencecode/harness-electron";
 import type { SessionToolIndex } from "@innocencecode/harness-electron";
 import { createTaskPlugin, type TaskRuntimePort } from "@innocencecode/plugin-task";
 import {

@@ -1,4 +1,4 @@
-import type { ExecutionScope } from "@innocencecode/harness-core";
+import type { ExecutionScope } from "@innocencecode/harness-tools";
 import type { AttributionDecision, ObservedChange } from "./attribution";
 import type { TaskEvent } from "./events";
 

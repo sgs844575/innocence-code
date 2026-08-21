@@ -6,15 +6,17 @@ import { Context } from "@innocencecode/kernel";
 import { ToolsPlugin } from "@innocencecode/harness-tools";
 import { ShellPlugin, bashTool, runCommand } from "../src";
 import {
-  createExecutionScope,
   parseRuleSpec,
   PermissionEngine,
+  type PermissionRequest,
+} from "@innocencecode/harness-permissions";
+import {
+  createExecutionScope,
   redactCommand,
   redactCommandSummary,
   sha256Hex,
-  type PermissionRequest,
   type ToolContext,
-} from "@innocencecode/harness-core";
+} from "@innocencecode/harness-tools";
 
 let root: string;
 beforeAll(async () => {

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Context } from "@innocencecode/kernel";
-import type { Skill } from "@innocencecode/harness-core";
+import type { Skill } from "@innocencecode/harness-skills";
 import type { Message, MessagePart } from "@innocencecode/harness-session";
 
 export interface ParsedSkillFile {

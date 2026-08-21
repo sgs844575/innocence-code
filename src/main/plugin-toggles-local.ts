@@ -1,13 +1,13 @@
-// Local copy of the plugin-set / plugin-toggles logic (copied verbatim from
-// packages/harness-core/src/plugin-set.ts and plugin-toggles.ts at T11): the
-// host composition resolves builtin plugin sets without importing those
-// runtime values from harness-core anymore — the originals stay in
-// harness-core until the T12 cleanup removes them.
+// Host-local plugin-set / plugin-toggles logic (verbatim copy made at T11
+// from the retired core package's plugin-set.ts and plugin-toggles.ts, whose
+// package was deleted at T12): this module is now the canonical resolver —
+// the host composition never imported those runtime values from the package
+// anyway, so behavior is byte-identical.
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 
-/** Local severity sink shape (harness-core's Logger). */
+/** Severity sink shape (copied with the module). */
 export type Logger = (level: "info" | "warn" | "error", msg: string, data?: unknown) => void;
 
 export interface PluginDescriptor {

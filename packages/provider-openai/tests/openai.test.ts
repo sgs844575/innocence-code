@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ChatRequest } from "@innocencecode/harness-core";
+import type { ChatRequest } from "@innocencecode/harness-providers";
 import { toOpenAIBody } from "../src/mapping";
 import { openAIDeltasFromDataLines } from "../src/stream";
-import type { Delta } from "@innocencecode/harness-core";
+import type { Delta } from "@innocencecode/harness-providers";
 
 async function* lines(arr: string[]): AsyncIterable<string> {
   yield* arr;

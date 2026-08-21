@@ -1,5 +1,5 @@
 import type { Context } from "@innocencecode/kernel";
-import type { Tool } from "@innocencecode/harness-core";
+import type { Tool } from "@innocencecode/harness-tools";
 
 const STATUS_VALUES = ["pending", "in_progress", "completed"] as const;
 const PRIORITY_VALUES = ["high", "medium", "low"] as const;

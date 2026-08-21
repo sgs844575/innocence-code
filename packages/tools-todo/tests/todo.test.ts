@@ -4,12 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { Context } from "@innocencecode/kernel";
 import { ToolsPlugin } from "@innocencecode/harness-tools";
-import {
-  createExecutionScope,
-  PermissionEngine,
-  type PermissionRequest,
-  type ToolContext,
-} from "@innocencecode/harness-core";
+import { PermissionEngine, type PermissionRequest } from "@innocencecode/harness-permissions";
+import { createExecutionScope, type ToolContext } from "@innocencecode/harness-tools";
 import { TodoPlugin, todoWriteTool } from "../src/index";
 
 let root: string;

@@ -10,10 +10,10 @@ import type { SessionService } from "@innocencecode/harness-session";
 import type { MessageProcessor } from "@innocencecode/harness-session";
 import type { SkillsService } from "@innocencecode/harness-skills";
 import type { Tool, ToolExecutionMiddleware, ToolsService } from "@innocencecode/harness-tools";
-import type { PolicyRule } from "./policy";
-import type { Provider, ToolSpec } from "./provider";
+import type { PolicyRule } from "@innocencecode/harness-permissions";
+import type { Provider, ToolSpec } from "@innocencecode/harness-providers";
 import type { Logger, PluginContext } from "./registry";
-import type { Skill } from "./skill";
+import type { Skill } from "@innocencecode/harness-skills";
 
 /**
  * Read-only compat view over the spine services. Tools/providers/skills are

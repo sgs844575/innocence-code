@@ -4,11 +4,22 @@
 
 import { modelFromPreset, resolvePresetMeta, type ModelInfo } from "./modelPresets";
 import { AGENT_IDS, type AgentId } from "./agents";
-import type { PluginToggleSource } from "@innocencecode/harness-core";
 
 export type { AgentId } from "./agents";
 export type { ModelInfo } from "./modelPresets";
-export type { PluginToggleSource } from "@innocencecode/harness-core";
+
+/**
+ * User-level builtin plugin toggles (the settings face). The resolver lives
+ * in the host composition (src/main plugin-toggles-local.ts — copy of the
+ * retired plugin-set module); this settings-side shape and the shared/ipc
+ * mirror are kept aligned by harness-electron's mirror drift-guard tests.
+ */
+export interface PluginToggleSource {
+  subagent?: boolean;
+  skills?: boolean;
+  mcp?: boolean;
+  todo?: boolean;
+}
 
 export type ProviderKind = "openai" | "anthropic";
 export type PermissionMode = "auto" | "ask" | "plan" | "full";

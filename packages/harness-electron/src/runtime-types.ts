@@ -2,17 +2,12 @@
 // surfaces of the harness runtime (split from runtime.ts by responsibility —
 // see route-cache.ts for the cache mechanics, turn-persistence.ts and
 // runtime-events.ts for the remaining collaborators).
-import type {
-  AgentSession,
-  ExecutionScope,
-  Message,
-  PermissionRequest,
-  Provider,
-  SessionPlugin,
-  Tool,
-  ToolCallPart,
-  ToolResultPart,
-} from "@innocencecode/harness-core";
+import type { PermissionRequest } from "@innocencecode/harness-permissions";
+import type { Message, ToolCallPart, ToolResultPart } from "@innocencecode/harness-session";
+import type { Provider } from "@innocencecode/harness-providers";
+import type { ExecutionScope, Tool } from "@innocencecode/harness-tools";
+import type { AgentSession } from "./session";
+import type { SessionPlugin } from "./registry";
 import type { Context } from "@innocencecode/kernel";
 import type { Route } from "@innocencecode/task-core";
 import type { HarnessSettings } from "./settings";

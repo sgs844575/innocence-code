@@ -1,13 +1,11 @@
+// AgentSession behavior suite (moved here with the session family from the
+// retired core package; assertions unchanged, imports re-pointed to
+// the spine packages that own each type face).
 import { describe, expect, it, vi } from "vitest";
-import {
-  AgentSession,
-  type Delta,
-  type ExecutionScope,
-  type HarnessPlugin,
-  type MessagePart,
-  type Provider,
-  type Tool,
-} from "../src";
+import { AgentSession, type HarnessPlugin } from "../src";
+import type { Delta, Provider } from "@innocencecode/harness-providers";
+import type { ExecutionScope, Tool } from "@innocencecode/harness-tools";
+import type { MessagePart } from "@innocencecode/harness-session";
 
 function echoProvider(log: string[] = []): Provider {
   return {

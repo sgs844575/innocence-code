@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Context } from "@innocencecode/kernel";
 import { ToolsPlugin } from "@innocencecode/harness-tools";
-import {
-  SUMMARIZE_SYSTEM_PROMPT,
-  runLoop,
-  PermissionEngine,
-  textMessage,
-} from "@innocencecode/harness-core";
+import { runLoop } from "@innocencecode/harness-agent-loop";
+import { PermissionEngine } from "@innocencecode/harness-permissions";
+import { SUMMARIZE_SYSTEM_PROMPT, textMessage } from "@innocencecode/harness-session";
 import { ProvidersPlugin } from "@innocencecode/harness-providers";
 import { createMockPlugin, createMockProvider } from "../src";
 

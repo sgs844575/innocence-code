@@ -54,3 +54,17 @@ export {
   type TurnRecordV3,
   type TurnRecordV3Input,
 } from "./transcript";
+// Session family (moved here when the retired core package was deleted):
+// the conversational AgentSession, its kernel composition, the legacy
+// plugin-registration face and the compat view over the spine services.
+export { AgentSession, type AgentSessionOptions, type RunSummary } from "./session";
+export {
+  PluginRegistry,
+  TOOL_PERSISTENCY_POLICY_REQUIRED,
+  ToolPersistenceError,
+  type HarnessPlugin,
+  type LogLevel,
+  type Logger,
+  type PluginContext,
+  type SessionPlugin,
+} from "./registry";

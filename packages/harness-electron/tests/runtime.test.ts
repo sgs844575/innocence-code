@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { AgentSession } from "@innocencecode/harness-core";
+import type { AgentSession } from "../src";
 import { createMockProvider, type MockTurn } from "@innocencecode/provider-mock";
 import { FsPlugin } from "@innocencecode/tools-fs";
 import { ShellPlugin } from "@innocencecode/tools-shell";

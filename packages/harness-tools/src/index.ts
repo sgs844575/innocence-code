@@ -4,6 +4,9 @@ export type { ToolSpec } from "./provider";
 export type { SubagentOptions, SubagentResult, SubagentSpawner } from "./subagent";
 export {
   createExecutionScope,
+  nextInvocationId,
+  nextRouteId,
+  nextSessionId,
   type ExecutionScope,
   type ExecutionScopeIdentity,
 } from "./execution-scope";

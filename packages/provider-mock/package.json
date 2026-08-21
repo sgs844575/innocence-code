@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@innocencecode/harness-core": "*",
+    "@innocencecode/harness-providers": "^0.1.0",
     "@innocencecode/harness-session": "^0.1.0",
-    "@innocencecode/kernel": "*"
+    "@innocencecode/kernel": "^0.1.0"
   },
   "license": "AGPL-3.0-only",
   "author": "逆流无邪",
@@ -22,5 +22,10 @@
     "type": "git",
     "url": "git+https://github.com/sgs844575/innocence-code.git",
     "directory": "packages/provider-mock"
+  },
+  "devDependencies": {
+    "@innocencecode/harness-agent-loop": "^0.1.0",
+    "@innocencecode/harness-permissions": "^0.1.0",
+    "@innocencecode/harness-tools": "^0.1.0"
   }
 }

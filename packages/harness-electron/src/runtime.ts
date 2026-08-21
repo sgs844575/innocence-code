@@ -6,7 +6,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Route } from "@innocencecode/task-core";
-import { AgentSession, createExecutionScope, type ExecutionScopeIdentity, type PermissionDecider } from "@innocencecode/harness-core";
+import type { PermissionDecider } from "@innocencecode/harness-permissions";
+import { createExecutionScope, type ExecutionScopeIdentity } from "@innocencecode/harness-tools";
+import { AgentSession } from "./session";
 import { createProviderPlugin } from "@innocencecode/harness-providers";
 import { decodeTranscript } from "./transcript";
 import { systemPromptFor } from "./agents";

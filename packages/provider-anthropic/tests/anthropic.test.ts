@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatRequest, Delta } from "@innocencecode/harness-core";
+import type { ChatRequest, Delta } from "@innocencecode/harness-providers";
 import { toAnthropicBody } from "../src/mapping";
 import { anthropicDeltasFromDataLines } from "../src/stream";
 

@@ -1,8 +1,11 @@
+// resolvePluginSet suite (moved here from the retired core package;
+// assertions unchanged). The canonical implementation is the host-local copy
+// in plugin-toggles-local.ts.
 import { describe, expect, it } from "vitest";
 import {
   type PluginDescriptor,
   resolvePluginSet,
-} from "../src/plugin-set";
+} from "./plugin-toggles-local";
 
 /** Mirrors the composePlugins DESCRIPTORS shape (spec B 3.4): fs/shell core. */
 const DESCRIPTORS: PluginDescriptor[] = [

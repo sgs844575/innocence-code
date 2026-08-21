@@ -4,7 +4,7 @@
 // New records are append-only turn-v3 rows; turn-v2 rows remain encodable for
 // hosts that have not adopted routes yet; legacy records are full-history
 // snapshots.
-import type { Message } from "@innocencecode/harness-core";
+import type { Message } from "@innocencecode/harness-session";
 import { canonicalizeHistory, type DecodedMessage } from "./transcript-decode";
 
 export {

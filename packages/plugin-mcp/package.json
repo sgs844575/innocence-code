@@ -12,9 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@innocencecode/harness-core": "*",
     "@innocencecode/harness-tools": "^0.1.0",
-    "@innocencecode/kernel": "*",
+    "@innocencecode/kernel": "^0.1.0",
     "@innocencecode/kernel-logger": "^0.1.0"
   },
   "license": "AGPL-3.0-only",

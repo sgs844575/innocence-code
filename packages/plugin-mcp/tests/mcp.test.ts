@@ -4,11 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Context } from "@innocencecode/kernel";
 import { LoggerPlugin } from "@innocencecode/kernel-logger";
 import { ToolsPlugin } from "@innocencecode/harness-tools";
-import {
-  createExecutionScope,
-  sha256Hex,
-  type ToolContext,
-} from "@innocencecode/harness-core";
+import { createExecutionScope, sha256Hex, type ToolContext } from "@innocencecode/harness-tools";
 import { StdioJsonRpcClient, createMcpPlugin, type StdioServerOptions } from "../src";
 
 const fixture = path.join(

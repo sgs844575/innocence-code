@@ -1,4 +1,4 @@
-import type { Delta } from "@innocencecode/harness-core";
+import type { Delta } from "@innocencecode/harness-providers";
 
 interface ToolAccumulator {
   id: string;

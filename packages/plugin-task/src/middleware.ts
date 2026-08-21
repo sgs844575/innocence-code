@@ -1,13 +1,12 @@
 import type { Context } from "@innocencecode/kernel";
+import type { ToolSideEffect } from "@innocencecode/harness-permissions";
 import type {
-  Logger,
   Tool,
   ToolContext,
   ToolExecutionInvocation,
   ToolExecutionMiddleware,
   ToolResult,
-  ToolSideEffect,
-} from "@innocencecode/harness-core";
+} from "@innocencecode/harness-tools";
 import {
   classifyUnknownChanges,
   hasUnresolvedAttribution,
@@ -19,6 +18,15 @@ import {
   type ChangeSource,
 } from "./attribution";
 import { asTaskScope, type BeforeCapture, type AfterCapture, type PathCapture, type TaskMutationContext, type TaskRuntimePort, type TaskScope } from "./scope";
+
+// ctx.logger 的类型可见性：kernel-logger 不自带 Context 增强，这里按
+// session 组合侧（harness-electron/session-kernel）的同一声明就地合并（成员
+// 类型逐字一致，同程序内合并合法），包自身不依赖宿主适配层。
+declare module "@innocencecode/kernel" {
+  interface Context {
+    logger: import("@innocencecode/kernel-logger").LoggerService;
+  }
+}
 
 /** Side-effect classes that can mutate workspace state → the middleware captures around them. */
 const CAPTURED_SIDE_EFFECTS: readonly ToolSideEffect[] = ["paths", "process", "network", "unknown"];
@@ -56,7 +64,8 @@ export interface TaskCaptureOptions {
   readonly lookupTool: (toolName: string) => Tool | undefined;
   /** Workspace root the permission resources are scoped against. */
   readonly workspaceRoot: string;
-  readonly log?: Logger;
+  /** Severity sink (structural — matches the host Logger face). */
+  readonly log?: (level: "info" | "warn" | "error", msg: string, data?: unknown) => void;
 }
 
 /**

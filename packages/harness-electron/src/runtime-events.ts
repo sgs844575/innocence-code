@@ -1,7 +1,7 @@
 // Harness-event → host-hook translation (split from runtime.ts by
 // responsibility): maps one AgentSession event onto the streaming UI hooks
 // (text deltas, thinking, structured tool parts, compaction/error notices).
-import type { HarnessEvent } from "@innocencecode/harness-core";
+import type { HarnessEvent } from "@innocencecode/harness-session";
 import type { RuntimeHooks } from "./runtime-types";
 
 export function forwardHarnessEvent(

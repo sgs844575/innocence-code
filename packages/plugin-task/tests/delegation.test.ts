@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sha256Hex } from "@innocencecode/harness-core";
+import { sha256Hex } from "@innocencecode/harness-tools";
 import type { AttributionPendingEvent, TaskEvent } from "../src";
 import { fakeTaskRuntime, runParentTaskWithChild } from "./helpers";
 

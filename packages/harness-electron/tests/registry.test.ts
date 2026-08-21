@@ -1,13 +1,12 @@
+// Legacy PluginRegistry suite (moved here with registry.ts from the retired
+// core package; assertions unchanged, type imports re-pointed to the
+// spine packages that own each face).
 import { describe, expect, expectTypeOf, it } from "vitest";
-import {
-  PluginRegistry,
-  type HarnessPlugin,
-  type PolicyRule,
-  type Provider,
-  type Skill,
-  type Tool,
-  type ToolExecutionMiddleware,
-} from "../src";
+import { PluginRegistry, type HarnessPlugin } from "../src";
+import type { PolicyRule } from "@innocencecode/harness-permissions";
+import type { Provider } from "@innocencecode/harness-providers";
+import type { Skill } from "@innocencecode/harness-skills";
+import type { Tool, ToolExecutionMiddleware } from "@innocencecode/harness-tools";
 
 function completeTool(name: string): Tool {
   return {

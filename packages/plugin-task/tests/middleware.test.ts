@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sha256Hex, type Tool, type ToolExecutionInvocation } from "@innocencecode/harness-core";
+import { sha256Hex, type Tool, type ToolExecutionInvocation } from "@innocencecode/harness-tools";
 import {
   ATTRIBUTION_BLOCKED,
   attributionBlockedResult,

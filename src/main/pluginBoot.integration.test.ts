@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { AgentSession, type SessionPlugin } from "@innocencecode/harness-core";
+import { AgentSession, type SessionPlugin } from "@innocencecode/harness-electron";
 import { createMockProvider } from "@innocencecode/provider-mock";
 import { createPluginBoot, type PluginBoot } from "./pluginBoot";
 import { stagingBootPaths } from "./staging-paths";

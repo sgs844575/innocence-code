@@ -1,7 +1,7 @@
 // Transcript DECODING half of the codec (see transcript.ts for the record
 // types and encoders). Split by responsibility: this module canonicalizes
 // message/part shapes and folds JSONL rows into history + the route map.
-import type { Message, MessagePart, ToolResultPart } from "@innocencecode/harness-core";
+import type { Message, MessagePart, ToolResultPart } from "@innocencecode/harness-session";
 import type { LegacyTurnRecord, TranscriptRoute, TurnRecordV2, TurnRecordV3 } from "./transcript";
 
 /**

@@ -3,7 +3,7 @@
 // dispose/build race state machine (tombstones, bounded waits). The runtime
 // delegates cache mechanics here and keeps session construction and the
 // streaming/persistence responsibilities (see runtime.ts).
-import type { AgentSession } from "@innocencecode/harness-core";
+import type { AgentSession } from "./session";
 
 /**
  * How long dispose() waits for an in-flight session build before giving up

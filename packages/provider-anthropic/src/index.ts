@@ -1,6 +1,6 @@
 import type { Context } from "@innocencecode/kernel";
 import { parseSSEData } from "@innocencecode/harness-providers";
-import type { Provider } from "@innocencecode/harness-core";
+import type { Provider } from "@innocencecode/harness-providers";
 import { toAnthropicBody } from "./mapping";
 import { anthropicDeltasFromDataLines } from "./stream";
 

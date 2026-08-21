@@ -9,7 +9,7 @@
 // non-task turn), which the decoder keeps OUT of the main history.
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Message } from "@innocencecode/harness-core";
+import type { Message } from "@innocencecode/harness-session";
 import { encodeTurnV2, encodeTurnV3 } from "./transcript";
 import { DEFAULT_ROUTE_ID } from "./runtime-types";
 

@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { createExecutionScope } from "@innocencecode/harness-core";
+import { createExecutionScope } from "@innocencecode/harness-tools";
 import { createGitAdapter, type GitAdapter, type GitWorkspaceInfo } from "@innocencecode/task-git";
 import type { TaskEvent, TaskScope } from "@innocencecode/plugin-task";
 import {

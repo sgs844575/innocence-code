@@ -9,7 +9,8 @@ import {
   createSessionPlugin,
   textMessage,
 } from "@innocencecode/harness-session";
-import { AgentSession, type Delta, type Provider } from "@innocencecode/harness-core";
+import type { Delta, Provider } from "@innocencecode/harness-providers";
+import { AgentSession } from "@innocencecode/harness-electron";
 import { createSkillsPlugin, parseSkillMarkdown } from "../src";
 
 let skillsDir: string;

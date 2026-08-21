@@ -1,17 +1,19 @@
+// Execution-scope identity suite (moved here from the retired core
+// package; assertions unchanged). The loop package owns the cross-spine view
+// this suite exercises — invocation ids minted through real loop turns — so
+// each face imports from its owning spine package.
 import { describe, expect, it } from "vitest";
 import { Context } from "@innocencecode/kernel";
-import { ToolsPlugin } from "@innocencecode/harness-tools";
+import { PermissionEngine } from "@innocencecode/harness-permissions";
+import type { Delta, Provider } from "@innocencecode/harness-providers";
+import { textMessage, type Message } from "@innocencecode/harness-session";
 import {
+  ToolsPlugin,
   createExecutionScope,
-  PermissionEngine,
-  runLoop,
-  textMessage,
-  type Delta,
   type ExecutionScope,
-  type Message,
-  type Provider,
   type Tool,
-} from "../src";
+} from "@innocencecode/harness-tools";
+import { runLoop } from "../src";
 
 describe("createExecutionScope", () => {
   it("gives every invocation a fresh, unique invocation id", () => {

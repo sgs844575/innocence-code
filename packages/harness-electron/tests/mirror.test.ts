@@ -10,10 +10,8 @@ import {
   type ChatPermissionEvent,
   type PluginToggleSource,
 } from "../../../src/shared/ipc";
-import type {
-  PermissionResource,
-  PluginToggleSource as CorePluginToggleSource,
-} from "@innocencecode/harness-core";
+import type { PermissionResource } from "@innocencecode/harness-permissions";
+import type { PluginToggleSource as CorePluginToggleSource } from "../src/settings";
 import {
   MOCK_MODEL as PKG_MOCK_MODEL,
   MOCK_PROFILE_ID as PKG_MOCK_PROFILE_ID,
@@ -71,11 +69,11 @@ describe("shared AgentId 镜像对齐 harness-electron agents.ts", () => {
   });
 });
 
-describe("shared PluginToggleSource 镜像对齐 harness-core plugin-set.ts", () => {
-  // shared 不 import 包，PluginToggleSource 手工镜像：core 增删开关键而忘了
+describe("shared PluginToggleSource 镜像对齐 harness-electron settings.ts", () => {
+  // shared 不 import 包，PluginToggleSource 手工镜像：settings 增删开关键而忘了
   // 同步 shared 时，下面的双向键映射会让 typecheck 失败（harness-electron 的
   // typecheck 覆盖 tests/）。
-  it("类型漂移守卫：shared 镜像与 core PluginToggleSource 双向兼容", () => {
+  it("类型漂移守卫：shared 镜像与 settings PluginToggleSource 双向兼容", () => {
     const sample: PluginToggleSource = { subagent: false, skills: true, mcp: false, todo: true };
     const core: CorePluginToggleSource = sample;
     const back: PluginToggleSource = core;
@@ -99,7 +97,7 @@ describe("shared PluginToggleSource 镜像对齐 harness-core plugin-set.ts", ()
   });
 });
 
-describe("ChatPermissionEvent.resource 对齐 harness-core PermissionResource", () => {
+describe("ChatPermissionEvent.resource 对齐 harness-permissions PermissionResource", () => {
   // 脱敏持久化形状：host 桥只透传 kind/action/scope（metadata 为后续
   // schema 脱敏预留的可选面），shared 不 import 包，靠双向赋值防漂移。
   const event: ChatPermissionEvent = {

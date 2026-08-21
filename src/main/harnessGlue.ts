@@ -9,6 +9,13 @@ import { app, dialog, type BrowserWindow } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  loadInnocenceConfig,
+  rulesFromConfig,
+  type InnocenceConfig,
+  type ProjectPermissionConfig,
+} from "@innocencecode/harness-permissions";
+import type { Provider } from "@innocencecode/harness-providers";
+import {
   DEFAULT_ROUTE_ID,
   HarnessRuntime,
   DEFAULT_SETTINGS,
@@ -16,17 +23,10 @@ import {
   mergeSettings,
   resolveActive,
   MOCK_GREETING,
-  type HarnessSettings as PkgSettings,
-} from "@innocencecode/harness-electron";
-import {
-  loadInnocenceConfig,
-  rulesFromConfig,
   type HarnessPlugin,
-  type InnocenceConfig,
-  type ProjectPermissionConfig,
-  type Provider,
+  type HarnessSettings as PkgSettings,
   type SessionPlugin,
-} from "@innocencecode/harness-core";
+} from "@innocencecode/harness-electron";
 import { createProviderPlugin } from "@innocencecode/harness-providers";
 import { createOpenAIProvider } from "@innocencecode/provider-openai";
 import { createAnthropicProvider } from "@innocencecode/provider-anthropic";

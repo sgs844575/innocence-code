@@ -3,6 +3,9 @@
 // services (tools/permissions/providers/skills/session/system-prompt/agents/
 // spawner) with the HarnessPluginAdapter bridging legacy HarnessPlugins onto
 // them (see session-kernel.ts / session-adapter.ts / session-registry-view.ts).
+// Home: the harness-electron host-adapter package (the Electron shell's
+// runtime glue) — the session family moved here when the retired core package
+// was deleted; the module itself stays host-agnostic (no Electron imports).
 import {
   createRunLoop,
   DEFAULT_MAX_TURNS,
@@ -14,23 +17,23 @@ import {
   nextRouteId,
   nextSessionId,
   type ExecutionScopeIdentity,
-} from "./execution-scope";
-import type { HarnessEventListener } from "./events";
+} from "@innocencecode/harness-tools";
+import type { HarnessEventListener } from "@innocencecode/harness-session";
 import type {
   PermissionAuditor,
   PermissionDecider,
   PermissionEngine,
   ResourceValidator,
-} from "./permission";
-import type { ProjectPermissionConfig } from "./policy-config";
-import type { PermissionMode } from "./policy";
-import type { Provider } from "./provider";
+} from "@innocencecode/harness-permissions";
+import type { ProjectPermissionConfig } from "@innocencecode/harness-permissions";
+import type { PermissionMode } from "@innocencecode/harness-permissions";
+import type { Provider } from "@innocencecode/harness-providers";
 import type { Logger, SessionPlugin } from "./registry";
 import { mountSessionKernel, type SessionKernel } from "./session-kernel";
 import type { SessionRegistryView } from "./session-registry-view";
 import { createSpawnerChildSession, makeSessionSpawner } from "./session-spawner";
-import { textMessage, type Message } from "./types";
-import type { SubagentSpawner } from "./subagent";
+import { textMessage, type Message } from "@innocencecode/harness-session";
+import type { SubagentSpawner } from "@innocencecode/harness-agent";
 
 export interface AgentSessionOptions {
   /** Legacy HarnessPlugins (activate) and kernel-native plugins (apply); the

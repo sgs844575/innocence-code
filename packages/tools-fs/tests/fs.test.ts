@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Context } from "@innocencecode/kernel";
 import { ToolsPlugin } from "@innocencecode/harness-tools";
-import { createExecutionScope, sha256Hex, type ToolContext } from "@innocencecode/harness-core";
+import { createExecutionScope, sha256Hex, type ToolContext } from "@innocencecode/harness-tools";
 import { editTool } from "../src/edit";
 import { readTool } from "../src/read";
 import { globTool, grepTool } from "../src/search";

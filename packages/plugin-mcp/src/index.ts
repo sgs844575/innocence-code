@@ -8,8 +8,8 @@ import {
 import { StdioJsonRpcClient, type StdioServerOptions } from "./jsonrpc";
 
 // ctx.logger 的类型可见性：kernel-logger 不自带 Context 增强，这里按
-// session 组合侧（harness-core/session-kernel）的同一声明就地合并（成员
-// 类型逐字一致，同程序内合并合法），包自身不再依赖 harness-core。
+// session 组合侧（harness-electron/session-kernel）的同一声明就地合并（成员
+// 类型逐字一致，同程序内合并合法），包自身不依赖宿主适配层。
 declare module "@innocencecode/kernel" {
   interface Context {
     logger: import("@innocencecode/kernel-logger").LoggerService;

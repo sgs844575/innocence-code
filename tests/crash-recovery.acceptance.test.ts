@@ -15,7 +15,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCommand, bashTool } from "@innocencecode/tools-shell";
-import { createExecutionScope } from "@innocencecode/harness-core";
+import { createExecutionScope } from "@innocencecode/harness-tools";
 import { createGitAdapter, type GitAdapter } from "@innocencecode/task-git";
 import { TaskRecoveryError } from "@innocencecode/task-core";
 import { openTaskRepository, sha256Bytes } from "@innocencecode/task-workspace";

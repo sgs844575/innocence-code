@@ -44,7 +44,6 @@ export default defineConfig({
     // Keep main-process builds fast; target the bundled Node runtime.
     mainFields: ["module", "main"],
     alias: {
-      "@innocencecode/harness-core": pkg("harness-core"),
       "@innocencecode/provider-mock": pkg("provider-mock"),
       "@innocencecode/provider-openai": pkg("provider-openai"),
       "@innocencecode/provider-anthropic": pkg("provider-anthropic"),
