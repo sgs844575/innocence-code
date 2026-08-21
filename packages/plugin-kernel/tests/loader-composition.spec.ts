@@ -1,4 +1,4 @@
-import { Context, FiberState, Include, Loader } from "@innocencecode/plugin-kernel";
+import { Context, FiberState, Include, Loader, LoaderEntry } from "@innocencecode/plugin-kernel";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ let context: Context | undefined;
 let tempRoot: string | undefined;
 
 beforeEach(async () => {
-  tempRoot = await mkdtemp(join(tmpdir(), "innocence-vendor-loader-"));
+  tempRoot = await mkdtemp(join(tmpdir(), "innocence-kernel-loader-"));
 });
 
 afterEach(async () => {
@@ -60,7 +60,27 @@ function findEntry(ctx: Context, id: string) {
   return [...ctx.loader.entries()].find((entry) => entry.options.id === id);
 }
 
-describe("vendored loader composition", () => {
+describe("kernel loader composition", () => {
+  it("exposes the entry to its plugin while it applies", async () => {
+    const h = createHarness();
+    let entryAtApply: LoaderEntry | undefined;
+    h.register("probe-entry", {
+      name: "probe-entry",
+      apply(pluginCtx: Context) { entryAtApply = pluginCtx.entry; },
+    });
+    await loadYaml([
+      "- id: probe-entry",
+      "  name: probe-entry",
+      "  config: { tag: alpha }",
+    ], h);
+    // Kernel contract: the loader sets ctx.entry before the plugin body
+    // runs, so plugins and carriers read their own config from it.
+    const entry = findEntry(context!, "probe-entry");
+    expect(entryAtApply).toBe(entry);
+    expect(entryAtApply?.options.name).toBe("probe-entry");
+    expect((entryAtApply?.options.config as { tag: string } | undefined)?.tag).toBe("alpha");
+  });
+
   it("loads enabled entries and skips disabled ones", async () => {
     const h = createHarness();
     h.register("probe-a", { name: "probe-a", apply() {} });

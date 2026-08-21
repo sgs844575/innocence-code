@@ -12,3 +12,5 @@ export * from "./loader";
 export * from "./include";
 /** Plugin shapes and the plugin runtime registry. */
 export * from "./registry";
+/** Tree-wide named service table behind `ctx.provide`. */
+export * from "./services";
