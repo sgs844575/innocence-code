@@ -1,7 +1,7 @@
 node_modules/
 .vite/
 out/
-build/
+/build/
 dist/
 *.log
 .DS_Store

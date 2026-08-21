@@ -16,6 +16,7 @@
     "prepackage": "npm run build:plugins",
     "package": "electron-forge package",
     "package:smoke": "vitest run tests/packaged-exit.acceptance.test.ts",
+    "premake": "npm run build:plugins",
     "make": "electron-forge make",
     "typecheck": "tsc --noEmit",
     "typecheck:packages": "npm run typecheck --workspaces --if-present",

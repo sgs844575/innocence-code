@@ -45,9 +45,9 @@ describe("plugin kernel scope lifecycle (window-reopen simulation)", () => {
     });
     await Promise.all([ctx.fiber.dispose(), ctx.fiber.dispose()]);
     expect(cleaned).toBe(1);
-    // Correction vs task brief: assert against the exported FiberState enum
-    // (the kernel defines `const enum FiberState`, where ACTIVE = 2) instead
-    // of the raw literal 2 — identical semantics.
+    // Correction vs task brief: assert against the exported FiberState
+    // (the kernel exports FiberState as a const object, where ACTIVE = 2)
+    // instead of the raw literal 2 — identical semantics.
     expect(ctx.fiber.state).toBe(FiberState.ACTIVE);
   });
 });

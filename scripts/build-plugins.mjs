@@ -55,6 +55,7 @@ function fixDist(pkgDir) {
 }
 
 function build(pkgDir) {
+  rmSync(join(pkgDir, "dist"), { recursive: true, force: true });
   // Windows 上 npx 是 .cmd，spawnSync 必须经 shell 才能找到（参数为固定字面量）。
   const tsc = spawnSync("npx", ["tsc", "-p", join(pkgDir, "tsconfig.build.json")], { stdio: "inherit", shell: true });
   if (tsc.status !== 0) { console.error(`build failed: ${pkgDir}`); process.exit(1); }
