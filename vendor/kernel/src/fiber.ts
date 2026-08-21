@@ -1,5 +1,6 @@
 import type { Context } from "./context";
 import { KernelError } from "./errors";
+import { emitUnwindErrors, unwindRecords } from "./unwind";
 
 /**
  * Lifecycle phases of one plugin fiber.
@@ -8,15 +9,21 @@ import { KernelError } from "./errors";
  * entry is running; `ACTIVE` — the entry finished and the fiber provides;
  * `FAILED` — the entry threw (the fiber stays until disposed); `UNLOADING`
  * — cleanup disposers are running; `DISPOSED` — detached and terminal.
+ *
+ * Declared as a runtime const object (not a `const enum`) so the values
+ * survive cross-package single-file emit.
  */
-export const enum FiberState {
-  PENDING,
-  LOADING,
-  ACTIVE,
-  FAILED,
-  DISPOSED,
-  UNLOADING,
-}
+export const FiberState = {
+  PENDING: 0,
+  LOADING: 1,
+  ACTIVE: 2,
+  FAILED: 3,
+  DISPOSED: 4,
+  UNLOADING: 5,
+} as const;
+
+/** One lifecycle phase value of {@link FiberState}. */
+export type FiberStateValue = (typeof FiberState)[keyof typeof FiberState];
 
 /** Cleanup callback produced by an effect; may settle asynchronously. */
 export type Disposer = () => void | Promise<void>;
@@ -84,9 +91,14 @@ export type FiberInit = RootFiberInit | PluginFiberInit;
  */
 export class Fiber {
   /** Current lifecycle state. */
-  state = FiberState.PENDING;
+  state: FiberStateValue = FiberState.PENDING;
   /** Registry identity; `0` for the root fiber, `null` once detached. */
   uid: number | null;
+  /**
+   * Errors raised by cleanup disposers during the latest unwind, in the
+   * order they occurred; reset to an empty array when an unwind starts.
+   */
+  unwindErrors: readonly unknown[] = [];
   /** Owning fiber of the plugin that created this one; `null` for root. */
   readonly parent: Fiber | null;
   /** Context this fiber runs in (plugin-scoped, or the root context). */
@@ -258,20 +270,22 @@ export class Fiber {
     }
   }
 
-  /** Run every registered disposer in reverse registration order. */
+  /**
+   * Run every registered disposer in reverse registration order.
+   *
+   * Disposer failures are collected on `unwindErrors` and reported once
+   * cleanup finished; the reported `fiberId` is the registry identity at
+   * report time — `null` for disposal-triggered unwinds (the fiber
+   * detaches before cleanup starts), the live id for in-place restarts.
+   */
   private async unwind(): Promise<void> {
     this.state = FiberState.UNLOADING;
-    const dying = this.records.splice(0).reverse();
-    for (const record of dying) {
-      if (record.executed) continue;
-      record.executed = true;
-      try {
-        await record.disposer?.();
-      } catch {
-        // One failing disposer must not cancel the rest of the unwind.
-        // The kernel core ships no reporting channel yet, so the error is
-        // intentionally contained here.
-      }
+    const errors: unknown[] = [];
+    this.unwindErrors = errors;
+    const drained = this.records.splice(0);
+    await unwindRecords(drained, errors);
+    if (errors.length > 0) {
+      emitUnwindErrors(this.ctx, { fiberId: this.uid, label: this.entry?.name, errors });
     }
     if (this.uid === null) this.state = FiberState.DISPOSED;
   }

@@ -1,6 +1,21 @@
 import type { Fiber } from "./fiber";
 
 /**
+ * Payload of the built-in unwind-error event.
+ *
+ * Delivered once per finished unwind, only when at least one cleanup
+ * disposer threw.
+ */
+export interface UnwindErrorPayload {
+  /** Registry identity at report time; `null` once the fiber detached. */
+  fiberId: number | null;
+  /** Display name of the plugin entry, when one was given. */
+  label: string | undefined;
+  /** Disposer failures of that unwind, in the order they occurred. */
+  errors: unknown[];
+}
+
+/**
  * Typed event catalog of the kernel.
  *
  * Listeners are declared as call signatures, and consumer modules extend
@@ -15,7 +30,8 @@ import type { Fiber } from "./fiber";
  * ```
  */
 export interface Events {
-  // Reserved for declaration merging; the kernel core ships no built-in events.
+  /** Aggregated cleanup failures of one fiber unwind (internal). */
+  "internal/unwind-error"(payload: UnwindErrorPayload): void;
 }
 
 /** Listener shape stored internally, one array per event name. */
