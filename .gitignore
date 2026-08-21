@@ -10,3 +10,4 @@ docs/
 .idea/
 AGENTS.md
 CLAUDE.md
+.playwright-mcp/

@@ -1,0 +1,56 @@
+# plugin-skills — SKILL.md 加载器插件
+
+`@innocencecode/plugin-skills` 在激活时扫描技能目录，解析每个 `SKILL.md` 的 frontmatter（`name` / `description`），
+把技能注册进 harness。设计是"描述常驻索引、正文按需注入"：frontmatter 描述进入技能索引表（自动附到系统提示词），
+正文只在用户以 `/技能名` 调用时通过 `loadBody()` 注入上下文，不占用常驻 token。
+
+## 作用
+
+- 解析 `---` 分隔的 frontmatter（`key: value` 行）与正文，`name` 和 `description` 缺一不可，否则整文件跳过。
+- 目录下每个子目录（内含 `SKILL.md`）或单个 `*.md` 文件都可以是一个技能。
+- 目录不存在属正常情况（尚无技能），静默跳过；跨目录重名时首次注册胜出。
+
+## 公开 API
+
+| 导出 | 说明 |
+|---|---|
+| `skillsPlugin(options)` | 构造 `HarnessPlugin`（name `plugin-skills`）；`options.dirs: string[]` |
+| `parseSkillMarkdown(raw)` | 解析 SKILL.md 文本 → `{ name, description, body } \| null` |
+| `ParsedSkillFile` | 解析结果类型 |
+
+## 使用
+
+技能文件（`.innocence/skills/<name>/SKILL.md`，放在工作区根）：
+
+```markdown
+---
+name: review
+description: 代码审查指南
+---
+审查时先看测试再看实现……（正文仅在 /review 调用时注入上下文）
+```
+
+宿主接线（`src/main/harnessGlue.ts`）：
+
+```ts
+import { skillsPlugin } from "@innocencecode/plugin-skills";
+
+plugins.push(skillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }));
+```
+
+会话中输入 `/review` 即可调用该技能（由 harness-core 的 `AgentSession` 做技能展开）。
+该插件在插件开关里的 id 是 `skills`（依赖 `fs`）。
+
+## 关键行为与约束
+
+- 扫描只发生在激活时刻——新增技能文件需新一轮会话生效。
+- `loadBody` 返回解析时常驻的正文字符串（读取已在激活时完成），不会在会话中途再次读盘。
+- 技能本身没有执行逻辑，只是"按需注入的提示词资产"。
+
+## 测试
+
+```bash
+npx vitest run packages/plugin-skills
+```
+
+`tests/skills.test.ts` 覆盖 frontmatter 解析、目录扫描、重名与缺目录容错。
