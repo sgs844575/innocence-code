@@ -86,6 +86,7 @@ export {
   type LogLevel,
   type Logger,
   type PluginContext,
+  type SessionPlugin,
 } from "./registry";
 export {
   ContextManager,

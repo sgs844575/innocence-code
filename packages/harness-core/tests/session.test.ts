@@ -515,4 +515,36 @@ describe("AgentSession", () => {
     // The swallowed dispose failure is still reported through the logger.
     expect(logs).toContainEqual({ level: "error", msg: "subagent child dispose failed" });
   });
+
+  it("loads a kernel-native plugin (apply) beside legacy plugins with the registry mirror intact", async () => {
+    const nativeSpy = { calls: 0 };
+    const legacySpy = { calls: 0 };
+    const session = await AgentSession.create({
+      ...baseOptions(),
+      provider: scriptedProvider([
+        { toolCalls: [{ toolName: "Probe" }, { toolName: "Legacy" }] },
+        { text: "done" },
+      ]),
+      plugins: [
+        {
+          // Kernel-native shape: registers through the spine tools service;
+          // the session composition routes it through the registry view.
+          name: "native-tools",
+          apply(ctx) {
+            ctx.tools.register(probeTool(nativeSpy));
+          },
+        },
+        toolsPlugin([{ ...probeTool(legacySpy), name: "Legacy" }]),
+      ],
+    });
+
+    // Both plugin shapes land in the registry mirror (toolIndex adopt and
+    // spawner selection read this surface — native mounts must not bypass it).
+    expect([...session.registry.tools.keys()].sort()).toEqual(["Legacy", "Probe"]);
+
+    // Both tools execute through the loop.
+    await session.run("双轨装载");
+    expect(nativeSpy.calls).toBe(1);
+    expect(legacySpy.calls).toBe(1);
+  });
 });

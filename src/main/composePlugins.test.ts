@@ -36,10 +36,10 @@ describe("composePlugins (declarative composition root)", () => {
   it("project yml wins, user toggles apply, core stays, todo registers", async () => {
     const ws = await tempWorkspace({ ".innocence/plugins.yml": "plugins:\n  mcp: false\n" });
     const names = (await composePlugins(ws, { subagent: false })).map((p) => p.name);
-    expect(names).toContain("tools-fs");
-    expect(names).toContain("tools-shell");
+    expect(names).toContain("fs");
+    expect(names).toContain("shell");
     expect(names).toContain("project-permission-rules");
-    expect(names).toContain("todoPlugin");
+    expect(names).toContain("todo");
     expect(names).toContain("plugin-skills"); // 未关的开关全部在场
     expect(names).not.toContain("plugin-mcp");
     expect(names).not.toContain("plugin-subagent");
@@ -49,21 +49,22 @@ describe("composePlugins (declarative composition root)", () => {
     const ws = await tempWorkspace({ ".innocence/plugins.yml": "plugins:\n  skills: false\n" });
     const names = (await composePlugins(ws)).map((p) => p.name);
     expect(names).not.toContain("plugin-skills");
-    expect(names).toContain("tools-fs");
-    expect(names).toContain("todoPlugin");
+    expect(names).toContain("fs");
+    expect(names).toContain("todo");
   });
 
   it("guard: descriptors and instantiation branches stay 1:1", async () => {
     const ws = await tempWorkspace({});
     const names = (await composePlugins(ws)).map((p) => p.name);
     // 描述符 id → 插件实例名；新增描述符必须同步此映射与实例化分支。
+    // fs/shell/todo 为内核原生插件，name 与描述符 id 同名。
     const nameById: Record<string, string> = {
-      fs: "tools-fs",
-      shell: "tools-shell",
+      fs: "fs",
+      shell: "shell",
       subagent: "plugin-subagent",
       skills: "plugin-skills",
       mcp: "plugin-mcp",
-      todo: "todoPlugin",
+      todo: "todo",
     };
     for (const { id } of PLUGIN_DESCRIPTORS) {
       expect(nameById[id], `descriptor "${id}" 缺少测试侧 id→name 映射`).toBeTruthy();

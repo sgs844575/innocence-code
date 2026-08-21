@@ -13,6 +13,9 @@ const LIBS = [
 ];
 const PLUGINS = [
   { dir: "packages/plugin-example", id: "example" },
+  { dir: "packages/tools-fs", id: "fs" },
+  { dir: "packages/tools-shell", id: "shell" },
+  { dir: "packages/tools-todo", id: "todo" },
 ];
 const STAGING = "build/dist/resources";
 
@@ -81,11 +84,10 @@ for (const { dir, id } of PLUGINS) {
   writeFileSync(join(target, "package.json"), JSON.stringify(pkg, null, 2) + "\n", "utf8");
 }
 
-// 自检：staging 内 kernel 库与试点插件的入口产物必须真实存在。
-for (const required of [
-  join(STAGING, "node_modules", "@innocencecode", "kernel", "dist", "index.js"),
-  join(STAGING, "plugins", "example", "dist", "index.js"),
-]) {
+// 自检：staging 内 kernel 库与各清单插件的入口产物必须真实存在。
+const selfCheck = [join(STAGING, "node_modules", "@innocencecode", "kernel", "dist", "index.js")];
+for (const { id } of PLUGINS) selfCheck.push(join(STAGING, "plugins", id, "dist", "index.js"));
+for (const required of selfCheck) {
   if (!existsSync(required)) {
     console.error(`staging self-check failed: missing ${required}`);
     process.exit(1);

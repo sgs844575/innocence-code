@@ -2,14 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
 import {
   createExecutionScope,
   PermissionEngine,
-  PluginRegistry,
   type PermissionRequest,
   type ToolContext,
 } from "@innocencecode/harness-core";
-import { todoPlugin, todoWriteTool } from "../src/index";
+import { TodoPlugin, todoWriteTool } from "../src/index";
 
 let root: string;
 const ctx = (): ToolContext => ({
@@ -198,13 +199,15 @@ describe("plan-mode compatibility (final review I1)", () => {
   });
 });
 
-describe("todoPlugin", () => {
-  it("registers TodoWrite through the fail-closed registry", async () => {
-    expect(todoPlugin.name).toBe("todoPlugin");
-    const reg = new PluginRegistry();
-    await reg.load([todoPlugin]);
-    expect([...reg.tools.keys()]).toEqual(["TodoWrite"]);
-    const spec = reg.toolSpecs().find((s) => s.name === "TodoWrite");
+describe("TodoPlugin", () => {
+  it("registers TodoWrite through the fail-closed tools service", async () => {
+    // name 与清单描述符 id 对齐（旧导出名 "todoPlugin" 已随内核化修正）。
+    expect(TodoPlugin.name).toBe("todo");
+    const ctx = new Context();
+    await ctx.plugin(ToolsPlugin);
+    await ctx.plugin(TodoPlugin);
+    expect(ctx.tools.specs().map((s) => s.name)).toEqual(["TodoWrite"]);
+    const spec = ctx.tools.specs().find((s) => s.name === "TodoWrite");
     expect(spec?.parameters.type).toBe("object");
   });
 });

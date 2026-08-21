@@ -3,8 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createMockProvider, type MockTurn } from "@innocencecode/provider-mock";
-import { fsPlugin } from "@innocencecode/tools-fs";
-import { shellPlugin } from "@innocencecode/tools-shell";
+import { FsPlugin } from "@innocencecode/tools-fs";
+import { ShellPlugin } from "@innocencecode/tools-shell";
 import {
   DEFAULT_SETTINGS,
   HarnessRuntime,
@@ -106,7 +106,7 @@ describe("agent workflow end-to-end (bootstrap stand-in)", () => {
       providerFactory: () => createMockProvider({ turns }),
       // The test acts as its own composition root: the runtime no longer
       // hardcodes any plugin; the workflow needs the fs + shell tools.
-      pluginsForSession: () => [fsPlugin, shellPlugin],
+      pluginsForSession: () => [FsPlugin, ShellPlugin],
     });
 
     await runtime.send({

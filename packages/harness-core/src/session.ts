@@ -24,7 +24,7 @@ import type {
 import type { ProjectPermissionConfig } from "./policy-config";
 import type { PermissionMode } from "./policy";
 import type { Provider } from "./provider";
-import type { HarnessPlugin, Logger } from "./registry";
+import type { Logger, SessionPlugin } from "./registry";
 import { mountSessionKernel, type SessionKernel } from "./session-kernel";
 import type { SessionRegistryView } from "./session-registry-view";
 import { createSpawnerChildSession, makeSessionSpawner } from "./session-spawner";
@@ -32,7 +32,9 @@ import { textMessage, type Message, type MessagePart } from "./types";
 import type { SubagentSpawner } from "./subagent";
 
 export interface AgentSessionOptions {
-  plugins: HarnessPlugin[];
+  /** Legacy HarnessPlugins (activate) and kernel-native plugins (apply); the
+   *  session kernel loads both (dual-track, see session-kernel.ts). */
+  plugins: SessionPlugin[];
   /** Provider instance, or the id of one registered by a plugin. */
   provider?: Provider;
   providerId?: string;

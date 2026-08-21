@@ -5,10 +5,10 @@
 import type {
   AgentSession,
   ExecutionScope,
-  HarnessPlugin,
   Message,
   PermissionRequest,
   Provider,
+  SessionPlugin,
   Tool,
   ToolCallPart,
   ToolResultPart,
@@ -129,8 +129,9 @@ export interface RuntimeForkRouteInput {
 export interface RuntimeOptions {
   settings(): HarnessSettings;
   hooks: RuntimeHooks;
-  /** Host composition root: supplies the plugin set for each agent session. */
-  pluginsForSession(context: PluginFactoryContext): Promise<HarnessPlugin[]> | HarnessPlugin[];
+  /** Host composition root: supplies the plugin set for each agent session
+   *  (legacy HarnessPlugins and kernel-native plugins alike). */
+  pluginsForSession(context: PluginFactoryContext): Promise<SessionPlugin[]> | SessionPlugin[];
   /**
    * Route-scoped workspace root (a task's worktree, a session-bound project
    * root...): consulted BEFORE plugin composition and AgentSession.create,

@@ -2,12 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { bashTool, runCommand, shellPlugin } from "../src";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
+import { ShellPlugin, bashTool, runCommand } from "../src";
 import {
   createExecutionScope,
   parseRuleSpec,
   PermissionEngine,
-  PluginRegistry,
   redactCommand,
   redactCommandSummary,
   sha256Hex,
@@ -98,11 +99,12 @@ describe("bashTool", () => {
   });
 });
 
-describe("shellPlugin", () => {
+describe("ShellPlugin", () => {
   it("registers Bash with the coarse process side-effect class", async () => {
-    const reg = new PluginRegistry();
-    await reg.load([shellPlugin]);
-    expect(reg.tools.get("Bash")).toMatchObject({ sideEffect: "process" });
+    const ctx = new Context();
+    await ctx.plugin(ToolsPlugin);
+    await ctx.plugin(ShellPlugin);
+    expect(ctx.tools.get("Bash")).toMatchObject({ sideEffect: "process" });
   });
 });
 

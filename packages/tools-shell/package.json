@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@innocencecode/harness-core": "*"
+    "@innocencecode/harness-core": "*",
+    "@innocencecode/kernel": "*"
   },
   "license": "AGPL-3.0-only",
   "author": "逆流无邪",

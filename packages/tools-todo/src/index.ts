@@ -1,4 +1,5 @@
-import type { HarnessPlugin, Tool } from "@innocencecode/harness-core";
+import type { Context } from "@innocencecode/kernel";
+import type { Tool } from "@innocencecode/harness-core";
 
 const STATUS_VALUES = ["pending", "in_progress", "completed"] as const;
 const PRIORITY_VALUES = ["high", "medium", "low"] as const;
@@ -122,10 +123,12 @@ export const todoWriteTool: Tool = {
   },
 };
 
-/** Session-todo tools plugin — registers TodoWrite. */
-export const todoPlugin: HarnessPlugin = {
-  name: "todoPlugin",
-  activate(ctx) {
-    ctx.registerTool(todoWriteTool);
+/** Session-todo tools plugin — registers TodoWrite (name aligned with the
+ *  plugin-list descriptor id "todo"; the legacy export was "todoPlugin"). */
+export const TodoPlugin = {
+  name: "todo",
+  apply(ctx: Context) {
+    ctx.tools.register(todoWriteTool);
   },
 };
+export default TodoPlugin;

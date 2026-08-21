@@ -25,13 +25,14 @@ import {
   type PluginDescriptor,
   type PluginToggleSource,
   type ProjectPermissionConfig,
+  type SessionPlugin,
 } from "@innocencecode/harness-core";
-import { fsPlugin } from "@innocencecode/tools-fs";
-import { shellPlugin } from "@innocencecode/tools-shell";
+import { FsPlugin } from "@innocencecode/tools-fs";
+import { ShellPlugin } from "@innocencecode/tools-shell";
 import { subagentPlugin } from "@innocencecode/plugin-subagent";
 import { skillsPlugin } from "@innocencecode/plugin-skills";
 import { mcpPlugin } from "@innocencecode/plugin-mcp";
-import { todoPlugin } from "@innocencecode/tools-todo";
+import { TodoPlugin } from "@innocencecode/tools-todo";
 import {
   IPC,
   appendText,
@@ -83,8 +84,8 @@ function projectRulesPlugin(config: ProjectPermissionConfig | undefined): Harnes
 
 /** 声明式插件关系表（spec B 3.4）：id → 依赖，core = 恒开不可关。
  *  组合根只声明关系与实例化，启停判定（两级覆盖/依赖连带）全部交给
- *  resolvePluginSet。描述符 id "todo" 映射 todoPlugin 实例（插件 name
- *  为 "todoPlugin"，与描述符 id 不同名，故在此注明对应关系）。 */
+ *  resolvePluginSet。fs/shell/todo 实例为内核原生插件，name 与描述符
+ *  id 同名。 */
 export const PLUGIN_DESCRIPTORS: readonly PluginDescriptor[] = [
   { id: "fs", dependencies: [], core: true },
   { id: "shell", dependencies: [], core: true },
@@ -97,14 +98,17 @@ export const PLUGIN_DESCRIPTORS: readonly PluginDescriptor[] = [
 /** Host composition root: one workspace's plugin set — workspace tools,
  *  subagents, project permission rules, project skills, MCP servers and the
  *  session todo tool. Declarative assembly: project plugins.yml + user
- *  toggles → resolvePluginSet → instantiate by active id. fs/shell are core
- *  and the project-rules plugin is not toggleable, so all three are always
- *  present; skipped plugins and resolver warnings surface through the logger.
- *  Exported for the integration test (real yml + real resolver, no Electron). */
+ *  toggles → resolvePluginSet → instantiate by active id. fs/shell/todo are
+ *  kernel-native plugin objects (static import; the disk-loading switch is
+ *  T11); the rest are legacy plugins the session kernel adapts. fs/shell are
+ *  core and the project-rules plugin is not toggleable, so all three are
+ *  always present; skipped plugins and resolver warnings surface through the
+ *  logger. Exported for the integration test (real yml + real resolver, no
+ *  Electron). */
 export async function composePlugins(
   workspaceRoot: string,
   userToggles?: PluginToggleSource,
-): Promise<HarnessPlugin[]> {
+): Promise<SessionPlugin[]> {
   const [config, project] = await Promise.all([
     loadInnocenceConfig(workspaceRoot),
     loadPluginToggles(workspaceRoot, {
@@ -119,9 +123,9 @@ export async function composePlugins(
   for (const warning of resolved.warnings) logger.warn("plugin set", warning);
 
   const active = new Set(resolved.active);
-  const plugins: HarnessPlugin[] = [];
-  if (active.has("fs")) plugins.push(fsPlugin);
-  if (active.has("shell")) plugins.push(shellPlugin);
+  const plugins: SessionPlugin[] = [];
+  if (active.has("fs")) plugins.push(FsPlugin);
+  if (active.has("shell")) plugins.push(ShellPlugin);
   // 项目权限规则在关系模型之外（spec 非目标：不可关闭），恒定注入。
   plugins.push(projectRulesPlugin(config.permissions));
   if (active.has("subagent")) plugins.push(subagentPlugin);
@@ -129,7 +133,7 @@ export async function composePlugins(
     plugins.push(skillsPlugin({ dirs: [path.join(workspaceRoot, ".innocence", "skills")] }));
   }
   if (active.has("mcp")) plugins.push(mcpPlugin({ servers: config.mcpServers ?? {} }));
-  if (active.has("todo")) plugins.push(todoPlugin);
+  if (active.has("todo")) plugins.push(TodoPlugin);
   return plugins;
 }
 

@@ -1,3 +1,4 @@
+import type { ObjectPlugin } from "@innocencecode/kernel";
 import type { PolicyRule } from "./policy";
 import type { MessageProcessor } from "./processor";
 import type { Provider, ToolSpec } from "./provider";
@@ -48,6 +49,14 @@ export interface HarnessPlugin {
   activate(ctx: PluginContext): void | Promise<void>;
   dispose?(): void | Promise<void>;
 }
+
+/**
+ * Plugin a session accepts during the kernel migration: a legacy
+ * {@link HarnessPlugin} (activate, loaded through the adapter) or a
+ * kernel-native {@link ObjectPlugin} (apply, mounted directly — see
+ * session-kernel.ts).
+ */
+export type SessionPlugin = HarnessPlugin | ObjectPlugin;
 
 export class PluginRegistry {
   /**

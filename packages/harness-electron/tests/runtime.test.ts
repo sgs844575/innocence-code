@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import type { AgentSession } from "@innocencecode/harness-core";
 import { createMockProvider, type MockTurn } from "@innocencecode/provider-mock";
-import { fsPlugin } from "@innocencecode/tools-fs";
-import { shellPlugin } from "@innocencecode/tools-shell";
+import { FsPlugin } from "@innocencecode/tools-fs";
+import { ShellPlugin } from "@innocencecode/tools-shell";
 import {
   DEFAULT_SETTINGS,
   HarnessRuntime,
@@ -84,7 +84,7 @@ function runtimeOptions(
     hooks: makeHooks(recorded, answer),
     persistDir,
     providerFactory: () => createMockProvider({ turns }),
-    pluginsForSession: () => [fsPlugin, shellPlugin],
+    pluginsForSession: () => [FsPlugin, ShellPlugin],
   };
 }
 

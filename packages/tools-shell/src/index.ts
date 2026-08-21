@@ -1,8 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import type { Context } from "@innocencecode/kernel";
 import {
   redactCommandSummary,
   sha256Hex,
-  type HarnessPlugin,
   type Tool,
   type ToolContext,
 } from "@innocencecode/harness-core";
@@ -164,9 +164,11 @@ function requireCommand(args: Record<string, unknown>): string {
   return command;
 }
 
-export const shellPlugin: HarnessPlugin = {
-  name: "tools-shell",
-  activate(ctx) {
-    ctx.registerTool(bashTool);
+/** Shell tools plugin — registers the Bash tool. */
+export const ShellPlugin = {
+  name: "shell",
+  apply(ctx: Context) {
+    ctx.tools.register(bashTool);
   },
 };
+export default ShellPlugin;

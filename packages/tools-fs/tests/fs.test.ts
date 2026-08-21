@@ -2,12 +2,23 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Context } from "@innocencecode/kernel";
+import { ToolsPlugin } from "@innocencecode/harness-tools";
 import { createExecutionScope, sha256Hex, type ToolContext } from "@innocencecode/harness-core";
 import { editTool } from "../src/edit";
 import { readTool } from "../src/read";
 import { globTool, grepTool } from "../src/search";
 import { writeTool } from "../src/write";
 import { resolveWithin } from "../src/paths";
+import { FsPlugin } from "../src/index";
+
+/** Mounts the plugin on a bare kernel context (tools spine service only). */
+async function mountFs(): Promise<Context> {
+  const ctx = new Context();
+  await ctx.plugin(ToolsPlugin);
+  await ctx.plugin(FsPlugin);
+  return ctx;
+}
 
 let root: string;
 const ctx = (toolName = "Read"): ToolContext => ({
@@ -114,27 +125,21 @@ describe("Glob / Grep tools", () => {
 
 describe("tools as plugin", () => {
   it("registers all five tools with sane metadata", async () => {
-    const { fsPlugin } = await import("../src/index");
-    const { PluginRegistry } = await import("@innocencecode/harness-core");
-    const reg = new PluginRegistry();
-    await reg.load([fsPlugin]);
-    expect([...reg.tools.keys()].sort()).toEqual(["Edit", "Glob", "Grep", "Read", "Write"]);
-    for (const tool of reg.tools.values()) {
-      expect(tool.readOnly).toBeDefined();
-      expect(tool.parameters.type).toBe("object");
+    const ctx = await mountFs();
+    expect(ctx.tools.specs().map((s) => s.name).sort()).toEqual(["Edit", "Glob", "Grep", "Read", "Write"]);
+    for (const spec of ctx.tools.specs()) {
+      expect(spec.readOnly).toBeDefined();
+      expect(spec.parameters.type).toBe("object");
     }
   });
 
   it("declares the coarse side-effect class of every tool", async () => {
-    const { fsPlugin } = await import("../src/index");
-    const { PluginRegistry } = await import("@innocencecode/harness-core");
-    const reg = new PluginRegistry();
-    await reg.load([fsPlugin]);
-    expect(reg.tools.get("Read")).toMatchObject({ sideEffect: "none" });
-    expect(reg.tools.get("Glob")).toMatchObject({ sideEffect: "none" });
-    expect(reg.tools.get("Grep")).toMatchObject({ sideEffect: "none" });
-    expect(reg.tools.get("Write")).toMatchObject({ sideEffect: "paths" });
-    expect(reg.tools.get("Edit")).toMatchObject({ sideEffect: "paths" });
+    const ctx = await mountFs();
+    expect(ctx.tools.get("Read")).toMatchObject({ sideEffect: "none" });
+    expect(ctx.tools.get("Glob")).toMatchObject({ sideEffect: "none" });
+    expect(ctx.tools.get("Grep")).toMatchObject({ sideEffect: "none" });
+    expect(ctx.tools.get("Write")).toMatchObject({ sideEffect: "paths" });
+    expect(ctx.tools.get("Edit")).toMatchObject({ sideEffect: "paths" });
   });
 });
 

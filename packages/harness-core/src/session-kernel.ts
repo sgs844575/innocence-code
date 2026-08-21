@@ -1,9 +1,10 @@
 // Session kernel composition: mounts the spine service plugins on one kernel
-// Context, loads the host plugins through the HarnessPluginAdapter, resolves
-// the provider, mounts the session-owned services (ledger/processors and the
-// spawner), asserts the spine skeleton, and rolls the whole context back on
-// any failure (a failed create never leaks an activated plugin).
-import { Context, type Fiber } from "@innocencecode/kernel";
+// Context, loads the host plugins (kernel-native ones directly, legacy
+// HarnessPlugins through the HarnessPluginAdapter), resolves the provider,
+// mounts the session-owned services (ledger/processors and the spawner),
+// asserts the spine skeleton, and rolls the whole context back on any
+// failure (a failed create never leaks an activated plugin).
+import { Context, type Fiber, type ObjectPlugin } from "@innocencecode/kernel";
 import { LoggerPlugin } from "@innocencecode/kernel-logger";
 import {
   AgentsPlugin,
@@ -24,7 +25,7 @@ import { SkillsPlugin, type SkillsService } from "@innocencecode/harness-skills"
 import { SystemPromptPlugin, type SystemPromptService } from "@innocencecode/harness-system-prompt";
 import { ToolsPlugin, type ToolsService } from "@innocencecode/harness-tools";
 import type { AgentSessionOptions } from "./session";
-import type { HarnessPlugin, Logger } from "./registry";
+import type { Logger, SessionPlugin } from "./registry";
 import { adaptHarnessPlugin } from "./session-adapter";
 import { SessionRegistryView } from "./session-registry-view";
 
@@ -62,7 +63,7 @@ export interface SessionKernel {
 /** Inputs of {@link mountSessionKernel} (everything AgentSession.create owns). */
 export interface SessionKernelInit {
   sessionId: string;
-  plugins: HarnessPlugin[];
+  plugins: SessionPlugin[];
   provider?: Provider;
   providerId?: string;
   workspaceRoot: string;
@@ -83,14 +84,40 @@ function assertServices(ctx: Context, names: readonly string[]): void {
   }
 }
 
+/** Dual-track discrimination at the load site: a kernel-native plugin
+ *  exposes `apply`, a legacy HarnessPlugin exposes `activate`. */
+function isKernelPlugin(plugin: SessionPlugin): plugin is ObjectPlugin {
+  return "apply" in plugin && typeof plugin.apply === "function";
+}
+
+/**
+ * Tools service face natively mounted plugins register through: `register`
+ * flows through the view chokepoint (service gate first, then the mirror
+ * maps every host consumer reads — spawner selection base, toolIndex adopt),
+ * exactly like adapter-mounted plugins; the remaining members pass through
+ * to the spine service untouched.
+ */
+function chokepointTools(base: ToolsService, view: SessionRegistryView): ToolsService {
+  return {
+    register: view.registerTool,
+    get: (name) => base.get(name),
+    specs: () => base.specs(),
+    registerMiddleware: (middleware) => base.registerMiddleware(middleware),
+    middlewares: () => base.middlewares(),
+  };
+}
+
 /**
  * Mount order (behavior-preserving; see the task report for the one order
  * deviation forced by providerId resolution):
  *  1. kernel-logger (plugin log prefixing), tools, permissions, providers,
  *     skills, system-prompt, agents — the registration skeleton, asserted
  *     before any host plugin loads;
- *  2. host plugins through the HarnessPluginAdapter, sequentially (a failed
- *     activation rolls the whole context back and rethrows);
+ *  2. host plugins, sequentially (a failed activation rolls the whole
+ *     context back and rethrows): kernel-native plugins (apply) mount
+ *     directly on a scope whose tools service routes through the view
+ *     chokepoint; legacy HarnessPlugins (activate) load through the
+ *     HarnessPluginAdapter;
  *  3. provider resolution (`options.provider` ?? provider registered by a
  *     plugin), then the session service (ledger + processors + compactor —
  *     queued processors flush here) and the spawner;
@@ -137,8 +164,16 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
     ]);
 
     const view = new SessionRegistryView(ctx.tools, ctx.providers, ctx.skills, permissions);
+    // Native plugins mount directly on this scope: the shadowed tools
+    // service keeps the view chokepoint authoritative for their
+    // registrations (the scope shares the root fiber, so the plugin fiber
+    // hangs off the session root exactly like an adapter-mounted one).
+    const nativeScope = ctx.derive();
+    nativeScope.provide("tools", chokepointTools(ctx.tools, view));
     for (const plugin of init.plugins) {
-      const fiber = ctx.plugin(adaptHarnessPlugin(plugin, view));
+      const fiber = isKernelPlugin(plugin)
+        ? nativeScope.plugin(plugin)
+        : ctx.plugin(adaptHarnessPlugin(plugin, view));
       pluginFibers.push(fiber);
       await fiber;
     }
