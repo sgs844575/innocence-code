@@ -14,7 +14,8 @@
   "dependencies": {
     "@innocencecode/harness-session": "^0.1.0",
     "@innocencecode/harness-skills": "^0.1.0",
-    "@innocencecode/kernel": "^0.1.0"
+    "@innocencecode/kernel": "^0.1.0",
+    "@innocencecode/kernel-logger": "^0.1.0"
   },
   "license": "AGPL-3.0-only",
   "author": "逆流无邪",

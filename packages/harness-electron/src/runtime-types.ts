@@ -8,6 +8,7 @@ import type { Provider } from "@innocencecode/harness-providers";
 import type { ExecutionScope, Tool } from "@innocencecode/harness-tools";
 import type { AgentSession } from "./session";
 import type { SessionPlugin } from "./registry";
+import type { SessionSpineSuite } from "./session-spine";
 import type { Context } from "@innocencecode/kernel";
 import type { Route } from "@innocencecode/task-core";
 import type { HarnessSettings } from "./settings";
@@ -164,6 +165,16 @@ export interface RuntimeOptions {
    * behavior, and what every test that predates route scopes exercises).
    */
   sessionScope?: () => SessionScope | Promise<SessionScope>;
+  /**
+   * Spine suite factory for route sessions: called once per session BUILD
+   * (cache hits reuse the existing session and never call it); the returned
+   * suite is injected into AgentSession.create so the session mounts the
+   * SAME spine module identities the host loaded from its distribution tree
+   * (boot root, session scopes and disk-loaded capability plugins stay
+   * single-sourced). Omitted = every session mounts the bundled static spine
+   * (pre-distribution behavior, and what every spine-agnostic test uses).
+   */
+  sessionSpine?: () => SessionSpineSuite | Promise<SessionSpineSuite>;
   /**
    * Replaces the composition-layer provider plugin (test seam): the returned
    * instance is wrapped as a provider plugin and enters the providers

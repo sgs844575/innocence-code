@@ -23,10 +23,24 @@ export function resetKernelCache(): void {
  * `kernelPath` is the absolute path of `@innocencecode/kernel/dist/index.js`
  * under the staging node_modules tree (dev: the repo's build/dist; packaged:
  * resources/node_modules) — the caller (harnessGlue) resolves dev vs prod.
- * Repeat calls (including with a different path, e.g. after a re-package)
- * intentionally return the first import: module identity must stay unique.
+ * Successful imports (including with a different path, e.g. after a
+ * re-package) intentionally return the first module: identity must stay
+ * unique. FAILED imports are NOT memoized — Node does not cache failed
+ * dynamic imports, so a retried boot re-attempts the load instead of being
+ * poisoned forever by the first rejection (retry seam: ensureBoot).
  */
 export function loadKernel(kernelPath: string): Promise<Kernel> {
-  kernelPromise ??= import(pathToFileURL(kernelPath).href) as Promise<Kernel>;
+  if (!kernelPromise) {
+    const attempt = import(pathToFileURL(kernelPath).href).then(
+      (module: unknown) => module as Kernel,
+      (error: unknown) => {
+        // Only forget OUR attempt: a concurrent success (or a test reset)
+        // may have already replaced the memo — never clobber it.
+        if (kernelPromise === attempt) kernelPromise = undefined;
+        throw error;
+      },
+    );
+    kernelPromise = attempt;
+  }
   return kernelPromise;
 }

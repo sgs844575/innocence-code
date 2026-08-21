@@ -1,6 +1,7 @@
 // Plugin boot composition: one host-owned kernel root (created through the
 // dynamically loaded staging kernel), the registration spine mounted on it
-// (static imports — the vite alias distribution stays until T12), the kernel
+// (through the dynamically loaded spine suite — the same staging module
+// identities the disk-loaded capability plugins resolve against), the kernel
 // loader plus its dual-root file resolver (user plugins dir first, then the
 // built-in staging root), and the builtin-set resolution (manifest.json +
 // two-level toggles via the local plugin-set copy). Capability plugins are
@@ -10,18 +11,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type * as KernelModule from "@innocencecode/kernel";
-import { Loader, createFileModuleResolver } from "@innocencecode/kernel-loader";
-import { LoggerPlugin } from "@innocencecode/kernel-logger";
-import { AgentsPlugin } from "@innocencecode/harness-agent";
-import {
-  createPermissionsPlugin,
-  createPermissionsService,
-} from "@innocencecode/harness-permissions";
-import { ProvidersPlugin } from "@innocencecode/harness-providers";
-import { SkillsPlugin } from "@innocencecode/harness-skills";
-import { SystemPromptPlugin } from "@innocencecode/harness-system-prompt";
-import { ToolsPlugin } from "@innocencecode/harness-tools";
-import { loadKernel, type Kernel } from "./kernelLoader";
+import type { SessionSpineSuite } from "@innocencecode/harness-electron";
+import { loadKernelSuite } from "./spineLoader";
+import type { Kernel } from "./kernelLoader";
 import {
   loadPluginToggles,
   resolvePluginSet,
@@ -37,6 +29,8 @@ type KernelScope = KernelModule.ScopeHandle;
 export interface PluginBoot {
   /** The loaded kernel module (single instance; Context/createScope/... symbols). */
   readonly kernel: Kernel;
+  /** The loaded spine suite (single instance; the mount face of this boot). */
+  readonly spine: SessionSpineSuite;
   /** Boot root context: spine skeleton + loader live here for the app lifetime. */
   readonly root: KernelContext;
   /** Directory the builtin plugin set is resolved from (staging/plugins). */
@@ -122,42 +116,44 @@ async function readManifest(builtinRoot: string): Promise<PluginDescriptor[]> {
 }
 
 /**
- * Boot the plugin host: load the staging kernel (single instance), mount the
- * registration spine + loader on the root, attach the dual-root resolver.
- * Settings and per-workspace toggles are resolved per session (settings
- * rebuilds must observe fresh values), not captured here.
+ * Boot the plugin host: load the staging kernel + spine suite (single
+ * instances), mount the registration spine + loader on the root, attach the
+ * dual-root resolver. Settings and per-workspace toggles are resolved per
+ * session (settings rebuilds must observe fresh values), not captured here.
  */
 export async function createPluginBoot(options: PluginBootOptions): Promise<PluginBoot> {
-  const kernel = await loadKernel(options.kernelPath);
+  const suite = await loadKernelSuite(options.kernelPath);
+  const { kernel, spine, loader: loaderModule } = suite;
   const root = new kernel.Context();
   const userRoot = options.userRoot ?? path.join(os.homedir(), ".innocence", "plugins");
   if (options.workspaceRoot) root.baseUrl = options.workspaceRoot;
 
-  // Registration spine (static imports; the staged-distribution switch for
-  // the spine is T12): the root-level skeleton exists so root-mounted plugins
-  // (loader entries, smoke probes) can register; each route session still
-  // mounts its own spine inside its scope and shadows these names. Root-level
-  // permission asks have no UI to answer them — they fail closed (deny).
-  await root.plugin(LoggerPlugin);
-  await root.plugin(ToolsPlugin);
+  // Registration spine (dynamically loaded from the same staging tree as the
+  // kernel): the root-level skeleton exists so root-mounted plugins (loader
+  // entries, smoke probes) can register; each route session still mounts its
+  // own spine inside its scope and shadows these names. Root-level permission
+  // asks have no UI to answer them — they fail closed (deny).
+  await root.plugin(spine.logger.LoggerPlugin);
+  await root.plugin(spine.tools.ToolsPlugin);
   await root.plugin(
-    createPermissionsPlugin(
-      createPermissionsService({ mode: "ask", decider: denyAllDecider }),
+    spine.permissions.createPermissionsPlugin(
+      spine.permissions.createPermissionsService({ mode: "ask", decider: denyAllDecider }),
     ),
   );
-  await root.plugin(ProvidersPlugin);
-  await root.plugin(SkillsPlugin);
-  await root.plugin(SystemPromptPlugin);
-  await root.plugin(AgentsPlugin);
+  await root.plugin(spine.providers.ProvidersPlugin);
+  await root.plugin(spine.skills.SkillsPlugin);
+  await root.plugin(spine.systemPrompt.SystemPromptPlugin);
+  await root.plugin(spine.agents.AgentsPlugin);
 
-  const loaderFiber = await root.plugin(Loader);
+  const loaderFiber = await root.plugin(loaderModule.Loader);
   const loader = loaderFiber.ctx.loader;
-  loader.internal = createFileModuleResolver({ roots: [userRoot, options.builtinRoot] });
+  loader.internal = loaderModule.createFileModuleResolver({ roots: [userRoot, options.builtinRoot] });
 
   const descriptors = await readManifest(options.builtinRoot);
 
   return {
     kernel,
+    spine,
     root,
     builtinRoot: options.builtinRoot,
     userRoot,

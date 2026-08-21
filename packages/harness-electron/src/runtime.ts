@@ -208,6 +208,10 @@ export class HarnessRuntime {
     // session (or the scope) unwinds everything this route loaded and nothing
     // else. A failed build disposes the fresh scope before rethrowing.
     const scope = this.options.sessionScope ? await this.options.sessionScope() : undefined;
+    // Same lifecycle as the scope: the spine suite resolves once per BUILD
+    // (cache hits never call it) and is injected into the session create so
+    // the session mounts the host's loaded spine identities.
+    const spine = this.options.sessionSpine ? await this.options.sessionSpine() : undefined;
     try {
       // Plugins come from the host composition root — the runtime owns no
       // concrete capability, so tools/skills/MCP wiring lives in the host.
@@ -240,6 +244,7 @@ export class HarnessRuntime {
         return AgentSession.create({
           plugins: sessionPlugins,
           ...(scope ? { scope } : {}),
+          ...(spine ? { spine } : {}),
           workspaceRoot,
           systemPrompt: systemPromptFor(settings.activeAgent ?? "default"),
           permission: {

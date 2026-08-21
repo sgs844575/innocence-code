@@ -58,6 +58,7 @@ export {
 // the conversational AgentSession, its kernel composition, the legacy
 // plugin-registration face and the compat view over the spine services.
 export { AgentSession, type AgentSessionOptions, type RunSummary } from "./session";
+export { staticSpineSuite, type SessionSpineSuite } from "./session-spine";
 export {
   PluginRegistry,
   TOOL_PERSISTENCY_POLICY_REQUIRED,

@@ -3,31 +3,27 @@
 // HarnessPlugins through the HarnessPluginAdapter), resolves the provider,
 // mounts the session-owned services (ledger/processors and the spawner),
 // asserts the spine skeleton, and rolls the whole context back on any
-// failure (a failed create never leaks an activated plugin).
+// failure (a failed create never leaks an activated plugin). The spine
+// plugins come from the injected spine suite when the host loaded them from
+// the distributed tree (module identity stays single-sourced); without an
+// injection the bundled static spine is used.
 import { Context, type Fiber, type ObjectPlugin } from "@innocencecode/kernel";
-import { LoggerPlugin } from "@innocencecode/kernel-logger";
-import {
-  AgentsPlugin,
-  createSpawnerPlugin,
-  type AgentsService,
-  type SpawnerService,
-  type SpawnerSessionFactory,
+import type {
+  AgentsService,
+  SpawnerService,
+  SpawnerSessionFactory,
 } from "@innocencecode/harness-agent";
-import {
-  createPermissionsPlugin,
-  createPermissionsService,
-  rulesFromConfig,
-  type PermissionsService,
-} from "@innocencecode/harness-permissions";
-import { ProvidersPlugin, type Provider, type ProvidersService } from "@innocencecode/harness-providers";
-import { createSessionPlugin, type SessionService } from "@innocencecode/harness-session";
-import { SkillsPlugin, type SkillsService } from "@innocencecode/harness-skills";
-import { SystemPromptPlugin, type SystemPromptService } from "@innocencecode/harness-system-prompt";
-import { ToolsPlugin, type ToolsService } from "@innocencecode/harness-tools";
+import type { PermissionsService } from "@innocencecode/harness-permissions";
+import type { Provider, ProvidersService } from "@innocencecode/harness-providers";
+import type { SessionService } from "@innocencecode/harness-session";
+import type { SkillsService } from "@innocencecode/harness-skills";
+import type { SystemPromptService } from "@innocencecode/harness-system-prompt";
+import type { ToolsService } from "@innocencecode/harness-tools";
 import type { AgentSessionOptions } from "./session";
 import type { Logger, SessionPlugin } from "./registry";
 import { adaptHarnessPlugin } from "./session-adapter";
 import { SessionRegistryView } from "./session-registry-view";
+import { staticSpineSuite, type SessionSpineSuite } from "./session-spine";
 
 // kernel-logger publishes its service without a Context augmentation; the
 // session composition declares the typed member (kernel ServiceTable
@@ -79,6 +75,13 @@ export interface SessionKernelInit {
   permission: AgentSessionOptions["permission"];
   compaction?: AgentSessionOptions["compaction"];
   logger: Logger;
+  /**
+   * Spine suite the session mounts (see session-spine.ts). Hosts that boot
+   * the spine from the distributed tree inject the loaded suite so the
+   * session's mounts share those module identities; omitted = the bundled
+   * static spine (pre-distribution behavior).
+   */
+  spine?: SessionSpineSuite;
   /** Recursion seam: the spawner's child-session factory (back into AgentSession). */
   spawnerSessionFactory: SpawnerSessionFactory;
 }
@@ -186,11 +189,12 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
   // An injected scope hosts the session below the host's context tree; every
   // publication below shadows the host root's names on the scope's own table.
   const ctx = init.scope?.ctx ?? new Context();
+  const spine = init.spine ?? staticSpineSuite();
   const log = init.logger;
   // Declared outside the try so the rollback can read what had loaded so far.
   const pluginFibers: Fiber[] = [];
   try {
-    await ctx.plugin(LoggerPlugin);
+    await ctx.plugin(spine.logger.LoggerPlugin);
     ctx.logger.addSink(
       (entry) => {
         if (entry.level !== "debug") log(entry.level, entry.message, entry.data);
@@ -198,21 +202,21 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
       { minLevel: "info" },
     );
 
-    await ctx.plugin(ToolsPlugin);
+    await ctx.plugin(spine.tools.ToolsPlugin);
     const permissions = init.permission.engine
-      ? createPermissionsService(init.permission.engine)
-      : createPermissionsService({
+      ? spine.permissions.createPermissionsService(init.permission.engine)
+      : spine.permissions.createPermissionsService({
           mode: init.permission.mode,
           decider: init.permission.decider,
           workspaceRoot: init.workspaceRoot,
           validateResource: init.permission.validateResource,
           audit: init.permission.audit,
         });
-    await ctx.plugin(createPermissionsPlugin(permissions));
-    await ctx.plugin(ProvidersPlugin);
-    await ctx.plugin(SkillsPlugin);
-    await ctx.plugin(SystemPromptPlugin);
-    await ctx.plugin(AgentsPlugin);
+    await ctx.plugin(spine.permissions.createPermissionsPlugin(permissions));
+    await ctx.plugin(spine.providers.ProvidersPlugin);
+    await ctx.plugin(spine.skills.SkillsPlugin);
+    await ctx.plugin(spine.systemPrompt.SystemPromptPlugin);
+    await ctx.plugin(spine.agents.AgentsPlugin);
     assertServices(ctx, [
       "logger",
       "tools",
@@ -242,7 +246,7 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
     const provider = init.provider ?? resolveRegistryProvider(ctx, init.providerId);
 
     await ctx.plugin(
-      createSessionPlugin({
+      spine.session.createSessionPlugin({
         provider,
         sessionId: init.sessionId,
         compaction: init.compaction,
@@ -250,7 +254,7 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
     );
     view.bindSessionService(ctx.session);
     await ctx.plugin(
-      createSpawnerPlugin({
+      spine.agents.createSpawnerPlugin({
         sessionFactory: init.spawnerSessionFactory,
         provider,
         permission: permissions.engine,
@@ -269,7 +273,7 @@ export async function mountSessionKernel(init: SessionKernelInit): Promise<Sessi
     ]);
 
     if (!init.permission.engine && init.permission.projectConfig) {
-      permissions.engine.addRules(rulesFromConfig(init.permission.projectConfig));
+      permissions.engine.addRules(spine.permissions.rulesFromConfig(init.permission.projectConfig));
     }
     ctx.systemPrompt.setBase(init.systemPrompt ?? "");
 

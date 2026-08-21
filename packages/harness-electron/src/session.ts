@@ -6,13 +6,8 @@
 // Home: the harness-electron host-adapter package (the Electron shell's
 // runtime glue) — the session family moved here when the retired core package
 // was deleted; the module itself stays host-agnostic (no Electron imports).
-import {
-  createRunLoop,
-  DEFAULT_MAX_TURNS,
-  DEFAULT_TOOL_TIMEOUT_MS,
-  type RunLoopFunction,
-} from "@innocencecode/harness-agent-loop";
 import type { Context } from "@innocencecode/kernel";
+import type { RunLoopFunction } from "@innocencecode/harness-agent-loop";
 import {
   nextRouteId,
   nextSessionId,
@@ -34,6 +29,7 @@ import type { SessionRegistryView } from "./session-registry-view";
 import { createSpawnerChildSession, makeSessionSpawner } from "./session-spawner";
 import { textMessage, type Message } from "@innocencecode/harness-session";
 import type { SubagentSpawner } from "@innocencecode/harness-agent";
+import { staticSpineSuite, type SessionSpineSuite } from "./session-spine";
 
 export interface AgentSessionOptions {
   /** Legacy HarnessPlugins (activate) and kernel-native plugins (apply); the
@@ -48,6 +44,14 @@ export interface AgentSessionOptions {
    * keeps the self-contained per-session root.
    */
   scope?: { ctx: Context };
+  /**
+   * Spine suite the session mounts (see session-spine.ts): hosts that load
+   * the spine from the distributed tree inject the loaded suite so the
+   * session's mounts share those module identities with the boot root and
+   * the disk-loaded capability plugins; omitted (the default, and every
+   * pre-existing caller) mounts the bundled static spine.
+   */
+  spine?: SessionSpineSuite;
   /** Provider instance, or the id of one registered by a plugin. */
   provider?: Provider;
   providerId?: string;
@@ -120,7 +124,12 @@ export class AgentSession {
   private disposeInFlight: Promise<void> | undefined;
   private disposeSettled = false;
 
-  private constructor(options: AgentSessionOptions, kernel: SessionKernel, sessionId: string) {
+  private constructor(
+    options: AgentSessionOptions,
+    kernel: SessionKernel,
+    sessionId: string,
+    spine: SessionSpineSuite,
+  ) {
     this.options = options;
     this.kernel = kernel;
     this.registry = kernel.view;
@@ -131,7 +140,7 @@ export class AgentSession {
     this.history = kernel.services.session.history;
     this.logger = options.logger ?? noopLogger;
     this.spawner = makeSessionSpawner(kernel.services.spawner, sessionId, kernel.view);
-    this.loop = createRunLoop({
+    this.loop = spine.loop.createRunLoop({
       tools: kernel.services.tools,
       permission: this.permission,
       provider: this.provider,
@@ -141,8 +150,8 @@ export class AgentSession {
       onEvent: (event) => kernel.services.session.emit(event),
       compactor: kernel.services.session.compactor,
       spawner: this.spawner,
-      maxTurns: options.maxTurns ?? DEFAULT_MAX_TURNS,
-      toolTimeoutMs: options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+      maxTurns: options.maxTurns ?? spine.loop.DEFAULT_MAX_TURNS,
+      toolTimeoutMs: options.toolTimeoutMs ?? spine.loop.DEFAULT_TOOL_TIMEOUT_MS,
     });
     // HarnessEvent traffic flows over the kernel bus: the session service
     // emits, this root-level subscription fans out to the on() listeners and
@@ -155,10 +164,12 @@ export class AgentSession {
 
   static async create(options: AgentSessionOptions): Promise<AgentSession> {
     const sessionId = nextSessionId();
+    const spine = options.spine ?? staticSpineSuite();
     const kernel = await mountSessionKernel({
       sessionId,
       plugins: options.plugins,
       scope: options.scope,
+      spine,
       provider: options.provider,
       providerId: options.providerId,
       workspaceRoot: options.workspaceRoot,
@@ -168,7 +179,7 @@ export class AgentSession {
       logger: options.logger ?? noopLogger,
       spawnerSessionFactory: (materials) => createSpawnerChildSession(options, materials),
     });
-    return new AgentSession(options, kernel, sessionId);
+    return new AgentSession(options, kernel, sessionId, spine);
   }
 
   on(listener: HarnessEventListener): () => void {

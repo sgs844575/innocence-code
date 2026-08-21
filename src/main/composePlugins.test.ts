@@ -1,25 +1,28 @@
 // composePlugins 集成（spec 4）：项目 plugins.yml + 用户开关 →
 // resolvePluginSet（本地拷贝）→ 按清单 id 从 staging 双根磁盘装载。
 // T11 起组合根经 pluginBoot（动态 staging 内核 + FileModuleResolver）装
-// 配，测试因此需要真实 staging 树（npm run build:plugins 产出）；无
-// staging 的干净检出按 packaged-exit 先例设计性跳过。
+// 配，T12 起组合逻辑位于 pluginBoot/sessionComposition（Electron-free，
+// 测试直接以 staging 路径构造，不再需要 electron mock）；测试因此需要
+// 真实 staging 树（npm run build:plugins 产出）；无 staging 的干净检出按
+// packaged-exit 先例设计性跳过。
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-vi.mock("electron", () => ({
-  app: { getPath: () => tmpdir(), isPackaged: false },
-  dialog: { showOpenDialog: vi.fn() },
-  nativeTheme: { shouldUseDarkColors: false, themeSource: "system", on: vi.fn() },
-  BrowserWindow: class {},
-}));
-
-import { composePlugins } from "./harnessGlue";
+import { createSessionComposition } from "./pluginBoot";
 import { stagingBootPaths } from "./staging-paths";
 
 const stagingAvailable = existsSync(stagingBootPaths().kernelPath);
 const maybeDescribe = stagingAvailable ? describe : describe.skip;
+
+const composition = createSessionComposition({
+  resolvePaths: stagingBootPaths,
+  getWorkspaceRoot: () => undefined,
+  log: () => {},
+});
+const composePlugins = (workspaceRoot: string, userToggles?: { subagent?: boolean; skills?: boolean; mcp?: boolean; todo?: boolean }) =>
+  composition.composePlugins(workspaceRoot, userToggles);
 
 const roots: string[] = [];
 afterEach(() => {
