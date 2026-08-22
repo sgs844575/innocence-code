@@ -1,9 +1,11 @@
 // 设置页"插件"节：清单投影驱动（IPC plugins:list → App 层拉取经 props 传入，
-// null = 未返回）。每条目 = 开关（core 恒开禁用 + "内置"徽标）+ title +
-// 状态徽标（active 绿点 / 停用灰 / 依赖连带提示）+ client 模块标记；行
-// 形状复用基础节的 SettingRow + ui/Switch。开关写路径语义与硬编码版完全
-// 一致：checked !== false，setToggle 只 patch pluginToggles 并上抛整份
-// settings。项目级 .innocence/plugins.yml 优先于此设置，底部附静态说明行。
+// null = 未返回）。每条目 = 开关 + title + 状态徽标（active 绿点 / 停用灰 /
+// 依赖连带提示）+ 徽标（client 模块 / 内置 / 键空间外条目的"客户端模块"
+// 提示）；行形状复用基础节的 SettingRow + ui/Switch。开关可操作面 = toggle
+// 键空间条目（core 恒开禁用，键空间外非 core 条目禁用恒开，见 TOGGLE_KEYS）；
+// 可操作开关的写路径语义与硬编码版一致：checked !== false，setToggle 只
+// patch pluginToggles 并上抛整份 settings。项目级 .innocence/plugins.yml
+// 优先于此设置，底部附静态说明行。
 import type {
   HarnessSettings,
   PluginInventory,
@@ -12,6 +14,12 @@ import type {
 } from "../../../../shared/ipc";
 import { SettingRow } from "./BasicSections";
 import { Switch } from "../ui/Switch";
+
+/** 可操作开关的键空间（PluginToggleSource 四键；类型面由 shared↔
+ *  harness-electron 的 mirror 守卫钉死）。键空间外的非 core 条目（如渲染层
+ *  示例插件）渲染禁用开关——写路径的规范化白名单只认这四键，可操作开关
+ *  会写出被静默剔除的死键（开关复位 + 清单 off/active 自相矛盾）。 */
+const TOGGLE_KEYS: readonly (keyof PluginToggleSource)[] = ["subagent", "skills", "mcp", "todo"];
 
 /** 状态徽标行：绿点（active）/ 灰点 + 文案（停用 / 依赖连带停用）。 */
 function StatusLine({
@@ -97,17 +105,22 @@ export function PluginsSection({
         </p>
       ) : (
         inventory.map((entry) => {
-          // 清单 id 与 PluginToggleSource 键空间镜像一致（mirror 有 drift-guard）。
+          // 开关仅对 toggle 键空间内的条目可操作（键空间判定见 TOGGLE_KEYS
+          // 注释）：键空间外的非 core 条目渲染禁用开关 + 客户端模块提示，
+          // 不再产出会被写路径规范化白名单静默剔除的死键。
           const key = entry.id as keyof PluginToggleSource;
+          const toggleable = TOGGLE_KEYS.includes(key);
+          const locked = entry.core || !toggleable;
           return (
             <SettingRow key={entry.id} label={entry.title} desc={<StatusLine t={t} entry={entry} />}>
               <div className="flex items-center gap-2">
                 {entry.client && <Badge text={t("settings.plugins.clientBadge")} />}
                 {entry.core && <Badge text={t("settings.plugins.builtin")} />}
+                {!entry.core && !toggleable && <Badge text={t("settings.plugins.clientModule")} />}
                 <Switch
-                  checked={entry.core ? true : toggles?.[key] !== false}
+                  checked={locked ? true : toggles?.[key] !== false}
                   onChange={(value) => setToggle(key, value)}
-                  disabled={entry.core}
+                  disabled={locked}
                   aria-label={entry.title}
                 />
               </div>
