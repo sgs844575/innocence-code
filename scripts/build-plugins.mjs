@@ -22,9 +22,10 @@ const LIBS = [
   "packages/harness-agent",
   "packages/harness-agent-loop",
 ];
-// 内置能力插件清单（boot 侧 toggle 解析的描述符来源）：id + core 标记 +
-// 依赖关系，随 staging 产出 manifest.json。仅覆盖可开关的能力插件——
-// provider/task 等由宿主组合层按需装配，不进 toggle 面。
+// 内置清单（boot 侧 toggle 解析的描述符来源）：id + core 标记 + 依赖关系，
+// 随 staging 产出 manifest.json。可开关的能力插件——provider/task 等由宿主
+// 组合层按需装配，不进 toggle 面；example 为渲染层示例插件（client-only：
+// 无会话实例化分支，client 标记驱动 webview 侧装载链）。
 const BUILTIN_DESCRIPTORS = [
   { id: "fs", core: true, dependencies: [] },
   { id: "shell", core: true, dependencies: [] },
@@ -32,6 +33,7 @@ const BUILTIN_DESCRIPTORS = [
   { id: "skills", dependencies: ["fs"] },
   { id: "mcp", dependencies: [] },
   { id: "todo", dependencies: [] },
+  { id: "example", dependencies: [] },
 ];
 const PLUGINS = [
   { dir: "packages/plugin-example", id: "example" },

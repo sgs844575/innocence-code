@@ -30,7 +30,9 @@ function Registrar({ contribution }: { contribution: SettingsSectionContribution
   return null;
 }
 
-/** 挂载于 <SlotProvider> 内：五个内置分区按固定序注册；卸载时整体注销。 */
+/** 挂载于 <SlotProvider> 内：五个内置分区按固定序注册；卸载时整体注销。
+ *  兄弟顺序约束：必须渲染在消费方（SettingsNav/SettingsRail/SettingsView
+ *  的分区派生）之前，否则首轮派生读到空清单。 */
 export function BuiltinSettingsSections({ deps }: { deps: SettingsSectionDeps }): React.JSX.Element {
   // latest ref：render 回调读取 props 的传播形态（依赖变化不触发重注册）。
   const latest = useRef(deps);

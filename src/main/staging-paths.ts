@@ -1,8 +1,9 @@
 // Staging path resolution (Node-level, Electron-free): where the dev tree's
 // build:plugins output lives. Shared by the composePlugins and pluginBoot
 // integration tests (so both skip together on clean checkouts that have not
-// run `npm run build:plugins` yet — packaged-exit precedent) and by the
-// plugin scheme wiring for its builtin root.
+// run `npm run build:plugins` yet — packaged-exit precedent). Production
+// wiring resolves its own dual-branch paths (harnessGlue bootPaths), not
+// this dev-layout helper.
 import path from "node:path";
 
 /** Dev staging layout: <repo>/build/dist/resources (mirrors packaged resources/). */

@@ -7,12 +7,9 @@ import {
   registerAppScheme,
   registerPluginScheme,
 } from "./protocol";
-import { stagingBootPaths } from "./staging-paths";
-import { defaultUserPluginRoot } from "./pluginBoot/compose";
-import { createMainWindow, getMainWindow } from "./appWindow";
-import { registerIpcHandlers } from "./ipc";
 import {
   bindSessionTaskRoute,
+  bootPaths,
   getHarnessSettings,
   getTaskBridge,
   getTaskStorageDir,
@@ -23,6 +20,9 @@ import {
   rejectPendingPermissionAsks,
   resolveRouteWorkspaceRoot,
 } from "./harnessGlue";
+import { defaultUserPluginRoot } from "./pluginBoot/compose";
+import { createMainWindow, getMainWindow } from "./appWindow";
+import { registerIpcHandlers } from "./ipc";
 import { initSessionStore, getSession } from "./sessions";
 import { buildAppMenu } from "./menu";
 import { watchTheme } from "./theme";
@@ -60,10 +60,12 @@ if (!gotLock) {
     .then(async () => {
       handleAppScheme();
       // Plugin asset scheme: same dual roots the plugin loader resolves
-      // against (user root shadows the staging builtin root).
+      // against (user root shadows the staging builtin root). The builtin
+      // root reuses the composition's bootPaths so the packaged layout
+      // (resources/plugins) is served instead of a cwd-relative dev path.
       handlePluginScheme({
         userRoot: defaultUserPluginRoot(),
-        builtinRoot: stagingBootPaths().builtinRoot,
+        builtinRoot: bootPaths().builtinRoot,
       });
       initSessionStore(app.getPath("userData"));
       registerIpcHandlers();

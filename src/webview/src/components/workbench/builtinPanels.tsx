@@ -12,7 +12,9 @@ function Registrar({ contribution }: { contribution: WorkbenchPanelContribution 
   return null;
 }
 
-/** 挂载于 <SlotProvider> 内：四个内置面板按固定序注册；卸载时整体注销。 */
+/** 挂载于 <SlotProvider> 内：四个内置面板按固定序注册；卸载时整体注销。
+ *  兄弟顺序约束：必须渲染在消费方（useWorkbenchTabs 页签派生，经
+ *  WorkbenchShell/WorkbenchTabs 树）之前，否则首轮派生读到空清单。 */
 export function BuiltinPanels({
   panels,
 }: {

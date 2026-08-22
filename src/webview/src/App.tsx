@@ -27,6 +27,8 @@ import { BuiltinToolcards } from "./components/chat/toolcards/builtinToolcards";
 import { BuiltinPanels } from "./components/workbench/builtinPanels";
 import { BuiltinSettingsSections } from "./components/settings/builtinSettingsSections";
 import { SlotProvider } from "./slots/react";
+import { createSlotRegistry } from "./slots/registry";
+import { importSchemeModule, loadPluginClients } from "./pluginClient/loader";
 import { ReviewPanel } from "./components/task/ReviewPanel";
 import { RoutePanel } from "./components/task/RoutePanel";
 import { ForkRouteDialog } from "./components/task/ForkRouteDialog";
@@ -49,6 +51,9 @@ export function App(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shellNav = useRef<AppShellNav | null>(null);
+  // 槽位注册表（App 持有）：视图钩子经 <SlotProvider registry> 消费；插件
+  // client 装载器（命令式、非视图层）经同一实例注册工具卡（订阅通道重渲染）。
+  const [slotRegistry] = useState(createSlotRegistry);
 
   // Persisted locale wins; fall back to the system locale, then zh-CN.
   const lang = settings?.locale || appInfo?.locale || "zh-CN";
@@ -60,10 +65,15 @@ export function App(): React.JSX.Element {
     errorTimer.current = setTimeout(() => setError(null), 4000);
   }, []);
 
-  /** 插件清单投影：main 按当前 toggles 现算，失败保持未返回态（骨架）。 */
+  /** 插件清单投影：main 按当前 toggles 现算，失败保持未返回态（骨架）。
+   *  成功后装载插件渲染层 client 模块（active+client 条目经协议动态导入，
+   *  同一注册表重装载先撤销旧注册；单插件失败仅告警不阻断）。 */
   const refreshPluginInventory = useCallback(() => {
-    void api.getPluginInventory().then(setPluginInventory, () => {});
-  }, []);
+    void api.getPluginInventory().then((inventory) => {
+      setPluginInventory(inventory);
+      void loadPluginClients({ inventory, registry: slotRegistry, importModule: importSchemeModule });
+    }, () => {});
+  }, [slotRegistry]);
 
   useEffect(() => {
     void api.getAppInfo().then(setAppInfo);
@@ -346,7 +356,7 @@ export function App(): React.JSX.Element {
   );
 
   return (
-    <SlotProvider>
+    <SlotProvider registry={slotRegistry}>
       {/* 槽位宿主：内置工具卡/工作台面板/设置分区各注册一次，供全树经槽位消费 */}
       <BuiltinToolcards />
       <BuiltinPanels panels={workbenchPanels} />

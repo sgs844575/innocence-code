@@ -149,7 +149,7 @@ export interface PluginToggleSource {
   todo?: boolean;
 }
 
-// 镜像契约：以下清单投影类型复制自 src/main/plugin-toggles-local.ts
+// 镜像契约：以下清单投影类型复制自 src/main/plugin-inventory.ts
 // （shared 不 import main），修改任何一侧时必须同步另一侧
 // （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
 /** 插件开关的解析状态（active / 配置停用 / 依赖连带停用）。 */

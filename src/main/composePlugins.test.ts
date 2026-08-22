@@ -40,9 +40,11 @@ async function tempWorkspace(files: Record<string, string>): Promise<string> {
   return root;
 }
 
-// staging manifest 的清单 id 集（fs/shell/subagent/skills/mcp/todo：内核
-// 原生插件，name 与 id 同名；provider/task 等由组合层另行装配不进清单）。
+// staging manifest 的清单 id 集：六个能力插件（内核原生插件，name 与 id
+// 同名且有实例化分支）+ example（渲染层示例插件：仅清单/投影面，无会话
+// 实例化分支）。provider/task 等由组合层另行装配不进清单。
 const MANIFEST_IDS = ["fs", "shell", "subagent", "skills", "mcp", "todo"] as const;
+const INVENTORY_IDS = [...MANIFEST_IDS, "example"] as const;
 
 maybeDescribe("composePlugins (declarative composition root)", () => {
   it("project yml wins, user toggles apply, core stays, todo registers", async () => {
@@ -68,7 +70,8 @@ maybeDescribe("composePlugins (declarative composition root)", () => {
   it("guard: manifest ids and instantiation branches stay 1:1", async () => {
     const ws = await tempWorkspace({});
     const names = (await composePlugins(ws)).map((p) => p.name);
-    // 清单 id → 插件实例名；新增清单条目必须同步此映射与实例化分支。
+    // 清单能力 id → 插件实例名；新增能力条目必须同步此映射与实例化分支
+    // （example 例外：渲染层示例插件，无会话装配，仅经清单投影驱动 client）。
     const nameById: Record<string, string> = {
       fs: "fs",
       shell: "shell",
@@ -94,7 +97,7 @@ maybeDescribe("composePlugins (declarative composition root)", () => {
   it("inventory 默认全 active：按清单序、title 非空、core/client 标记齐全", async () => {
     const ws = await tempWorkspace({});
     const entries = await composition.pluginInventory({ workspaceRoot: ws });
-    expect(entries.map((e) => e.id)).toEqual([...MANIFEST_IDS]);
+    expect(entries.map((e) => e.id)).toEqual([...INVENTORY_IDS]);
     for (const entry of entries) {
       expect(entry.title, `"${entry.id}" 缺 title`).toMatch(/\S/);
       expect(typeof entry.client).toBe("boolean");
@@ -105,6 +108,9 @@ maybeDescribe("composePlugins (declarative composition root)", () => {
     expect(byId.get("fs")?.core).toBe(true);
     expect(byId.get("shell")?.core).toBe(true);
     expect(byId.get("mcp")?.core).toBe(false);
+    // example：渲染层示例插件——client 标记为真（dist/client.js 产出），
+    // 是 webview 侧 client 装载链（innocence-plugin://example/dist/client.js）的数据源。
+    expect(byId.get("example")).toMatchObject({ core: false, client: true, state: "active", via: "default" });
   });
 
   it("inventory 按当前 toggles 现算：用户关 mcp → disabled-by-config/user，项目 yml 关 subagent → via project", async () => {

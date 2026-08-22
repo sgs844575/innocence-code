@@ -52,8 +52,9 @@ function transcriptsDir(): string {
 /** dev：仓库 staging 树；prod：打包 resources 下的同一布局（forge
  *  extraResource 把 build/dist/resources/{plugins,node_modules} 复制到
  *  resources/）。内核与脊柱经动态 import 装载（单实例），src/main 不再静态
- *  import vendor/kernel 的运行时值。 */
-function bootPaths(): { kernelPath: string; builtinRoot: string } {
+ *  import vendor/kernel 的运行时值。插件协议接线（innocence-plugin:// 的
+ *  内置根）复用同一双分支，消除打包态 cwd 相对路径的 404。 */
+export function bootPaths(): { kernelPath: string; builtinRoot: string } {
   if (app.isPackaged) {
     const resources = process.resourcesPath;
     return {
