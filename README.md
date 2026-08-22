@@ -15,10 +15,12 @@
 
 ## 特性
 
-- **自研 Agent Harness**：四个一等扩展接口（`Provider` / `Tool` / `Skill` / `PolicyRule`）、同步可读的
-  Agent 循环、deny 优先的权限判定管线、token 估算与自动压缩——内核零 Electron 依赖，可直接挂 CLI 宿主。
+- **自研 Agent Harness（脊柱架构）**：在内核之上，工具、权限、Provider、会话、技能、系统提示词、
+  子代理与 Agent 循环各自成为可替换的"脊柱服务"包——同步可读的循环、deny 优先的权限判定管线、
+  token 估算与自动压缩；全部包零 Electron 依赖。
 - **万物皆插件**：第一方能力（文件工具、终端、子代理、Skills、MCP、任务捕获）与第三方插件走完全相同的
-  `activate(ctx)` 注册路径；扩展点是内核唯一的开放面。
+  内核注册路径（注册即"可逆效应"，卸载自动回卷）；每个会话路由独享一个内核 scope，
+  会话释放即整体回卷，不影响兄弟路由。
 - **权限体系**：模式（auto / ask / plan）+ 项目级白名单（`.innocence/config.json`）+ 会话授权；
   写操作强制落在工作区内，路径逃逸直接拒绝；原始工具参数绝不进入历史 / 事件 / 审计（持久化前统一脱敏）。
 - **任务工作流**：为每个任务 fork 隔离的 Git worktree，捕获归属工作区变更，逐 hunk 审查后应用或丢弃——
@@ -26,8 +28,8 @@
 - **上下文管理**：超过阈值自动压缩旧轮次（安全边界切分，工具配对不拆散），最近 6 条保原文。
 - **双协议原生 Provider**：OpenAI 兼容端点（含本地推理与网关）与 Anthropic messages 协议，
   均为流式原生实现；离线开发可用剧本化 Mock Provider。
-- **自研插件内核**：`vendor/kernel` 一族（context / fiber / effects / events）为更底层的通用插件运行时，
-  独立演进中。
+- **自研插件内核**：`vendor/kernel` 一族（context / fiber / effects / events / loader）驱动路由作用域
+  与双根插件装载，详见下文[运行时装载](#运行时装载内核与插件)。
 
 ## 架构总览
 
@@ -43,6 +45,17 @@ React UI ←→ IPC 契约 ←→ harness-electron 适配层（会话/路由运�
 或注入端口通信，全部 `packages/*` 包不依赖 Electron / React / DOM（唯一例外是宿主适配层 `harness-electron`，
 它也不直接 import Electron API，而是经注入的端口工作）。内核、注册脊柱与能力插件随构建分发到
 `resources/{node_modules,plugins}`，宿主运行时动态装载（主 bundle 零 workspace 静态依赖）。
+
+### 运行时装载（内核与插件）
+
+- `npm run build:plugins` 把内核（vendor 四包）、脊柱八包与全部能力插件预构建到 staging 树
+  （开发：`build/dist/resources/`；打包后：`resources/`，插件不进 asar、磁盘可编辑），
+  并生成插件 `manifest.json`；`start` / `dev` / `package` / `make` 前自动执行。
+- 宿主不静态打包内核与脊柱：运行时从 staging 树动态 import（vite 主构建零 workspace 别名），
+  保证 boot root、路由 scope 与磁盘插件共享同一组模块实例。
+- 每个聊天路由在 boot root 之下创建独立内核 scope；boot 惰性构建（首个会话触发），
+  失败不缓存，下次会话构建自动重试。
+- 插件**双根装载**：用户根 `~/.innocence/plugins`（同 id 可遮蔽内置插件）+ 内置 staging 根。
 
 ## 快速开始
 
@@ -65,7 +78,8 @@ npm start          # 开发模式（vite dev server + electron）
 
 | 命令 | 说明 |
 |---|---|
-| `npm start` | 开发模式运行 |
+| `npm start` | 开发模式运行（prestart 自动预构建插件） |
+| `npm run build:plugins` | 预构建内核 / 脊柱 / 能力插件到 staging 树 |
 | `npm test` | 全仓 vitest 测试（内核 / 双协议夹具回放 / 工具 / 任务系统 / 运行时） |
 | `npm run typecheck` | 应用侧 TypeScript 类型检查 |
 | `npm run typecheck:packages` | 各 workspace 包类型检查 |
@@ -126,7 +140,9 @@ innocence-code/
 ├── LICENSE                    # AGPL-3.0
 ├── forge.config.ts            # Electron Forge 打包配置
 ├── vite.*.config.ts           # 主进程/预加载/渲染构建（workspace 经 node_modules 解析，无别名）
-├── docs/                      # 设计规格
+├── scripts/                   # build-plugins 等构建脚本（staging 预构建管线）
+├── docs/                      # 设计规格（含"万物皆插件"内核架构规格）
+├── build/dist/resources/      # staging 树：内核 dist + 能力插件 + manifest（构建生成）
 ├── packages/                  # Harness 与领域包（除 harness-electron 外均不依赖 Electron）
 │   ├── harness-electron/      # 适配层：路由会话运行时 + AgentSession + 设置 + JSONL 转写
 │   ├── harness-tools/         # 脊柱：工具注册/执行/脱敏/执行作用域
@@ -154,7 +170,7 @@ innocence-code/
 │   ├── task-cli/              # 无 Electron 的任务 CLI 适配层
 │   ├── terminal-pty/          # 路由绑定 PTY 会话（taskId+routeId 键控）
 │   └── secure-storage-node/   # 私有磁盘存储（POSIX 0700 / Windows ACL 加固）
-├── vendor/                    # 自研插件内核族（独立包，workspace 成员）
+├── vendor/                    # 自研插件内核族（workspace 成员，经 staging 动态装载）
 │   ├── kernel/                # context / fiber / effects / events 内核
 │   ├── kernel-include/        # YAML 条目内建
 │   ├── kernel-loader/         # 配置树加载器
@@ -167,12 +183,14 @@ innocence-code/
 └── tests/                     # 顶层验收测试（打包冒烟等）
 ```
 
-各包的作用、公开 API、接线方式与约束见其目录下的 `README.md`。
+能力插件包与 vendor 内核族的作用、公开 API、接线方式与约束见各自目录下的 `README.md`；
+脊柱服务包（`harness-*`）的语义见源码与 `docs/superpowers/specs/` 下的设计规格。
 
 ## 开发指南
 
 - **新增能力优先做成插件**：新的 Provider / 工具 / 技能 / 策略 / 消息处理器应落在可独立测试的
-  `packages/*` 模块，通过 harness 扩展点注册；领域包保持宿主无关（不 import Electron / React / DOM）。
+  `packages/*` 模块，经内核 / 脊柱扩展点注册（能力插件随 staging 磁盘分发装载，样例见
+  `packages/plugin-example`）；领域包保持宿主无关（不 import Electron / React / DOM）。
 - **测试要求**：领域行为必须有非 UI 的 Node/Vitest 覆盖（fake 端口 / mock provider / CLI 式集成测试），
   UI 测试只作补充。提交前运行 `npm test`、`npm run typecheck`、`npm run typecheck:packages`；
   改动主进程 / 预加载 / 打包相关时另跑 `npm run package`。
