@@ -2,9 +2,30 @@
 // sidebar while the settings view is open (reference shots 4/5): a back-to-
 // chat row on top, then one entry per settings section. Pure content; the
 // shell column (docked / rail / drawer) supplies background and borders.
-import { ArrowLeft, Cpu, SlidersHorizontal, Puzzle, Palette, Info } from "lucide-react";
+// 自 1c 起分区清单从 settings.section 槽位派生（内置贡献由
+// builtinSettingsSections 注册；SettingsSection 类型保留内置五值联合）。
+import { ArrowLeft } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { useSlotList } from "../slots/react";
+import { NavRail } from "./NavRail";
 
 export type SettingsSection = "models" | "general" | "plugins" | "appearance" | "about";
+
+/** 设置分区槽位标识：每个分区一条贡献（list，注册序即清单序）。 */
+export const SETTINGS_SECTION_SLOT = "settings.section";
+
+/** 设置分区槽位的一条贡献：icon 采用图标组件类型（NavRail/菜单直接渲染）。 */
+export interface SettingsSectionContribution {
+  id: SettingsSection;
+  labelKey: string;
+  icon: LucideIcon;
+  render: () => React.ReactNode;
+}
+
+/** 从槽位派生分区清单（注册序保序）。 */
+export function useSettingsSections(): readonly SettingsSectionContribution[] {
+  return useSlotList<SettingsSectionContribution>(SETTINGS_SECTION_SLOT);
+}
 
 interface Props {
   t: (key: string) => string;
@@ -13,20 +34,8 @@ interface Props {
   onBack: () => void;
 }
 
-/** Shared with the settings NavRail (medium windows / collapsed state). */
-export const SETTINGS_SECTIONS: {
-  id: SettingsSection;
-  icon: typeof Cpu;
-  key: string;
-}[] = [
-  { id: "models", icon: Cpu, key: "settings.section.models" },
-  { id: "general", icon: SlidersHorizontal, key: "settings.section.general" },
-  { id: "plugins", icon: Puzzle, key: "settings.section.plugins" },
-  { id: "appearance", icon: Palette, key: "settings.section.appearance" },
-  { id: "about", icon: Info, key: "settings.section.about" },
-];
-
 export function SettingsNav({ t, section, onSelect, onBack }: Props): React.JSX.Element {
+  const sections = useSettingsSections();
   return (
     <nav className="flex h-full w-full flex-col overflow-hidden">
       <div className="px-2 pt-3 pb-2">
@@ -41,7 +50,7 @@ export function SettingsNav({ t, section, onSelect, onBack }: Props): React.JSX.
       </div>
 
       <div className="flex flex-col gap-0.5 px-2 pb-3">
-        {SETTINGS_SECTIONS.map(({ id, icon: Icon, key }) => (
+        {sections.map(({ id, icon: Icon, labelKey }) => (
           <button
             key={id}
             type="button"
@@ -53,10 +62,26 @@ export function SettingsNav({ t, section, onSelect, onBack }: Props): React.JSX.
             }`}
           >
             <Icon size={16} className="shrink-0 text-(--color-app-muted)" />
-            <span className="truncate">{t(key)}</span>
+            <span className="truncate">{t(labelKey)}</span>
           </button>
         ))}
       </div>
     </nav>
+  );
+}
+
+/** 设置态的图标轨（中窗/折叠态）：分区清单同样从槽位派生。 */
+export function SettingsRail({ t, section, onSelect, onBack }: Props): React.JSX.Element {
+  const sections = useSettingsSections();
+  return (
+    <NavRail
+      top={{ icon: ArrowLeft, label: t("settings.backToChat"), onClick: onBack }}
+      items={sections.map(({ id, icon, labelKey }) => ({
+        icon,
+        label: t(labelKey),
+        onClick: () => onSelect(id),
+        active: section === id,
+      }))}
+    />
   );
 }

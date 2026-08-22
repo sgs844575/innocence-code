@@ -7,7 +7,6 @@
 // 与各面板的 props 接线。
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   MessageSquarePlus,
   PanelLeftOpen,
   Settings as SettingsIcon,
@@ -20,11 +19,13 @@ import { TitleBar } from "./components/TitleBar";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { SettingsView } from "./components/SettingsView";
-import { SETTINGS_SECTIONS, SettingsNav } from "./components/SettingsNav";
+import { SettingsNav, SettingsRail } from "./components/SettingsNav";
 import { NavRail } from "./components/NavRail";
 import { AppShell, type AppShellNav } from "./components/AppShell";
 import { RecoveryBanner } from "./components/RecoveryBanner";
 import { BuiltinToolcards } from "./components/chat/toolcards/builtinToolcards";
+import { BuiltinPanels } from "./components/workbench/builtinPanels";
+import { BuiltinSettingsSections } from "./components/settings/builtinSettingsSections";
 import { SlotProvider } from "./slots/react";
 import { ReviewPanel } from "./components/task/ReviewPanel";
 import { RoutePanel } from "./components/task/RoutePanel";
@@ -302,15 +303,7 @@ export function App(): React.JSX.Element {
   const rail = useCallback(
     (nav: AppShellNav) =>
       nav.view === "settings" ? (
-        <NavRail
-          top={{ icon: ArrowLeft, label: t("settings.backToChat"), onClick: nav.backToChat }}
-          items={SETTINGS_SECTIONS.map(({ id, icon, key }) => ({
-            icon,
-            label: t(key),
-            onClick: () => nav.selectSection(id),
-            active: nav.section === id,
-          }))}
-        />
+        <SettingsRail t={t} section={nav.section} onSelect={nav.selectSection} onBack={nav.backToChat} />
       ) : (
         <NavRail
           top={{
@@ -345,8 +338,18 @@ export function App(): React.JSX.Element {
 
   return (
     <SlotProvider>
-      {/* 槽位宿主：内置工具卡注册一次，供全树（聊天工具行等）经槽位消费 */}
+      {/* 槽位宿主：内置工具卡/工作台面板/设置分区各注册一次，供全树经槽位消费 */}
       <BuiltinToolcards />
+      <BuiltinPanels panels={workbenchPanels} />
+      <BuiltinSettingsSections
+        deps={{
+          t,
+          settings,
+          appInfo,
+          onSettingsChange: handleSettingsSet,
+          onPickWorkspace: () => void handlePickWorkspace(),
+        }}
+      />
       <AppShell
         t={t}
         bindNav={(nav) => {

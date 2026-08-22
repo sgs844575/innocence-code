@@ -305,11 +305,22 @@ describe("TerminalPanel", () => {
     // window.innocencecodeTerminal (the preload bridge surface).
     const { terminalApi } = await import("../../lib/ipc");
     (window as unknown as Record<string, unknown>).innocencecodeTerminal = api;
+    // 槽位环境接线：WorkbenchTabs 页签清单经槽位派生，需 Provider + 内置贡献。
     const { WorkbenchShell } = await import("../workbench/WorkbenchShell");
+    const { SlotProvider } = await import("../../slots/react");
+    const { BuiltinPanels } = await import("../workbench/builtinPanels");
     render(
-      <WorkbenchShell viewportWidth={1280} open activeTab="terminal" panels={{
-        terminal: <TerminalPanel api={terminalApi} activeTask={{ taskId: "t1", routeId: "main" }} />,
-      }} />,
+      <SlotProvider>
+        <BuiltinPanels panels={{}} />
+        <WorkbenchShell
+          viewportWidth={1280}
+          open
+          activeTab="terminal"
+          panels={{
+            terminal: <TerminalPanel api={terminalApi} activeTask={{ taskId: "t1", routeId: "main" }} />,
+          }}
+        />
+      </SlotProvider>,
     );
     expect(document.querySelector("section[aria-label='终端面板']")).toBeTruthy();
     await waitFor(() => expect(api.create).toHaveBeenCalledWith({ taskId: "t1", routeId: "main" }));

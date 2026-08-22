@@ -1,10 +1,9 @@
 // Settings content area — renders the section picked in SettingsNav.
-// 只做节分发：models → ProviderSettingsPage（模型服务整页），其余 → 基础节。
+// 自 1c 起只做槽位消费：按当前分区 id 从 settings.section 槽位找贡献，
+// 标题（labelKey）与内容（render）均出自贡献（SECTION_TITLE_KEY 已随迁）；
+// 分区组件实现在 builtinSettingsSections 注册。
 import type { HarnessSettings } from "../../../shared/ipc";
-import type { SettingsSection } from "./SettingsNav";
-import { AboutSection, AppearanceSection, GeneralSection } from "./settings/BasicSections";
-import { PluginsSection } from "./settings/PluginsSection";
-import { ProviderSettingsPage } from "./settings/provider/ProviderSettingsPage";
+import { useSettingsSections, type SettingsSection } from "./SettingsNav";
 
 interface Props {
   t: (key: string) => string;
@@ -15,51 +14,20 @@ interface Props {
   onPickWorkspace: () => void;
 }
 
-const SECTION_TITLE_KEY: Record<SettingsSection, string> = {
-  models: "settings.section.models",
-  general: "settings.section.general",
-  plugins: "settings.section.plugins",
-  appearance: "settings.section.appearance",
-  about: "settings.section.about",
-};
-
-export function SettingsView({
-  t,
-  section,
-  settings,
-  appInfo,
-  onSettingsChange,
-  onPickWorkspace,
-}: Props): React.JSX.Element {
+// 对外 props 形态不变（宿主接线零改动）：settings/appInfo/回调不再被本组件
+// 消费——分区内容经槽位贡献的 render 闭包持有（App 侧 BuiltinSettingsSections
+// 的 deps 传播同一批值），仅为兼容既有调用方保留在接口上。
+export function SettingsView({ t, section }: Props): React.JSX.Element | null {
+  const sections = useSettingsSections();
+  const active = sections.find((s) => s.id === section);
+  // 分区未注册（缺 Provider/内置贡献）时无可渲染内容——正常运行不发生。
+  if (active === undefined) return null;
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <header className="flex h-11 shrink-0 items-center border-b border-(--color-app-hairline) px-4 text-sm font-medium">
-        {t(SECTION_TITLE_KEY[section])}
+        {t(active.labelKey)}
       </header>
-
-      {section === "models" ? (
-        <ProviderSettingsPage settings={settings} onSettingsChange={onSettingsChange} />
-      ) : (
-        <div className="scrollbar-thin min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-xl px-[clamp(14px,4vw,24px)] py-5">
-            {section === "general" && (
-              <GeneralSection
-                t={t}
-                settings={settings}
-                onSettingsChange={onSettingsChange}
-                onPickWorkspace={onPickWorkspace}
-              />
-            )}
-            {section === "plugins" && (
-              <PluginsSection t={t} settings={settings} onSettingsChange={onSettingsChange} />
-            )}
-            {section === "appearance" && (
-              <AppearanceSection t={t} settings={settings} onSettingsChange={onSettingsChange} />
-            )}
-            {section === "about" && <AboutSection t={t} appInfo={appInfo} />}
-          </div>
-        </div>
-      )}
+      {active.render()}
     </div>
   );
 }

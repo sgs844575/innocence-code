@@ -10,6 +10,8 @@ import type { CodeFileContent, CodeIpcApi, CodeSearchResponse } from "../../../.
 import { CodePanel } from "./CodePanel";
 import { buildFileTree } from "./codeViewModel";
 import { WorkbenchShell } from "../workbench/WorkbenchShell";
+import { BuiltinPanels } from "../workbench/builtinPanels";
+import { SlotProvider } from "../../slots/react";
 
 // jest-dom 子集：brief 原文断言用 toBeVisible/toBeEnabled/toHaveAttribute；
 // 项目未引入 @testing-library/jest-dom，这里补这三个匹配器的最小语义
@@ -82,6 +84,17 @@ function makeApi(overrides?: { search?: CodeSearchResponse }) {
 afterEach(cleanup);
 beforeEach(() => window.localStorage.clear());
 
+/** 槽位环境接线：WorkbenchTabs 的页签清单自 1c 起经槽位派生，渲染
+ * WorkbenchShell 需包 Provider + 内置面板贡献（断言语义不变）。 */
+function mountShell(shell: React.ReactElement): ReturnType<typeof render> {
+  return render(
+    <SlotProvider>
+      <BuiltinPanels panels={{}} />
+      {shell}
+    </SlotProvider>,
+  );
+}
+
 describe("CodePanel", () => {
   it("renders the file tree from the view model", () => {
     render(<CodePanel taskId="t1" routeId="r1" api={makeApi()} files={["src/a.ts", "src/deep/b.ts", "README.md"]} />);
@@ -150,12 +163,12 @@ describe("codeViewModel", () => {
 
 describe("WorkbenchShell responsive modes", () => {
   it("uses an overlay panel below the wide breakpoint", () => {
-    render(<WorkbenchShell viewportWidth={720} />);
+    mountShell(<WorkbenchShell viewportWidth={720} />);
     expect(screen.getByRole("dialog", { name: "辅助面板" })).toHaveAttribute("data-mode", "overlay");
   });
 
   it("docks a resizable right panel at the wide breakpoint", () => {
-    const { rerender } = render(
+    const { rerender } = mountShell(
       <WorkbenchShell viewportWidth={1280} open activeTab="review">
         <div>chat-main</div>
       </WorkbenchShell>,
@@ -178,15 +191,18 @@ describe("WorkbenchShell responsive modes", () => {
     fireEvent.pointerUp(document.body, { pointerId: 2 });
     expect(panel.style.width).toBe("720px");
     rerender(
-      <WorkbenchShell viewportWidth={1280} open activeTab="review">
-        <div>chat-main</div>
-      </WorkbenchShell>,
+      <SlotProvider>
+        <BuiltinPanels panels={{}} />
+        <WorkbenchShell viewportWidth={1280} open activeTab="review">
+          <div>chat-main</div>
+        </WorkbenchShell>
+      </SlotProvider>,
     );
     expect(screen.getByRole("dialog", { name: "辅助面板" }).style.width).toBe("720px");
   });
 
   it("switches panel content through the workbench tabs", () => {
-    render(
+    mountShell(
       <WorkbenchShell
         viewportWidth={1280}
         open
@@ -205,7 +221,7 @@ describe("WorkbenchShell responsive modes", () => {
   });
 
   it("makes the panel and the main view mutually exclusive below the narrow breakpoint", () => {
-    render(
+    mountShell(
       <WorkbenchShell viewportWidth={480} open panels={{ terminal: <div>terminal-content</div> }}>
         <div>chat-main</div>
       </WorkbenchShell>,
@@ -221,14 +237,14 @@ describe("WorkbenchShell responsive modes", () => {
   });
 
   it("shows an empty hint for a tab without panel content", () => {
-    render(<WorkbenchShell viewportWidth={720} open activeTab="routes" />);
+    mountShell(<WorkbenchShell viewportWidth={720} open activeTab="routes" />);
     expect(screen.getByText("暂无任务上下文")).toBeVisible();
   });
 });
 
 describe("WorkbenchShell tab labels", () => {
   it("offers review, routes, code and terminal in order", () => {
-    render(<WorkbenchShell viewportWidth={720} open />);
+    mountShell(<WorkbenchShell viewportWidth={720} open />);
     const tabs = screen.getAllByRole("tab").map((t) => t.textContent);
     expect(tabs).toEqual(["审查", "路线", "代码", "终端"]);
   });
