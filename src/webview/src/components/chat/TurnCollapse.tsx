@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { ToolCallPart, ToolResultPart } from "../../../../shared/ipc";
-import { getToolCard } from "./toolcards/registry";
+import { ToolCardRow } from "./toolcards/registry";
 import { pairTools, summarizeTurn } from "./turnSummary";
 
 interface Props {
@@ -35,10 +35,9 @@ export function TurnCollapse({ parts, live, t }: Props): React.JSX.Element {
       {openGroup && (
         <div className="mt-1 ml-3 border-l-2 border-(--color-app-hairline) pl-2.5">
           {pairs.map(({ call, result }) => {
-            const Card = getToolCard(call.toolName);
             const open = openTools.has(call.id) ?? false;
             return (
-              <Card
+              <ToolCardRow
                 key={call.id}
                 call={call}
                 result={result}

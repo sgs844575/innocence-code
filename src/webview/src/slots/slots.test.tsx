@@ -70,8 +70,8 @@ describe("createSlotRegistry 纯逻辑", () => {
     const registry = createSlotRegistry();
     const slot = registry.keyed<string>("cards");
     slot.register({ key: "prefix:mcp__", value: "prefix-card" });
-    slot.register({ key: "mcp__github", value: "exact-card" });
-    expect(slot.resolve("mcp__github")).toBe("exact-card");
+    slot.register({ key: "mcp__demo", value: "exact-card" });
+    expect(slot.resolve("mcp__demo")).toBe("exact-card");
     expect(slot.resolve("mcp__other")).toBe("prefix-card");
     expect(slot.resolve("plain")).toBeUndefined();
   });

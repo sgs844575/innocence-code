@@ -24,6 +24,8 @@ import { SETTINGS_SECTIONS, SettingsNav } from "./components/SettingsNav";
 import { NavRail } from "./components/NavRail";
 import { AppShell, type AppShellNav } from "./components/AppShell";
 import { RecoveryBanner } from "./components/RecoveryBanner";
+import { BuiltinToolcards } from "./components/chat/toolcards/builtinToolcards";
+import { SlotProvider } from "./slots/react";
 import { ReviewPanel } from "./components/task/ReviewPanel";
 import { RoutePanel } from "./components/task/RoutePanel";
 import { ForkRouteDialog } from "./components/task/ForkRouteDialog";
@@ -342,7 +344,9 @@ export function App(): React.JSX.Element {
   );
 
   return (
-    <>
+    <SlotProvider>
+      {/* 槽位宿主：内置工具卡注册一次，供全树（聊天工具行等）经槽位消费 */}
+      <BuiltinToolcards />
       <AppShell
         t={t}
         bindNav={(nav) => {
@@ -403,6 +407,6 @@ export function App(): React.JSX.Element {
           onSwitchRoute={(routeId, prompt) => void handleForkSwitched(routeId, prompt)}
         />
       )}
-    </>
+    </SlotProvider>
   );
 }
