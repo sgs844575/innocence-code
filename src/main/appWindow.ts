@@ -24,6 +24,22 @@ export async function createMainWindow(): Promise<BrowserWindow> {
   // 边界与网页 36px 各自取整，偶现的 1px 缝会透出窗口底色——同值则不可见。
   const resolved = getTheme().resolved;
 
+  // Dev runs under the stock Electron executable, whose default shell icon
+  // would leak into the taskbar — point the window at our own icon. Packaged
+  // Windows builds already carry the icon in the exe; the resources-path
+  // candidate covers non-Windows packaged builds (assets/ ships via
+  // extraResource).
+  const iconPath = [
+    path.join(__dirname, "..", "..", "assets", "icon.png"), // dev: repo assets/
+    path.join(process.resourcesPath, "assets", "icon.png"), // packaged: resources/assets
+  ].find((candidate) => {
+    try {
+      return fs.existsSync(candidate);
+    } catch {
+      return false;
+    }
+  });
+
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -31,6 +47,7 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     minHeight: 520,
     show: false,
     backgroundColor: resolved === "dark" ? "#0f0f13" : "#f7f7f9",
+    ...(iconPath ? { icon: iconPath } : {}),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     titleBarOverlay: process.platform === "win32" ? titleBarOverlayFor(resolved) : undefined,
     webPreferences: {

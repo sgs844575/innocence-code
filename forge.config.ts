@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { MakerSquirrel } from "@electron-forge/maker-squirrel";
 import { MakerZIP } from "@electron-forge/maker-zip";
@@ -5,6 +6,9 @@ import { VitePlugin } from "@electron-forge/plugin-vite";
 
 const config: ForgeConfig = {
   packagerConfig: {
+    // App icon (Windows .ico with 16..256 PNG entries); rcedit stamps it
+    // into the packaged executable at package time.
+    icon: path.resolve(__dirname, "assets", "icon.ico"),
     asar: {
       // node-pty ships native .node binaries required at runtime — keep the
       // whole package (JS loader + prebuilds) outside the ASAR archive so
@@ -18,7 +22,7 @@ const config: ForgeConfig = {
     // 18.4 accepts string entries only and copies each to
     // resources/<basename(entry)>, so listing the two staging children maps
     // directly to resources/plugins and resources/node_modules.
-    extraResource: ["build/dist/resources/plugins", "build/dist/resources/node_modules"],
+    extraResource: ["build/dist/resources/plugins", "build/dist/resources/node_modules", "assets"],
     // The pruner walks the ROOT production graph, which does not include
     // workspace packages' dependencies — node-pty (a dependency of the
     // @innocencecode/terminal-pty workspace) would be pruned away. The ignore
@@ -43,7 +47,14 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({ name: "InnocenceCode", setupExe: "InnocenceCodeSetup.exe" }),
+    new MakerSquirrel({
+      name: "InnocenceCode",
+      setupExe: "InnocenceCodeSetup.exe",
+      // The setup exe and the uninstaller icon (iconUrl) use our own icon —
+      // Squirrel otherwise falls back to the platform default.
+      setupIcon: path.resolve(__dirname, "assets", "icon.ico"),
+      iconUrl: "https://raw.githubusercontent.com/sgs844575/innocence-code/main/assets/icon.ico",
+    }),
     new MakerZIP({}, ["win32"]),
   ],
   plugins: [
