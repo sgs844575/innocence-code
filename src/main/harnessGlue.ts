@@ -18,7 +18,7 @@ import {
   mergeSettings,
   type HarnessSettings as PkgSettings,
 } from "@innocencecode/harness-electron";
-import type { PermissionChoice } from "../shared/ipc";
+import type { PermissionChoice, PluginInventory } from "../shared/ipc";
 import type { PluginBoot } from "./pluginBoot";
 import { createSessionComposition } from "./pluginBoot";
 import { createRuntimeHooks } from "./runtimeHooks";
@@ -156,6 +156,16 @@ export async function initHarness(): Promise<void> {
 
 export function getHarnessSettings(): PkgSettings {
   return settings;
+}
+
+/** 插件清单投影（IPC plugins:list）：按当前 settings 现算——工作区取
+ *  settings（空 = 无项目层），用户开关取 pluginToggles；每次调用重跑
+ *  解析，设置写入后的重拉立即反映新状态。 */
+export function getPluginInventory(): Promise<PluginInventory> {
+  return sessionComposition.pluginInventory({
+    workspaceRoot: settings.workspaceRoot || undefined,
+    userToggles: settings.pluginToggles,
+  });
 }
 
 export async function setHarnessSettings(next: PkgSettings): Promise<void> {

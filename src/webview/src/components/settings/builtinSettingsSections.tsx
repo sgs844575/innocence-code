@@ -6,7 +6,7 @@
 import { useMemo, useRef } from "react";
 import { Cpu, SlidersHorizontal, Puzzle, Palette, Info } from "lucide-react";
 import type { ReactNode } from "react";
-import type { HarnessSettings } from "../../../../shared/ipc";
+import type { HarnessSettings, PluginInventory } from "../../../../shared/ipc";
 import { useRegisterList } from "../../slots/react";
 import { SETTINGS_SECTION_SLOT, type SettingsSectionContribution } from "../SettingsNav";
 import { AboutSection, AppearanceSection, GeneralSection } from "./BasicSections";
@@ -20,6 +20,8 @@ export interface SettingsSectionDeps {
   appInfo: { version: string; platform: NodeJS.Platform } | null;
   onSettingsChange: (next: HarnessSettings) => void;
   onPickWorkspace: () => void;
+  /** 插件清单投影（App 层拉取，设置写入后重拉）；null = 未返回。 */
+  pluginInventory: PluginInventory | null;
 }
 
 /** 单条注册哑组件：每条贡献独立持钩（T3 范式）。 */
@@ -75,9 +77,14 @@ export function BuiltinSettingsSections({ deps }: { deps: SettingsSectionDeps })
           labelKey: "settings.section.plugins",
           icon: Puzzle,
           render: () => {
-            const { t, settings, onSettingsChange } = p();
+            const { t, settings, onSettingsChange, pluginInventory } = p();
             return settings === null ? null : scroll(
-              <PluginsSection t={t} settings={settings} onSettingsChange={onSettingsChange} />,
+              <PluginsSection
+                t={t}
+                settings={settings}
+                onSettingsChange={onSettingsChange}
+                inventory={pluginInventory}
+              />,
             );
           },
         },

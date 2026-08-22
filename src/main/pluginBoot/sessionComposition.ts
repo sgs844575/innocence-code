@@ -25,6 +25,7 @@ import {
 import type { Provider } from "@innocencecode/harness-providers";
 import { createPluginBoot, type PluginBoot } from "./compose";
 import type { PluginToggleSource } from "../plugin-toggles-local";
+import type { PluginInventoryEntry } from "../plugin-inventory";
 
 /** Inputs of {@link createSessionComposition}. */
 export interface SessionCompositionOptions {
@@ -43,6 +44,15 @@ export interface SessionComposition {
   ensureBoot(): Promise<PluginBoot>;
   /** Unwind the boot root (app shutdown; cascades into live route scopes). */
   disposePluginBoot(): Promise<void>;
+  /**
+   * Manifest projection for the settings inventory: boot descriptor metadata
+   * (boot-time snapshot) + a fresh builtin-set resolution per call, so the
+   * current toggles decide the state. Empty workspaceRoot = no project layer.
+   */
+  pluginInventory(input: {
+    workspaceRoot?: string;
+    userToggles?: PluginToggleSource;
+  }): Promise<PluginInventoryEntry[]>;
   /** One workspace's session plugin set (staging manifest + toggles + disk). */
   composePlugins(
     workspaceRoot: string,
@@ -167,6 +177,10 @@ export function createSessionComposition(
       } catch (err) {
         options.log("warn", "plugin boot dispose failed", { error: String(err) });
       }
+    },
+    async pluginInventory(input): Promise<PluginInventoryEntry[]> {
+      const boot = await ensureBoot();
+      return boot.pluginInventory(input);
     },
     async composePlugins(
       workspaceRoot: string,

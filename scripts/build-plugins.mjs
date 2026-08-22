@@ -113,7 +113,8 @@ for (const { dir, id } of PLUGINS) {
   writeFileSync(join(target, "package.json"), JSON.stringify(pkg, null, 2) + "\n", "utf8");
 }
 
-// 内置清单：boot 读取的插件 id 列表 + core 标记 + 依赖（manifest.json）。
+// 内置清单：boot 读取的插件 id 列表 + core 标记 + 依赖 + 中性展示名（包
+// description 投影为 title）+ client 标记（构建后 dist/client.js 是否存在）。
 const builtinIds = new Set(PLUGINS.map(({ id }) => id));
 for (const descriptor of BUILTIN_DESCRIPTORS) {
   if (!builtinIds.has(descriptor.id)) {
@@ -121,9 +122,19 @@ for (const descriptor of BUILTIN_DESCRIPTORS) {
     process.exit(1);
   }
 }
+const manifestPlugins = BUILTIN_DESCRIPTORS.map((descriptor) => {
+  const stagedPkg = JSON.parse(readFileSync(join(STAGING, "plugins", descriptor.id, "package.json"), "utf8"));
+  return {
+    ...descriptor,
+    title: typeof stagedPkg.description === "string" && stagedPkg.description !== ""
+      ? stagedPkg.description
+      : descriptor.id,
+    client: existsSync(join(STAGING, "plugins", descriptor.id, "dist", "client.js")),
+  };
+});
 writeFileSync(
   join(STAGING, "plugins", "manifest.json"),
-  JSON.stringify({ plugins: BUILTIN_DESCRIPTORS }, null, 2) + "\n",
+  JSON.stringify({ plugins: manifestPlugins }, null, 2) + "\n",
   "utf8",
 );
 
@@ -139,6 +150,23 @@ for (const { id } of PLUGINS) selfCheck.push(join(STAGING, "plugins", id, "dist"
 for (const required of selfCheck) {
   if (!existsSync(required)) {
     console.error(`staging self-check failed: missing ${required}`);
+    process.exit(1);
+  }
+}
+// 自检（manifest 扩展）：每条清单条目带非空 title 与布尔 client，且
+// client:true 的渲染层产物真实存在（plugins:list 投影的数据源契约）。
+const manifest = JSON.parse(readFileSync(join(STAGING, "plugins", "manifest.json"), "utf8"));
+for (const entry of manifest.plugins) {
+  if (typeof entry.title !== "string" || entry.title === "") {
+    console.error(`staging self-check failed: manifest entry "${entry.id}" lacks a title`);
+    process.exit(1);
+  }
+  if (typeof entry.client !== "boolean") {
+    console.error(`staging self-check failed: manifest entry "${entry.id}" lacks a client flag`);
+    process.exit(1);
+  }
+  if (entry.client && !existsSync(join(STAGING, "plugins", entry.id, "dist", "client.js"))) {
+    console.error(`staging self-check failed: manifest entry "${entry.id}" marks client without dist/client.js`);
     process.exit(1);
   }
 }

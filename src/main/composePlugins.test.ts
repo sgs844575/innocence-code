@@ -88,6 +88,53 @@ maybeDescribe("composePlugins (declarative composition root)", () => {
     expect(names).toContain("provider");
     expect(names).toHaveLength(MANIFEST_IDS.length + 2);
   });
+
+  // ---- pluginInventory（清单投影，PluginsSection 数据源）------------------
+
+  it("inventory 默认全 active：按清单序、title 非空、core/client 标记齐全", async () => {
+    const ws = await tempWorkspace({});
+    const entries = await composition.pluginInventory({ workspaceRoot: ws });
+    expect(entries.map((e) => e.id)).toEqual([...MANIFEST_IDS]);
+    for (const entry of entries) {
+      expect(entry.title, `"${entry.id}" 缺 title`).toMatch(/\S/);
+      expect(typeof entry.client).toBe("boolean");
+      expect(entry.state).toBe("active");
+      expect(entry.via).toBe("default");
+    }
+    const byId = new Map(entries.map((e) => [e.id, e]));
+    expect(byId.get("fs")?.core).toBe(true);
+    expect(byId.get("shell")?.core).toBe(true);
+    expect(byId.get("mcp")?.core).toBe(false);
+  });
+
+  it("inventory 按当前 toggles 现算：用户关 mcp → disabled-by-config/user，项目 yml 关 subagent → via project", async () => {
+    const ws = await tempWorkspace({ ".innocence/plugins.yml": "plugins:\n  subagent: false\n" });
+    const entries = await composition.pluginInventory({
+      workspaceRoot: ws,
+      userToggles: { mcp: false },
+    });
+    const byId = new Map(entries.map((e) => [e.id, e]));
+    expect(byId.get("mcp")).toMatchObject({ state: "disabled-by-config", via: "user" });
+    expect(byId.get("subagent")).toMatchObject({ state: "disabled-by-config", via: "project" });
+    expect(byId.get("skills")).toMatchObject({ state: "active" });
+  });
+
+  it("inventory 每次调用重跑解析（非 boot 快照）：改 toggles 立即反映", async () => {
+    const ws = await tempWorkspace({});
+    const before = await composition.pluginInventory({ workspaceRoot: ws, userToggles: { skills: false } });
+    expect(before.find((e) => e.id === "skills")?.state).toBe("disabled-by-config");
+    const after = await composition.pluginInventory({ workspaceRoot: ws });
+    expect(after.find((e) => e.id === "skills")?.state).toBe("active");
+  });
+
+  it("inventory 空工作区无项目层：只看用户开关，不读 cwd 级 plugins.yml", async () => {
+    const entries = await composition.pluginInventory({ workspaceRoot: "", userToggles: { todo: false } });
+    expect(entries.find((e) => e.id === "todo")).toMatchObject({
+      state: "disabled-by-config",
+      via: "user",
+    });
+    expect(entries.find((e) => e.id === "mcp")?.state).toBe("active");
+  });
 });
 
 if (!stagingAvailable) {

@@ -14,6 +14,10 @@ export interface PluginDescriptor {
   id: string;
   dependencies: string[];
   core?: boolean;
+  /** 中性展示名（build:plugins 从包 description 投影；缺省回落 id）。 */
+  title?: string;
+  /** 是否带渲染层模块（构建后 dist/client.js 存在）。 */
+  client?: boolean;
 }
 
 export interface PluginToggleSource {

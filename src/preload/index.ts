@@ -53,6 +53,7 @@ const api: InnocenceCodeApi = {
   pickWorkspace: () => ipcRenderer.invoke(IPC.workspacePick),
   getHarnessSettings: () => ipcRenderer.invoke(IPC.settingsGet),
   setHarnessSettings: (settings) => ipcRenderer.invoke(IPC.settingsSet, settings),
+  getPluginInventory: () => ipcRenderer.invoke(IPC.pluginsList),
   listProviderModels: (profileId) => ipcRenderer.invoke(IPC.settingsModelsList, profileId),
   enrichModels: (providerName, ids) =>
     ipcRenderer.invoke(IPC.settingsEnrichModels, providerName, ids),

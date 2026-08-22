@@ -158,7 +158,8 @@ export function SettingRow({
   children,
 }: {
   label: string;
-  desc?: string;
+  /** 描述行：字符串或带状态点的行内元素（如插件节的状态徽标）。 */
+  desc?: React.ReactNode;
   children: React.ReactNode;
 }): React.JSX.Element {
   return (

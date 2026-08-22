@@ -8,8 +8,14 @@ import {
   PROVIDER_PRESET_MIRROR,
   type AgentId,
   type ChatPermissionEvent,
+  type PluginInventory,
+  type PluginInventoryEntry,
   type PluginToggleSource,
 } from "../../../src/shared/ipc";
+import type {
+  PluginInventory as MainPluginInventory,
+  PluginInventoryEntry as MainPluginInventoryEntry,
+} from "../../../src/main/plugin-inventory";
 import type { PermissionResource } from "@innocencecode/harness-permissions";
 import type { PluginToggleSource as CorePluginToggleSource } from "../src/settings";
 import {
@@ -94,6 +100,52 @@ describe("shared PluginToggleSource 镜像对齐 harness-electron settings.ts", 
     };
     expect(Object.keys(toCore).sort()).toEqual(["mcp", "skills", "subagent", "todo"]);
     expect(Object.keys(fromCore).sort()).toEqual(["mcp", "skills", "subagent", "todo"]);
+  });
+});
+
+describe("shared PluginInventoryEntry 镜像对齐 main plugin-inventory", () => {
+  // shared 不 import main，清单投影 DTO 手工镜像：main 投影增删字段或改
+  // 联合值而忘了同步 shared 时，下面的双向赋值与字面量赋值会让 typecheck
+  // 失败（root typecheck 与 harness-electron typecheck 均覆盖双方）。
+  const sample: PluginInventoryEntry = {
+    id: "skills",
+    title: "技能加载器",
+    core: false,
+    client: true,
+    state: "active",
+    via: "default",
+  };
+
+  it("类型漂移守卫：shared 镜像与 main 投影类型双向兼容", () => {
+    const main: MainPluginInventoryEntry = sample;
+    const back: PluginInventoryEntry = main;
+    expect(back).toEqual(sample);
+  });
+
+  it("数组别名双向兼容", () => {
+    const sharedList: PluginInventory = [sample];
+    const mainList: MainPluginInventory = sharedList;
+    const back: PluginInventory = mainList;
+    expect(back).toBe(sharedList);
+  });
+
+  it("state/via 字面量联合逐值双向兼容（任一侧增删枚举值即红）", () => {
+    const states: PluginInventoryEntry["state"][] = [
+      "active",
+      "disabled-by-config",
+      "dependency-disabled",
+    ];
+    const vias: PluginInventoryEntry["via"][] = ["user", "project", "default"];
+    for (const state of states) {
+      const main: MainPluginInventoryEntry["state"] = state;
+      const back: PluginInventoryEntry["state"] = main;
+      expect(back).toBe(state);
+    }
+    for (const via of vias) {
+      const main: MainPluginInventoryEntry["via"] = via;
+      const back: PluginInventoryEntry["via"] = main;
+      expect(back).toBe(via);
+    }
   });
 });
 

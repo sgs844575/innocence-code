@@ -11,7 +11,7 @@ import {
   PanelLeftOpen,
   Settings as SettingsIcon,
 } from "lucide-react";
-import type { AppInfo, HarnessSettings } from "../../shared/ipc";
+import type { AppInfo, HarnessSettings, PluginInventory } from "../../shared/ipc";
 import type { TaskForkRouteRequest } from "../../shared/taskIpc";
 import { api, codeApi, taskApi, terminalApi } from "./lib/ipc";
 import { createT } from "./lib/i18n";
@@ -45,6 +45,7 @@ const APP_NAME = "InnocenceCode";
 export function App(): React.JSX.Element {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [settings, setSettings] = useState<HarnessSettings | null>(null);
+  const [pluginInventory, setPluginInventory] = useState<PluginInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shellNav = useRef<AppShellNav | null>(null);
@@ -59,10 +60,16 @@ export function App(): React.JSX.Element {
     errorTimer.current = setTimeout(() => setError(null), 4000);
   }, []);
 
+  /** 插件清单投影：main 按当前 toggles 现算，失败保持未返回态（骨架）。 */
+  const refreshPluginInventory = useCallback(() => {
+    void api.getPluginInventory().then(setPluginInventory, () => {});
+  }, []);
+
   useEffect(() => {
     void api.getAppInfo().then(setAppInfo);
     void api.getHarnessSettings().then(setSettings);
-  }, []);
+    refreshPluginInventory();
+  }, [refreshPluginInventory]);
 
   /** 设置补丁（合并持久化 + 本地乐观更新）。 */
   const applySettingsPatch = useCallback((patch: Partial<HarnessSettings>) => {
@@ -72,13 +79,15 @@ export function App(): React.JSX.Element {
       void api.setHarnessSettings(next);
       return next;
     });
-  }, []);
+    refreshPluginInventory();
+  }, [refreshPluginInventory]);
 
   /** 全量设置替换（设置页整体编辑 profile）。 */
   const handleSettingsSet = useCallback((next: HarnessSettings) => {
     setSettings(next);
     void api.setHarnessSettings(next);
-  }, []);
+    refreshPluginInventory();
+  }, [refreshPluginInventory]);
 
   const handlePickWorkspace = useCallback(async () => {
     const dir = await api.pickWorkspace();
@@ -348,6 +357,7 @@ export function App(): React.JSX.Element {
           appInfo,
           onSettingsChange: handleSettingsSet,
           onPickWorkspace: () => void handlePickWorkspace(),
+          pluginInventory,
         }}
       />
       <AppShell

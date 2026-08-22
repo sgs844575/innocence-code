@@ -21,6 +21,7 @@ import {
   type PluginToggleSource,
   type ResolvedPluginSet,
 } from "../plugin-toggles-local";
+import { projectPluginInventory, type PluginInventoryEntry } from "../plugin-inventory";
 
 type KernelContext = KernelModule.Context;
 type KernelScope = KernelModule.ScopeHandle;
@@ -41,12 +42,22 @@ export interface PluginBoot {
    * Resolve the builtin capability set for one workspace: manifest.json
    * descriptors + project `.innocence/plugins.yml` + user settings toggles
    * (project overrides user; core stays on — the local plugin-set semantics).
+   * An empty workspaceRoot skips the project layer (no cwd-relative reads).
    */
   resolveBuiltinSet(options: {
-    workspaceRoot: string;
+    workspaceRoot?: string;
     userToggles?: PluginToggleSource;
     logger?: (level: "info" | "warn" | "error", msg: string, data?: unknown) => void;
   }): Promise<ResolvedPluginSet>;
+  /**
+   * Manifest projection for the settings inventory (IPC plugins:list):
+   * boot-time descriptor metadata + a FRESH resolveBuiltinSet run per call —
+   * settings/toggle changes are reflected immediately, never a stale snapshot.
+   */
+  pluginInventory(options: {
+    workspaceRoot?: string;
+    userToggles?: PluginToggleSource;
+  }): Promise<PluginInventoryEntry[]>;
   /**
    * Import one builtin plugin module through the dual-root resolver: the
    * module's default export when it has one (plugin object, or the factory
@@ -113,10 +124,18 @@ async function readManifest(builtinRoot: string): Promise<PluginDescriptor[]> {
     if (typeof descriptor.id !== "string" || !Array.isArray(descriptor.dependencies)) {
       throw new Error(`builtin plugin manifest malformed (${file}): bad descriptor`);
     }
+    if (descriptor.title !== undefined && (typeof descriptor.title !== "string" || descriptor.title === "")) {
+      throw new Error(`builtin plugin manifest malformed (${file}): bad title for "${descriptor.id}"`);
+    }
+    if (descriptor.client !== undefined && typeof descriptor.client !== "boolean") {
+      throw new Error(`builtin plugin manifest malformed (${file}): bad client flag for "${descriptor.id}"`);
+    }
     return {
       id: descriptor.id,
       dependencies: descriptor.dependencies,
       ...(descriptor.core === true ? { core: true } : {}),
+      ...(typeof descriptor.title === "string" ? { title: descriptor.title } : {}),
+      ...(descriptor.client === true ? { client: true } : {}),
     };
   });
 }
@@ -157,17 +176,38 @@ export async function createPluginBoot(options: PluginBootOptions): Promise<Plug
 
   const descriptors = await readManifest(options.builtinRoot);
 
+  // Shared resolution: manifest descriptors + project yml + user toggles. An
+  // empty workspaceRoot means "no project layer" (the settings-inventory path
+  // with no workspace picked) — never a cwd-relative plugins.yml read.
+  const resolveBuiltinSet = async ({
+    workspaceRoot,
+    userToggles,
+    logger,
+  }: {
+    workspaceRoot?: string;
+    userToggles?: PluginToggleSource;
+    logger?: (level: "info" | "warn" | "error", msg: string, data?: unknown) => void;
+  }): Promise<ResolvedPluginSet> => {
+    const project = workspaceRoot
+      ? await loadPluginToggles(workspaceRoot, { logger: logger ?? (() => {}) })
+      : undefined;
+    return resolvePluginSet(descriptors, userToggles, project);
+  };
+
   return {
     kernel,
     spine,
     root,
     builtinRoot: options.builtinRoot,
     userRoot,
-    async resolveBuiltinSet({ workspaceRoot, userToggles, logger }) {
-      const project = await loadPluginToggles(workspaceRoot, {
-        logger: logger ?? (() => {}),
-      });
-      return resolvePluginSet(descriptors, userToggles, project);
+    resolveBuiltinSet,
+    async pluginInventory({ workspaceRoot, userToggles }) {
+      // 现算投影：每次调用重跑解析（toggles 变更即时反映）；描述符本身
+      // 是 boot 时的 manifest 快照（随 staging 树固定）。
+      return projectPluginInventory(
+        descriptors,
+        await resolveBuiltinSet({ workspaceRoot, userToggles }),
+      );
     },
     async importPlugin(id: string): Promise<unknown> {
       // The loader validates the plugin shape (object with apply, or a

@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SlotProvider, useSlotList } from "../../slots/react";
 import { createT } from "../../lib/i18n";
-import type { HarnessSettings } from "../../../../shared/ipc";
+import type { HarnessSettings, PluginInventory } from "../../../../shared/ipc";
 import { BuiltinSettingsSections } from "./builtinSettingsSections";
 import { SettingsView } from "../SettingsView";
 import {
@@ -22,6 +22,16 @@ afterEach(cleanup);
 const t = createT("zh-CN");
 
 const appInfo = { version: "1.2.3", platform: "win32" as const };
+
+/** 插件清单投影 mock（IPC plugins:list 载荷；插件节数据源）。 */
+const PLUGIN_INVENTORY: PluginInventory = [
+  { id: "fs", title: "文件系统", core: true, client: false, state: "active", via: "default" },
+  { id: "shell", title: "命令行", core: true, client: false, state: "active", via: "default" },
+  { id: "subagent", title: "子代理", core: false, client: false, state: "active", via: "default" },
+  { id: "skills", title: "技能", core: false, client: false, state: "active", via: "default" },
+  { id: "mcp", title: "MCP 服务器", core: false, client: false, state: "active", via: "default" },
+  { id: "todo", title: "待办工具", core: false, client: false, state: "active", via: "default" },
+];
 
 function baseSettings(overrides: Partial<HarnessSettings> = {}): HarnessSettings {
   return {
@@ -52,7 +62,14 @@ function mountSections(
   return render(
     <SlotProvider>
       <BuiltinSettingsSections
-        deps={{ t, settings, appInfo, onSettingsChange: () => {}, onPickWorkspace: () => {} }}
+        deps={{
+          t,
+          settings,
+          appInfo,
+          onSettingsChange: () => {},
+          onPickWorkspace: () => {},
+          pluginInventory: PLUGIN_INVENTORY,
+        }}
       />
       {child}
     </SlotProvider>,
@@ -83,6 +100,7 @@ describe("builtin settings section contributions", () => {
             appInfo,
             onSettingsChange: () => {},
             onPickWorkspace: () => {},
+            pluginInventory: PLUGIN_INVENTORY,
           }}
         />
         <SettingsView

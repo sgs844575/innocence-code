@@ -29,6 +29,8 @@ export const IPC = {
   settingsSet: "settings:set",
   settingsModelsList: "settings:models-list",
   settingsEnrichModels: "settings:enrich-models",
+  // 插件清单投影（1c）：main 按当前 toggles 现算的 manifest 投影。
+  pluginsList: "plugins:list",
   // Task review/route/complete channels (Task 7).
   ...TaskIpcChannels,
 } as const;
@@ -146,6 +148,30 @@ export interface PluginToggleSource {
   mcp?: boolean;
   todo?: boolean;
 }
+
+// 镜像契约：以下清单投影类型复制自 src/main/plugin-toggles-local.ts
+// （shared 不 import main），修改任何一侧时必须同步另一侧
+// （packages/harness-electron/tests/mirror.test.ts 有 drift-guard）。
+/** 插件开关的解析状态（active / 配置停用 / 依赖连带停用）。 */
+export type PluginInventoryState = "active" | "disabled-by-config" | "dependency-disabled";
+
+/** 设置页插件清单的一条投影（IPC plugins:list 载荷）。 */
+export interface PluginInventoryEntry {
+  /** 清单 id（fs/shell/subagent/skills/mcp/todo）。 */
+  id: string;
+  /** 中性展示名（包 description 投影）。 */
+  title: string;
+  /** 恒开（fs/shell：开关呈禁用态）。 */
+  core: boolean;
+  /** 是否带渲染层模块（构建后 dist/client.js）。 */
+  client: boolean;
+  /** 按当前 toggles 现算的解析状态。 */
+  state: PluginInventoryState;
+  /** 停用获胜层（active 恒 default）。 */
+  via: "user" | "project" | "default";
+}
+
+export type PluginInventory = PluginInventoryEntry[];
 
 // 镜像契约：以下两个类型复制自 packages/harness-electron/src/modelPresets.ts
 // （shared 不 import 包），修改任何一侧时必须同步另一侧。
@@ -282,6 +308,8 @@ export interface InnocenceCodeApi {
   pickWorkspace(): Promise<string>;
   getHarnessSettings(): Promise<HarnessSettings>;
   setHarnessSettings(settings: HarnessSettings): Promise<void>;
+  /** 插件清单投影（main 按当前 toggles 现算；设置写入后重拉即刷新）。 */
+  getPluginInventory(): Promise<PluginInventory>;
   listProviderModels(profileId: string): Promise<string[]>;
   /** 用 harness-electron 预设目录补全模型元数据（main 侧 modelFromPreset）。 */
   enrichModels(providerName: string, ids: string[]): Promise<ModelInfo[]>;
