@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.svg" alt="InnocenceCode 图标" width="96" height="96" />
+</p>
+
 # InnocenceCode
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
@@ -141,7 +145,6 @@ innocence-code/
 ├── forge.config.ts            # Electron Forge 打包配置
 ├── vite.*.config.ts           # 主进程/预加载/渲染构建（workspace 经 node_modules 解析，无别名）
 ├── scripts/                   # build-plugins 等构建脚本（staging 预构建管线）
-├── docs/                      # 设计规格（含"万物皆插件"内核架构规格）
 ├── build/dist/resources/      # staging 树：内核 dist + 能力插件 + manifest（构建生成）
 ├── packages/                  # Harness 与领域包（除 harness-electron 外均不依赖 Electron）
 │   ├── harness-electron/      # 适配层：路由会话运行时 + AgentSession + 设置 + JSONL 转写
@@ -184,7 +187,7 @@ innocence-code/
 ```
 
 能力插件包与 vendor 内核族的作用、公开 API、接线方式与约束见各自目录下的 `README.md`；
-脊柱服务包（`harness-*`）的语义见源码与 `docs/superpowers/specs/` 下的设计规格。
+脊柱服务包（`harness-*`）的语义见源码与模块级测试。
 
 ## 开发指南
 

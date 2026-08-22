@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="InnocenceCode">
+  <!-- 工作台卡片瓷砖：扁平暗面 + 发丝描边（与客户端 .workbench-card token 一致） -->
+  <rect x="4" y="4" width="120" height="120" rx="24" fill="#161616" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1.5"/>
+  <!-- 提示符 chevron：强调天蓝 -->
+  <polyline points="38,42 62,64 38,86" fill="none" stroke="#00a6f4" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 光标下划线：正文文本色 -->
+  <line x1="78" y1="86" x2="102" y2="86" stroke="#d4d4d4" stroke-width="11" stroke-linecap="round"/>
+</svg>
