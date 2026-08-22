@@ -1,7 +1,14 @@
 // InnocenceCode main entry: single-instance lock, protocol registration,
 // then window.
 import { app, Menu } from "electron";
-import { handleAppScheme, registerAppScheme } from "./protocol";
+import {
+  handleAppScheme,
+  handlePluginScheme,
+  registerAppScheme,
+  registerPluginScheme,
+} from "./protocol";
+import { stagingBootPaths } from "./staging-paths";
+import { defaultUserPluginRoot } from "./pluginBoot/compose";
 import { createMainWindow, getMainWindow } from "./appWindow";
 import { registerIpcHandlers } from "./ipc";
 import {
@@ -26,6 +33,7 @@ import { recoverPersistedTaskRuntimes, wireTaskRuntimeIpc } from "./taskRuntimeI
 
 // Custom schemes must be registered before app ready.
 registerAppScheme();
+registerPluginScheme();
 
 /** Terminal IPC service — disposed on quit so no shell trees survive exit. */
 let terminalService: TerminalIpcService | undefined;
@@ -51,6 +59,12 @@ if (!gotLock) {
   void app.whenReady()
     .then(async () => {
       handleAppScheme();
+      // Plugin asset scheme: same dual roots the plugin loader resolves
+      // against (user root shadows the staging builtin root).
+      handlePluginScheme({
+        userRoot: defaultUserPluginRoot(),
+        builtinRoot: stagingBootPaths().builtinRoot,
+      });
       initSessionStore(app.getPath("userData"));
       registerIpcHandlers();
       await initHarness();

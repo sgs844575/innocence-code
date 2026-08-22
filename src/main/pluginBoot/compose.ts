@@ -89,6 +89,12 @@ const denyAllDecider = {
   ask: async () => "deny" as const,
 };
 
+/** Default user plugin root (`~/.innocence/plugins`): shared with the plugin
+ *  scheme wiring so the loader resolver and the scheme serve the same roots. */
+export function defaultUserPluginRoot(): string {
+  return path.join(os.homedir(), ".innocence", "plugins");
+}
+
 /** Read and validate staging `manifest.json` (build:plugins artifact). */
 async function readManifest(builtinRoot: string): Promise<PluginDescriptor[]> {
   const file = path.join(builtinRoot, "manifest.json");
@@ -125,7 +131,7 @@ export async function createPluginBoot(options: PluginBootOptions): Promise<Plug
   const suite = await loadKernelSuite(options.kernelPath);
   const { kernel, spine, loader: loaderModule } = suite;
   const root = new kernel.Context();
-  const userRoot = options.userRoot ?? path.join(os.homedir(), ".innocence", "plugins");
+  const userRoot = options.userRoot ?? defaultUserPluginRoot();
   if (options.workspaceRoot) root.baseUrl = options.workspaceRoot;
 
   // Registration spine (dynamically loaded from the same staging tree as the
